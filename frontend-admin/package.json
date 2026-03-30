@@ -9,9 +9,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "pinia": "^3.0.4",
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "jsdom": "^24.0.0",
     "typescript": "^5.4.0",
