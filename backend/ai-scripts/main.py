@@ -1,22 +1,15 @@
 from fastapi import FastAPI
+from routers import recommendations, similarity, directives
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(title="Restaurant AI Service")
+
+app.include_router(recommendations.router)
+app.include_router(similarity.router)
+app.include_router(directives.router)
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-@app.post("/recommend")
-def recommend(request: dict):
-    # Tudor's implementation: recommendation engine
-    return {"recommendations": []}
-
-@app.post("/similarity/auto-generate")
-def auto_generate(request: dict):
-    # Tudor's implementation: similarity scoring
-    return {"rules": []}
-
-@app.post("/directives/parse")
-def parse_directive(request: dict):
-    # Tudor's implementation: parse natural language prompt
-    return {"parsed_rules": {}}

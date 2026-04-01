@@ -5,6 +5,7 @@ using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Models;
 using RestaurantApi.DTOs.Requests;
 using RestaurantApi.Services;
+
 namespace RestaurantApi.Controllers;
 
 [ApiController]
@@ -17,7 +18,7 @@ public class CustomerController : ControllerBase
     public CustomerController(AppDbContext context, IFlashDealService flashDealService)
     {
         _context = context;
-        _flashDealService= flashDealService;
+        _flashDealService = flashDealService;
     }
 
     [HttpPost("orders/{orderId:guid}/submit")]
@@ -36,6 +37,8 @@ public class CustomerController : ControllerBase
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         order.Status = "submitted";
         await _context.SaveChangesAsync();
+
+        await _flashDealService.EvaluateEligibilityAsync(orderId);
 
         return Ok(new
         {
@@ -111,60 +114,68 @@ public class CustomerController : ControllerBase
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Id == orderId && o.Status == "draft");
 
-        if (order == null)
+        if(order == null)
             return NotFound(new { message = "Draft order not found or it has already been submitted." });
 
-        var productIds = request.Items.Select(i => i.ProductId).ToList();
+        order.Items ??= new List<OrderItem>();
+        if (request?.Items == null) return BadRequest(new { message = "Invalid request payload." });
 
-        var products = await _context.Products
-            .Where(p => productIds.Contains(p.Id) && p.IsAvailable == true)
-            .ToListAsync();
+        var producIds = request.Items.Select(i => i.ProductId).ToList();
+        var products = await _context.Products.Where(p => producIds.Contains(p.Id)).ToListAsync();
 
-        foreach (var requestedItem in request.Items)
+        var incomingProductIds = request.Items.Where(i => i.Quantity > 0).Select(i => i.ProductId).ToList();
+
+        var itemsToRemove = order.Items
+            .Where(i => !incomingProductIds.Contains(i.ProductId) && i.IsFlashDealItem != true)
+            .ToList();
+            
+        foreach (var item in itemsToRemove)
         {
-            var product = products.FirstOrDefault(p => p.Id == requestedItem.ProductId);
+            _context.OrderItems.Remove(item);
+        }
 
-            if (product == null)
-                return BadRequest(new { message = $"Product {requestedItem.ProductId} not found or unavailable." });
+        foreach (var reqItem in request.Items.Where(i => i.Quantity > 0))
+        {
+            var product = products.FirstOrDefault(p => p.Id == reqItem.ProductId);
+            if (product == null) continue;
 
-            var existingOrderItem = order.Items?.FirstOrDefault(i => i.ProductId == requestedItem.ProductId);
-
-            if (requestedItem.Quantity <= 0)
+            var existingItem = order.Items.FirstOrDefault(i => i.ProductId == reqItem.ProductId && i.IsFlashDealItem != true);
+            
+            if (existingItem != null)
             {
-                if (existingOrderItem != null)
-                    order.Items?.Remove(existingOrderItem);
-                continue;
-            }
-            else if (existingOrderItem != null)
-            {
-                existingOrderItem.Quantity = requestedItem.Quantity;
+                existingItem.Quantity = reqItem.Quantity; 
             }
             else
             {
-                order.Items ??= new List<OrderItem>();
                 order.Items.Add(new OrderItem
                 {
+                    Id = Guid.NewGuid(),
                     OrderId = order.Id,
                     ProductId = product.Id,
-                    Quantity = requestedItem.Quantity,
+                    Quantity = reqItem.Quantity,
                     UnitPriceAtPurchase = product.Price,
                     IsFlashDealItem = false
                 });
             }
         }
 
-        order.TotalAmount = order.Items?.Sum(i => i.Quantity * i.UnitPriceAtPurchase) ?? 0m;
-
-        await _context.SaveChangesAsync();
-        await _flashDealService.EvaluateEligibilityAsync(orderId);
+        order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
+        
+        try 
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+        }
 
         return Ok(new
         {
-            message = "Items successfully updated in your order!",
+            message = "Items successfully updated in your order!", 
             totalAmount = order.TotalAmount
         });
     }
-
+    
     [HttpGet("tables/{qrToken:guid}/session")]
     public async Task<IActionResult> GetTableSession(Guid qrToken)
     {
@@ -215,7 +226,6 @@ public class CustomerController : ControllerBase
 
         return Ok(response);
     }
-
 
     [HttpPost("orders/{orderId:guid}/claim-deal/{dealId:guid}")]
     public async Task <IActionResult> ClaimFlashDeal (Guid orderId, Guid dealId)

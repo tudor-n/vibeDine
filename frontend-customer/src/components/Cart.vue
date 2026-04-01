@@ -1,85 +1,115 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script setup lang="ts">
-
+import { ref } from 'vue'
 import { useCartStore } from '@/stores/useCartStore'
-import RecommendationWidget from './RecommendationWidget.vue'
-import type { FlashDeal } from '@shared/types/models'
-import { useFlashDealStore } from '@/stores/useFlashDealStore'
+import { useSessionStore } from '@/stores/useSessionStore'
+import { apiClient } from '@/services/api-client'
 
 const cartStore = useCartStore()
-const flashDealStore = useFlashDealStore()
+const sessionStore = useSessionStore()
 
-const submitOrder = () => {
-  alert(`Comanda în valoare de ${cartStore.total} RON a fost trimisă către bucătărie!`)
+const isSubmitting = ref(false)
+const submitError = ref<string | null>(null)
+const submitSuccess = ref(false)
 
-  const mockDeal = {
-    id: 'mock-deal-1',
-    order_id: 'comanda-curenta-123',
-    menu_item_id: 'produs-papanasi',
-    discount_price: 14,
-    expires_at: new Date(Date.now() + 60000).toISOString(),
-    status: 'pending'
-  } as unknown as FlashDeal
+async function submitOrder() {
+  if (!sessionStore.orderId) {
+    submitError.value = 'Eroare: Sesiunea nu este validă (lipsește orderId).'
+    return
+  }
 
-  flashDealStore.setDeal(mockDeal)
+  if (cartStore.items.length === 0) {
+    submitError.value = 'Coșul este gol.'
+    return
+  }
+
+  try {
+    isSubmitting.value = true
+    submitError.value = null
+
+
+    await apiClient.submitOrder(sessionStore.orderId)
+
+    submitSuccess.value = true
+    cartStore.clearCart()
+
+
+    sessionStorage.removeItem('orderId')
+    sessionStore.orderId = null
+
+  } catch (error) {
+    if (error instanceof Error) {
+      submitError.value = error.message
+    } else {
+      submitError.value = 'A apărut o eroare la trimiterea comenzii.'
+    }
+  } finally {
+    isSubmitting.value = false
+  }
 }
 </script>
 
 <template>
-  <div class="cart-container flex flex-col h-full bg-white">
-    <h2 class="text-xl font-bold p-4 border-b">Comanda ta</h2>
-
-    <div v-if="cartStore.items.length === 0" class="flex-1 p-8 flex flex-col items-center justify-center text-gray-500">
-      <span class="text-4xl mb-2">🛒</span>
-      <p>Coșul este gol momentan.</p>
+  <div class="p-4 flex flex-col h-full">
+    <div v-if="submitSuccess" class="text-center py-10">
+      <div class="text-green-500 text-5xl mb-4">✓</div>
+      <h3 class="text-2xl font-bold mb-2">Comanda a fost trimisă!</h3>
+      <p class="text-gray-600">Bucătarii noștri o pregătesc chiar acum.</p>
     </div>
 
-    <div v-else class="flex-1 overflow-y-auto p-4 space-y-4">
-      <div
-        v-for="item in cartStore.items"
-        :key="item.id"
-        class="flex justify-between items-center border-b pb-4"
-      >
-        <div class="flex-1 pr-4">
-          <h3 class="font-semibold text-gray-800">{{ item.name }}</h3>
-          <p class="text-brand font-medium">{{ item.price }} RON</p>
-        </div>
-
-        <div class="flex items-center gap-3 bg-gray-100 rounded-lg p-1">
-          <button
-            @click="cartStore.removeItem(item.id)"
-            class="w-8 h-8 flex items-center justify-center text-xl font-bold rounded bg-white shadow-sm text-gray-700 hover:text-brand active:scale-95 transition-transform"
-          >
-            -
-          </button>
-
-          <span class="w-4 text-center font-bold">{{ item.quantity }}</span>
-
-          <button
-            @click="cartStore.addItem(item)"
-            class="w-8 h-8 flex items-center justify-center text-xl font-bold rounded bg-white shadow-sm text-gray-700 hover:text-brand active:scale-95 transition-transform"
-          >
-            +
-          </button>
-        </div>
-      </div>
+    <div v-else-if="cartStore.items.length === 0" class="text-center py-10 text-gray-500">
+      Coșul tău este gol. Adaugă câteva preparate delicioase din meniu!
     </div>
 
-    <div class="p-4 border-t bg-gray-50">
-      <div class="flex justify-between items-center mb-4 text-lg font-bold">
-        <span>Total:</span>
-        <span class="text-brand">{{ cartStore.total }} RON</span>
+    <div v-else class="flex-1 flex flex-col">
+      <ul class="flex-1 overflow-y-auto divide-y">
+        <li
+          v-for="item in cartStore.items"
+          :key="item.id"
+          class="py-4 flex justify-between items-center"
+        >
+          <div class="flex-1">
+            <h4 class="font-bold">{{ item.name }}</h4>
+            <span class="text-brand font-semibold">{{ item.price }} RON</span>
+          </div>
+
+          <div class="flex items-center gap-3 bg-gray-100 rounded-lg p-1">
+            <button
+              @click="cartStore.removeItem(item.id)"
+              class="w-8 h-8 flex items-center justify-center bg-white rounded shadow-sm text-gray-700 hover:text-red-500 font-bold"
+            >
+              -
+            </button>
+            <span class="w-4 text-center font-bold">{{ item.quantity }}</span>
+            <button
+              @click="cartStore.addItem(item)"
+              class="w-8 h-8 flex items-center justify-center bg-white rounded shadow-sm text-brand font-bold"
+            >
+              +
+            </button>
+          </div>
+        </li>
+      </ul>
+
+      <div v-if="submitError" class="mt-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm text-center">
+        {{ submitError }}
       </div>
 
-      <RecommendationWidget v-if="cartStore.items.length > 0" />
+      <div class="mt-6 border-t pt-4">
+        <div class="flex justify-between items-center mb-4 text-lg">
+          <span class="font-semibold text-gray-700">Total estimat:</span>
+          <span class="font-bold text-2xl text-brand">{{ cartStore.total }} RON</span>
+        </div>
 
-      <button
-        @click="submitOrder"
-        :disabled="cartStore.items.length === 0"
-        class="w-full bg-brand text-white font-bold py-3 px-4 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-opacity active:bg-brand-light"
-      >
-        Trimite Comanda
-      </button>
+        <button
+          @click="submitOrder"
+          :disabled="isSubmitting"
+          class="w-full bg-brand text-white font-bold py-4 rounded-xl shadow-lg hover:bg-brand-light active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center"
+        >
+          <span v-if="isSubmitting" class="animate-pulse">Se trimite...</span>
+          <span v-else>Trimite Comanda</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>

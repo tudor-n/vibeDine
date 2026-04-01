@@ -37,6 +37,8 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/ai-scripts:/app
+    env_file:                           
+      - ./backend/ai-scripts/.env       
 
   frontend-customer:
     build: ./frontend-customer
