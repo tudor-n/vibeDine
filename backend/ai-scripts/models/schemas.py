@@ -1,56 +1,25 @@
 from pydantic import BaseModel
-from typing import Optional
-
+from typing import List, Optional
 
 class CartItem(BaseModel):
     product_id: str
     quantity: int
-    category: Optional[str] = None
-    tags: Optional[list[str]] = []
-
-
-class MenuItem(BaseModel):
-    product_id: str
-    name: str
-    category: str
-    tags: Optional[list[str]] = []
-
 
 class RecommendationRequest(BaseModel):
-    cart_items: list[CartItem]
+    cart_items: List[CartItem]
     table_id: str
-    order_history: Optional[list[list[str]]] = []
-    menu_items: Optional[list[MenuItem]] = []
-    active_directives: Optional[list[dict]] = []
-
+    order_history: Optional[List[str]] = []
 
 class Recommendation(BaseModel):
     product_id: str
     reason: str
     confidence: float
 
-
 class RecommendationResponse(BaseModel):
-    recommendations: list[Recommendation]
+    recommendations: List[Recommendation]
 
+class AutoGenerateRequest(BaseModel):
+    order_history: List[List[str]]
 
-class SimilarityRequest(BaseModel):
-    order_history: list[list[str]]
-
-
-class SimilarityRule(BaseModel):
-    item_a_id: str
-    item_b_id: str
-    score: float
-
-
-class SimilarityResponse(BaseModel):
-    rules: list[SimilarityRule]
-
-
-class DirectiveRequest(BaseModel):
+class ParseDirectiveRequest(BaseModel):
     raw_prompt: str
-
-
-class DirectiveResponse(BaseModel):
-    parsed_rules: dict
