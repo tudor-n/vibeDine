@@ -17,6 +17,7 @@ builder.Services.AddHttpClient("AiService", client =>
 
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
+builder.Services.AddScoped<IFlashDealService, FlashDealService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
