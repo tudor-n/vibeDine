@@ -23,7 +23,7 @@ const totalItems = computed(() => {
 
 onMounted(async () => {
 
-  const tokenFromUrl = (route.params.qrToken as string) || 'token-test-masa-1'
+  const tokenFromUrl = (route.params.qrToken as string) || '11111111-1111-1111-1111-111111111111'
 
   if (!sessionStore.tableId || sessionStore.qrToken !== tokenFromUrl) {
     try {

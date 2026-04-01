@@ -151,13 +151,13 @@ public static class SeedData
         await db.Products.AddRangeAsync(products);
 
         // ── Tables ───────────────────────────────────────────────────
-        var tables = new List<RestaurantTable>
-        {
-            new() { Id = Guid.NewGuid(), TableNumber = "1", QrToken = Guid.NewGuid() },
-            new() { Id = Guid.NewGuid(), TableNumber = "2", QrToken = Guid.NewGuid() },
-            new() { Id = Guid.NewGuid(), TableNumber = "3", QrToken = Guid.NewGuid() },
-            new() { Id = Guid.NewGuid(), TableNumber = "4", QrToken = Guid.NewGuid() },
-        };
+       var tables = new List<RestaurantTable>
+{
+    new() { Id = Guid.NewGuid(), TableNumber = "1", QrToken = Guid.Parse("11111111-1111-1111-1111-111111111111") },
+    new() { Id = Guid.NewGuid(), TableNumber = "2", QrToken = Guid.NewGuid() },
+    new() { Id = Guid.NewGuid(), TableNumber = "3", QrToken = Guid.NewGuid() },
+    new() { Id = Guid.NewGuid(), TableNumber = "4", QrToken = Guid.NewGuid() },
+};
 
         await db.Tables.AddRangeAsync(tables);
 

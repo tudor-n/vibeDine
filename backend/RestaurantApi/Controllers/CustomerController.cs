@@ -49,7 +49,7 @@ public class CustomerController : ControllerBase
     }
     
 
-    [HttpPatch("orders/{orderId:guid}/items")]
+   [HttpPatch("orders/{orderId:guid}/items")]
     public async Task<IActionResult> AddItemsOrder(Guid orderId, [FromBody] PatchOrderItemsRequest request)
     {
         var order = await _context.Orders
@@ -57,58 +57,56 @@ public class CustomerController : ControllerBase
             .FirstOrDefaultAsync(o => o.Id == orderId && o.Status == "draft");
 
         if(order == null)
-        {
             return NotFound(new { message = "Draft order not found or it has already been submitted." });
-        }
+
+        
+        order.Items ??= new List<OrderItem>();
+        if (request?.Items == null) return BadRequest(new { message = "Invalid request payload." });
 
         var producIds = request.Items.Select(i => i.ProductId).ToList();
+        var products = await _context.Products.Where(p => producIds.Contains(p.Id)).ToListAsync();
 
-        var products = await _context.Products
-            .Where(p => producIds.Contains(p.Id) && p.IsAvailable == true)
-            .ToListAsync();
+        var incomingProductIds = request.Items.Where(i => i.Quantity > 0).Select(i => i.ProductId).ToList();
 
-        foreach (var requestedItem in request.Items)
+        var itemsToRemove = order.Items.Where(i => !incomingProductIds.Contains(i.ProductId)).ToList();
+        foreach (var item in itemsToRemove)
         {
-            var product = products.FirstOrDefault(p => p.Id == requestedItem.ProductId);
-            
-            if(product == null)
-            {
-                return BadRequest(new { message = $"Product {requestedItem.ProductId} not found or unavailable." });
-            }
-            
-            var existingOrderItem = order.Items?.FirstOrDefault(i => i.ProductId == requestedItem.ProductId);
+            _context.OrderItems.Remove(item);
+        }
 
-            if (requestedItem.Quantity <= 0)
+        foreach (var reqItem in request.Items.Where(i => i.Quantity > 0))
+        {
+            var product = products.FirstOrDefault(p => p.Id == reqItem.ProductId);
+            if (product == null) continue;
+
+            var existingItem = order.Items.FirstOrDefault(i => i.ProductId == reqItem.ProductId);
+            if (existingItem != null)
             {
-                if (existingOrderItem != null)
-                {
-                    order.Items?.Remove(existingOrderItem); 
-                }
-                continue; 
-            } 
-            else if (existingOrderItem != null)
-            {
-                existingOrderItem.Quantity = requestedItem.Quantity; 
+                existingItem.Quantity = reqItem.Quantity; 
             }
             else
             {
-                var newItem = new OrderItem
+                order.Items.Add(new OrderItem
                 {
+                    Id = Guid.NewGuid(),
                     OrderId = order.Id,
                     ProductId = product.Id,
-                    Quantity = requestedItem.Quantity,
+                    Quantity = reqItem.Quantity,
                     UnitPriceAtPurchase = product.Price,
                     IsFlashDealItem = false
-                };
-
-                order.Items ??= new List<OrderItem>();
-                order.Items.Add(newItem);
+                });
             }
         }
 
-        order.TotalAmount = order.Items?.Sum(i => i.Quantity * i.UnitPriceAtPurchase ) ?? 0m;
+        order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         
-        await _context.SaveChangesAsync();
+        try 
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+        }
 
         return Ok(new
         {
@@ -116,7 +114,6 @@ public class CustomerController : ControllerBase
             totalAmount = order.TotalAmount
         });
     }
-
     [HttpGet("tables/{qrToken:guid}/session")]
     public async Task<IActionResult> GetTableSession(Guid qrToken)
     {

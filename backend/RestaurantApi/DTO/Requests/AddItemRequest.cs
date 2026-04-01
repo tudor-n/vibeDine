@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace RestaurantApi.DTOs.Requests;
 
 
@@ -9,7 +11,9 @@ public class CreatOrderRequest
 
 public class PatchOrderItemsRequest
 {
-    public List<OrderItemRequest> Items {get;set;}=[];
+   
+    [JsonPropertyName("items")]
+    public List<OrderItemRequest> Items { get; set; } = [];
 }
 
 

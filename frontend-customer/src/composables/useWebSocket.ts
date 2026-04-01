@@ -3,7 +3,10 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import type { FlashDeal } from '@shared/types/models'
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:4000/hubs/customer'
+
+const rawWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:4000'
+
+const BASE_WS_URL = rawWsUrl.endsWith('/') ? rawWsUrl.slice(0, -1) : rawWsUrl
 
 export function useWebSocket() {
   const sessionStore = useSessionStore()
@@ -14,7 +17,10 @@ export function useWebSocket() {
   function connect() {
     if (!sessionStore.tableId || socket) return
 
-    socket = new WebSocket(`${WS_URL}?token=${sessionStore.qrToken}`)
+
+    const socketUrl = `${BASE_WS_URL}/hubs/customer?token=${sessionStore.qrToken}`
+
+    socket = new WebSocket(socketUrl)
 
     socket.onopen = () => {
       console.log('Conexiune WebSocket stabilită!')
@@ -26,7 +32,6 @@ export function useWebSocket() {
 
     socket.onmessage = (event) => {
       try {
-
         const messages = event.data.split('\x1e')
 
         for (const msg of messages) {
@@ -34,9 +39,7 @@ export function useWebSocket() {
 
           const data = JSON.parse(msg)
 
-
           if (data.type === 1 && data.target) {
-
             if (data.target === 'FlashDealAvailable') {
               const newDeal = data.arguments[0] as FlashDeal
               flashDealStore.setActiveDeal(newDeal)

@@ -8,16 +8,17 @@ export const useSessionStore = defineStore('session' , () => {
   const qrToken = ref<string | null>(sessionStorage.getItem('qrToken'))
 
 
-  async function initializeSession(token: string){
+async function initializeSession(token: string){
     try{
       const response = await apiClient.initSession(token)
 
-      tableId.value = response.table_id
-      orderId.value = response.order_id
+
+      tableId.value = response.tableId
+      orderId.value = response.activeOrder.id
       qrToken.value = token
 
-      sessionStorage.setItem('tableId', response.table_id)
-      sessionStorage.setItem('orderId', response.order_id)
+      sessionStorage.setItem('tableId', response.tableId)
+      sessionStorage.setItem('orderId', response.activeOrder.id)
       sessionStorage.setItem('qrToken', token)
     }catch(error){
       console.error('Eroare la inițializarea sesiunii:', error)
