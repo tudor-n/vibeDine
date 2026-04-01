@@ -1,4 +1,4 @@
-import type { AdminAIConfig, SimilarityRule } from '@shared/types/models'
+import type { AdminAIConfig, SimilarityRule, DailyMetrics } from '@shared/types/models'
 
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -26,7 +26,7 @@ async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
 export const apiClient = {
     getMetrics: () => 
-        fetcher<any>('/api/admin/metrics'),
+        fetcher<DailyMetrics>('/api/admin/metrics'),
 
     getDirectives: () => 
         fetcher<AdminAIConfig[]>('/api/admin/directives'),
