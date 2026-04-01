@@ -4,7 +4,7 @@ using RestaurantApi.Data;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Models;
 using RestaurantApi.DTOs.Requests;
-
+using RestaurantApi.Services;
 namespace RestaurantApi.Controllers;
 
 [ApiController]
@@ -12,10 +12,12 @@ namespace RestaurantApi.Controllers;
 public class CustomerController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IFlashDealService _flashDealService;
 
-    public CustomerController(AppDbContext context)
+    public CustomerController(AppDbContext context, IFlashDealService flashDealService)
     {
         _context = context;
+        _flashDealService= flashDealService;
     }
 
     [HttpPost("orders/{orderId:guid}/submit")]
@@ -154,6 +156,7 @@ public class CustomerController : ControllerBase
         order.TotalAmount = order.Items?.Sum(i => i.Quantity * i.UnitPriceAtPurchase) ?? 0m;
 
         await _context.SaveChangesAsync();
+        await _flashDealService.EvaluateEligibilityAsync(orderId);
 
         return Ok(new
         {
@@ -211,5 +214,19 @@ public class CustomerController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+
+    [HttpPost("orders/{orderId:guid}/claim-deal/{dealId:guid}")]
+    public async Task <IActionResult> ClaimFlashDeal (Guid orderId, Guid dealId)
+    {
+        var success = await _flashDealService.ClaimDealAsync(orderId, dealId);
+
+        if(!success)
+        {
+            return BadRequest(new {message ="Deal is invalid, expired, or already claimed."});
+        }
+
+        return Ok(new {message = "Flash deal successfully added to your order!" });
     }
 }
