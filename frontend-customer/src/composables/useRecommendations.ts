@@ -12,16 +12,12 @@ export function useRecommendations() {
   const upsells = ref<Recommendation[]>([])
   const isLoading = ref(false)
 
-
   let debounceTimeout: ReturnType<typeof setTimeout>
-
 
   watch(
     () => cartStore.items,
     (newItems) => {
-
       clearTimeout(debounceTimeout)
-
 
       if (newItems.length === 0 || !sessionStore.orderId) {
         pairings.value = []
@@ -29,18 +25,16 @@ export function useRecommendations() {
         return
       }
 
-
       debounceTimeout = setTimeout(async () => {
         try {
           isLoading.value = true
 
           const itemIds = newItems.map((item) => item.id)
 
-
           const response = await apiClient.getRecommendations(sessionStore.orderId!, itemIds)
 
-          pairings.value = response.pairings?.items || []
-          upsells.value = response.upsells?.items || []
+          pairings.value = response.pairings || []
+          upsells.value = response.upsells || []
         } catch (error) {
           console.error('Eroare la încărcarea recomandărilor:', error)
         } finally {

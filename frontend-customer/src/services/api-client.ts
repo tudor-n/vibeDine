@@ -1,4 +1,4 @@
-import type { Recommendation, FlashDeal , Category , Product } from '@shared/types/models';
+import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
 
 
@@ -27,40 +27,22 @@ async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
 }
 
 export const apiClient = {
-
-
-  getMenu: () =>
-    fetcher<{ categories: Category[]; products: Product[] }>('/api/menu'),
-
+  getMenu: () => fetcher<MenuResponse>('/api/menu'),
 
   initSession: (qrToken: string) =>
     fetcher<{ tableId: string; activeOrder: { id: string } }>(`/api/tables/${qrToken}/session`),
 
-
   updateCartItems: (orderId: string, payload: UpdateOrderItemsRequest) =>
-    fetcher<void>(`/api/orders/${orderId}/items`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
+    fetcher<void>(`/api/orders/${orderId}/items`, { method: 'PATCH', body: JSON.stringify(payload) }),
 
   submitOrder: (orderId: string) =>
-    fetcher<void>(`/api/orders/${orderId}/submit`, {
-      method: 'POST',
-    }),
-
+    fetcher<void>(`/api/orders/${orderId}/submit`, { method: 'POST' }),
 
   getRecommendations: (orderId: string, cartItemIds: string[]) => {
     const query = new URLSearchParams({ current_item_ids: cartItemIds.join(',') }).toString();
-
-    return fetcher<{
-      pairings: { items: Recommendation[] };
-      upsells: { items: Recommendation[] };
-      flash_deal: FlashDeal | null;
-    }>(`/api/orders/${orderId}/recommendations?${query}`);
+    return fetcher<RecommendationsResponse>(`/api/orders/${orderId}/recommendations?${query}`);
   },
 
   claimFlashDeal: (orderId: string, dealId: string) =>
-    fetcher<void>(`/api/orders/${orderId}/claim-deal/${dealId}`, {
-      method: 'POST'
-    }),
+    fetcher<void>(`/api/orders/${orderId}/claim-deal/${dealId}`, { method: 'POST' }),
 };
