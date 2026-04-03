@@ -14,11 +14,13 @@ public class CustomerController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IFlashDealService _flashDealService;
+    private readonly RecommendationService _recommendationService;
 
-    public CustomerController(AppDbContext context, IFlashDealService flashDealService)
+    public CustomerController(AppDbContext context, IFlashDealService flashDealService , RecommendationService recommendationService)
     {
         _context = context;
         _flashDealService = flashDealService;
+        _recommendationService= recommendationService;
     }
 
     [HttpPost("orders/{orderId:guid}/submit")]
@@ -167,6 +169,7 @@ public class CustomerController : ControllerBase
         }
         catch (DbUpdateConcurrencyException)
         {
+                return Conflict(new { message = "The order was modified by someone else. Please refresh and try again." });
         }
 
         return Ok(new
@@ -239,4 +242,21 @@ public class CustomerController : ControllerBase
 
         return Ok(new {message = "Flash deal successfully added to your order!" });
     }
+   
+   
+     [HttpGet("orders/{id:guid}/recommendations")]
+     public async Task <IActionResult> GetRecommendation (Guid id)
+    {
+        var order = await _context.Orders.FindAsync(id);
+
+        if (order==null)
+        {
+         return NotFound(new { message = "Order not found." });
+        }
+
+        var recommendations = await _recommendationService.GetRecommendationsAsync(id);
+
+        return Ok (recommendations);
+    }
+     
 }

@@ -32,7 +32,6 @@ public class FlashDealService : IFlashDealService
         _scopeFactory=scopeFactory;
     }
 
-    // FIX 1: Removed the "s" from ClaimDealsAsync so it matches the interface exactly
     public async Task<bool> ClaimDealAsync(Guid orderId, Guid dealId)
     {
         var deal = await _context.FlashDealOffers

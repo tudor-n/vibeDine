@@ -1,8 +1,12 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ActionConstraints;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
 using RestaurantApi.Models;
+using RestaurantApi.Services;
+
 
 namespace RestaurantApi.Controllers;
 
@@ -12,11 +16,14 @@ public class AdminController : ControllerBase
 {
     private readonly AppDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IFlashDealService _flashDealService;
 
-    public AdminController(AppDbContext dbContext, IHttpClientFactory httpClientFactory)
+    public AdminController(AppDbContext dbContext, IHttpClientFactory httpClientFactory, IFlashDealService flashDealService)
     {
         _dbContext = dbContext;
         _httpClientFactory = httpClientFactory;
+        _flashDealService = flashDealService;
+
     }
 
     [HttpGet("directives")]
@@ -102,6 +109,56 @@ public class AdminController : ControllerBase
 
         return StatusCode(500);
     }
+
+
+    [HttpGet("metrics")]
+    public async Task <IActionResult> GetMetrics()
+    {
+        var totalDeals = await _dbContext.FlashDealOffers.CountAsync();
+        var claimedDeals = await _dbContext.FlashDealOffers.CountAsync(d=>d.Status=="claimed");
+        var expiredDeals = await _dbContext.FlashDealOffers.CountAsync(d=>d.Status=="expired");
+
+        var upSellRevenue = await _dbContext.OrderItems
+        .Where(i=>i.IsFlashDealItem==true)
+        .SumAsync(i => i.Quantity * i.UnitPriceAtPurchase);
+
+
+        return Ok(new
+        {
+            totalDealsShown=totalDeals,
+            totalDealsClaimed=claimedDeals,
+            totalDealsExpired=expiredDeals,
+            UpSellRevenue = upSellRevenue
+        });
+    }
+
+    [HttpGet("flash-deals")]
+    public async Task <IActionResult> GetFlashDeals()
+    {
+        var deals= await _dbContext.FlashDealOffers
+        .Include(d=>d.Product)
+        .OrderByDescending(d => d.ExpiresAt)
+        .Select(d => new
+        {
+            d.Id,
+            d.Status,
+            d.DiscountPrice,
+            d.ExpiresAt,
+            d.OrderId,
+            ProductName = d.Product != null ? d.Product.Name : "Unknown"
+        }).ToListAsync();
+
+     return Ok(deals);
+    
+    }
+   
+   [HttpPost("flash-deals/trigger")]
+   public async Task<IActionResult> TriggerFlashDeal([FromBody] Guid orderId)
+    {
+        await _flashDealService.EvaluateEligibilityAsync(orderId);
+        return Ok(new {message = "Flash deal triggered successfully."});
+    }
+
 }
 
 public class CreateDirectiveRequest
