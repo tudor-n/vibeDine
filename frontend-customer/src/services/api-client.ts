@@ -1,7 +1,6 @@
 import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
 
-
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
@@ -40,7 +39,7 @@ export const apiClient = {
 
   getRecommendations: (orderId: string, cartItemIds: string[]) => {
     const query = new URLSearchParams({ current_item_ids: cartItemIds.join(',') }).toString();
-    return fetcher<RecommendationsResponse>(`/api/orders/${orderId}/recommendations?${query}`);
+    return fetcher<RecommendationsResponse | any[]>(`/api/orders/${orderId}/recommendations?${query}`);
   },
 
   claimFlashDeal: (orderId: string, dealId: string) =>
