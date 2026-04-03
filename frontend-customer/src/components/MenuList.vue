@@ -31,15 +31,15 @@ onMounted(async () => {
 
     const response = await apiClient.getMenu()
 
-    categories.value = response.map((c: any) => ({
+    categories.value = response.categories.map((c: any) => ({
       id: c.id,
       name: c.name,
-      sort_order: c.sortOrder
+      sort_order: c.sort_order || c.sortOrder
     })).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
 
     const allProducts: Product[] = []
 
-    response.forEach((cat: any) => {
+    response.categories.forEach((cat: any) => {
       if (cat.products && Array.isArray(cat.products)) {
         cat.products.forEach((p: any) => {
           allProducts.push({
@@ -48,8 +48,8 @@ onMounted(async () => {
             name: p.name,
             description: p.description,
             price: p.price,
-            image_url: p.imageUrl || '',
-            is_available: p.isAvailable !== undefined ? p.isAvailable : true
+            image_url: p.image_url || p.imageUrl || '',
+            is_available: p.is_available !== undefined ? p.is_available : (p.isAvailable !== undefined ? p.isAvailable : true)
           })
         })
       }

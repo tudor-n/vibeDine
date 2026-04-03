@@ -1,8 +1,8 @@
-import type { Recommendation, FlashDeal } from '@shared/types/models';
+import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
 
 
-const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -27,41 +27,22 @@ async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
 }
 
 export const apiClient = {
+  getMenu: () => fetcher<MenuResponse>('/api/menu'),
 
-  // --- Meniu ---
-  getMenu: () =>
-    fetcher<any[]>('/api/menu'),
-
-  // --- Sesiune / Masă ---
   initSession: (qrToken: string) =>
     fetcher<{ tableId: string; activeOrder: { id: string } }>(`/api/tables/${qrToken}/session`),
 
-  // --- Comenzi ---
   updateCartItems: (orderId: string, payload: UpdateOrderItemsRequest) =>
-    fetcher<void>(`/api/orders/${orderId}/items`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
+    fetcher<void>(`/api/orders/${orderId}/items`, { method: 'PATCH', body: JSON.stringify(payload) }),
 
   submitOrder: (orderId: string) =>
-    fetcher<void>(`/api/orders/${orderId}/submit`, {
-      method: 'PATCH',
-    }),
+    fetcher<void>(`/api/orders/${orderId}/submit`, { method: 'POST' }),
 
-  // --- Recomandări & Flash Deals ---
   getRecommendations: (orderId: string, cartItemIds: string[]) => {
     const query = new URLSearchParams({ current_item_ids: cartItemIds.join(',') }).toString();
-
-    return fetcher<{
-      pairings: { items: Recommendation[] };
-      upsells: { items: Recommendation[] };
-      flash_deal: FlashDeal | null;
-    }>(`/api/orders/${orderId}/recommendations?${query}`);
+    return fetcher<RecommendationsResponse>(`/api/orders/${orderId}/recommendations?${query}`);
   },
 
   claimFlashDeal: (orderId: string, dealId: string) =>
-    fetcher<void>(`/api/orders/${orderId}/claim-deal`, {
-      method: 'POST',
-      body: JSON.stringify({ deal_id: dealId }),
-    }),
+    fetcher<void>(`/api/orders/${orderId}/claim-deal/${dealId}`, { method: 'POST' }),
 };

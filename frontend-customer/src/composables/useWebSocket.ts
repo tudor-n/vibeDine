@@ -4,7 +4,7 @@ import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import type { FlashDeal } from '@shared/types/models'
 
 
-const rawWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:4000'
+const rawWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5005'
 
 const BASE_WS_URL = rawWsUrl.endsWith('/') ? rawWsUrl.slice(0, -1) : rawWsUrl
 
