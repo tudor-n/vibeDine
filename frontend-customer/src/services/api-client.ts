@@ -1,8 +1,8 @@
-import type { Recommendation, FlashDeal } from '@shared/types/models';
+import type { Recommendation, FlashDeal , Category , Product } from '@shared/types/models';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
 
 
-const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -28,15 +28,15 @@ async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
 export const apiClient = {
 
-  // --- Meniu ---
-  getMenu: () =>
-    fetcher<any[]>('/api/menu'),
 
-  // --- Sesiune / Masă ---
+  getMenu: () =>
+    fetcher<{ categories: Category[]; products: Product[] }>('/api/menu'),
+
+
   initSession: (qrToken: string) =>
     fetcher<{ tableId: string; activeOrder: { id: string } }>(`/api/tables/${qrToken}/session`),
 
-  // --- Comenzi ---
+
   updateCartItems: (orderId: string, payload: UpdateOrderItemsRequest) =>
     fetcher<void>(`/api/orders/${orderId}/items`, {
       method: 'PATCH',
@@ -45,10 +45,10 @@ export const apiClient = {
 
   submitOrder: (orderId: string) =>
     fetcher<void>(`/api/orders/${orderId}/submit`, {
-      method: 'PATCH',
+      method: 'POST',
     }),
 
-  // --- Recomandări & Flash Deals ---
+
   getRecommendations: (orderId: string, cartItemIds: string[]) => {
     const query = new URLSearchParams({ current_item_ids: cartItemIds.join(',') }).toString();
 
@@ -60,8 +60,7 @@ export const apiClient = {
   },
 
   claimFlashDeal: (orderId: string, dealId: string) =>
-    fetcher<void>(`/api/orders/${orderId}/claim-deal`, {
-      method: 'POST',
-      body: JSON.stringify({ deal_id: dealId }),
+    fetcher<void>(`/api/orders/${orderId}/claim-deal/${dealId}`, {
+      method: 'POST'
     }),
 };
