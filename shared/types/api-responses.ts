@@ -86,7 +86,7 @@ export interface SimilarityRulesResponse {
 }
 
 export interface AutoGenerateRulesResponse {
-  generated_rules: number;
+  generatedRules: number;
   rules: SimilarityRule[];
 }
 

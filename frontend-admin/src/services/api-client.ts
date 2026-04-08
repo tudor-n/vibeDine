@@ -1,7 +1,7 @@
 import type { AIDirective, SimilarityRule , DailyMetrics } from '@shared/types/models';
 
-
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005';
+const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
+const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}${endpoint}`, {
@@ -28,6 +28,9 @@ export const apiClient = {
     getMetrics: () => 
         fetcher<DailyMetrics>('/api/admin/metrics'),
 
+    getOrders: (limit = 100) =>
+        fetcher<any[]>(`/api/admin/orders?limit=${limit}`),
+
     getDirectives: () => 
         fetcher<AIDirective[]>('/api/admin/directives'),
 
@@ -40,10 +43,9 @@ export const apiClient = {
     toggleActiveDirective: (id: string, isActive: boolean) =>
         fetcher<void>(`/api/admin/directives/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ isActive: isActive })
+      body: JSON.stringify(isActive)
     }),
 
-   
     getSimilarityRules: () => 
         fetcher<SimilarityRule[]>('/api/admin/similarity-rules'),
 
@@ -59,7 +61,7 @@ export const apiClient = {
         }),
 
     autoGenerateRules: () =>
-        fetcher<SimilarityRule[]>('/api/admin/similarity-rules/generate', {
+        fetcher<SimilarityRule[]>('/api/admin/similarity-rules/auto-generate', {
             method: 'POST'
         })
 }

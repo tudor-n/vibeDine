@@ -145,7 +145,8 @@ public class CustomerController : ControllerBase
             
             if (existingItem != null)
             {
-                existingItem.Quantity = reqItem.Quantity; 
+                existingItem.Quantity = reqItem.Quantity;
+                // Don't overwrite WasAiRecommended — it's set on first add
             }
             else
             {
@@ -156,7 +157,8 @@ public class CustomerController : ControllerBase
                     ProductId = product.Id,
                     Quantity = reqItem.Quantity,
                     UnitPriceAtPurchase = product.Price,
-                    IsFlashDealItem = false
+                    IsFlashDealItem = false,
+                    WasAiRecommended = reqItem.WasAiRecommended
                 };
                 _context.OrderItems.Add(newItem);
                 order.Items.Add(newItem);
@@ -235,55 +237,71 @@ public class CustomerController : ControllerBase
     [HttpPost("orders/{orderId:guid}/claim-deal/{dealId:guid}")]
     public async Task <IActionResult> ClaimFlashDeal (Guid orderId, Guid dealId)
     {
-        var success = await _flashDealService.ClaimDealAsync(orderId, dealId);
-
-        if(!success)
+        try
         {
-            return BadRequest(new {message ="Deal is invalid, expired, or already claimed."});
-        }
+            var success = await _flashDealService.ClaimDealAsync(orderId, dealId);
 
-        return Ok(new {message = "Flash deal successfully added to your order!" });
+            if(!success)
+            {
+                return BadRequest(new {message ="Deal is invalid, expired, or already claimed."});
+            }
+
+            return Ok(new {message = "Flash deal successfully added to your order!" });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = $"Internal error claiming deal: {ex.Message}" });
+        }
     }
    
-   
-     [HttpGet("orders/{id:guid}/recommendations")]
-     public async Task <IActionResult> GetRecommendation (Guid id)
+    [HttpGet("orders/{id:guid}/recommendations")]
+    public async Task<IActionResult> GetRecommendation(Guid id)
     {
         var order = await _context.Orders.FindAsync(id);
 
-        if (order==null)
+        if (order == null)
         {
-         return NotFound(new { message = "Order not found." });
+            return NotFound(new { message = "Order not found." });
         }
 
         var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id);
 
-       if(rawRecommendations == null || !rawRecommendations.Any())
+        if (rawRecommendations == null || !rawRecommendations.Any())
         {
-          return Ok(new {pairings = new List<object>(), upsells = new List<object>(), flash_deal = (object)null});        
-          }
+            return Ok(new { pairings = new List<object>(), upsells = new List<object>(), flashDeal = (object?)null });        
+        }
 
-        var recommendedProductIds = rawRecommendations.Select(r => r.ProductId).ToList();
+        // Safely convert string ProductIds from AI into valid Guids for the database query
+        var recommendedProductIds = rawRecommendations
+            .Select(r => Guid.TryParse(r.ProductId, out var guid) ? guid : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .ToList();
+
         var products = await _context.Products
             .Where(p => recommendedProductIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id);
 
         var mappedItems = rawRecommendations
-            .Where(r => products.ContainsKey(r.ProductId))
-            .Select(r => new
+            .Where(r => Guid.TryParse(r.ProductId, out var g) && products.ContainsKey(g))
+            .Select(r => 
             {
-                reason = r.Reason,
-                confidence = r.Confidence,
-                menu_item = new
+                var pId = Guid.Parse(r.ProductId);
+                return new
                 {
-                    id = products[r.ProductId].Id,
-                    name = products[r.ProductId].Name,
-                    price = products[r.ProductId].Price,
-                    image_url = products[r.ProductId].ImageUrl 
-                }
+                    reason = r.Reason,
+                    confidence = r.Confidence,
+                    menuItem = new
+                    {
+                        id = products[pId].Id,
+                        name = products[pId].Name,
+                        price = products[pId].Price,
+                        imageUrl = products[pId].ImageUrl 
+                    }
+                };
             })
             .OrderByDescending(r => r.confidence)
             .ToList();
+            
         var splitIndex = mappedItems.Count / 2;
         var pairings = mappedItems.Take(splitIndex).ToList();
         var upsells = mappedItems.Skip(splitIndex).ToList();
@@ -293,20 +311,20 @@ public class CustomerController : ControllerBase
             .Where(d => d.OrderId == id && d.Status == "pending" && d.ExpiresAt > DateTime.UtcNow)
             .FirstOrDefaultAsync();
 
-        object flashDealResponse = null;
+        object? flashDealResponse = null;
         if (activeFlashDeal != null && activeFlashDeal.Product != null)
         {
             flashDealResponse = new 
             {
                 id = activeFlashDeal.Id,
-                discount_price = activeFlashDeal.DiscountPrice,
-                expires_at = activeFlashDeal.ExpiresAt,
-                menu_item = new 
+                discountPrice = activeFlashDeal.DiscountPrice,
+                expiresAt = activeFlashDeal.ExpiresAt,
+                menuItem = new 
                 {
                     id = activeFlashDeal.Product.Id,
                     name = activeFlashDeal.Product.Name,
                     price = activeFlashDeal.Product.Price,
-                    image_url = activeFlashDeal.Product.ImageUrl
+                    imageUrl = activeFlashDeal.Product.ImageUrl
                 }
             };
         }
@@ -315,8 +333,7 @@ public class CustomerController : ControllerBase
         {
             pairings = pairings,
             upsells = upsells,
-            flash_deal = flashDealResponse
+            flashDeal = flashDealResponse
         });
     }
-     
 }

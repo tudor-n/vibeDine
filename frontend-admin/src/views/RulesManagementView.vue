@@ -11,8 +11,12 @@ onMounted(() => {
 })
 
 
+const showAddRuleMessage = () => {
+    window.alert('Funcționalitatea de adăugare manuală a regulilor va fi disponibilă în curând!');
+}
+
 const handleDeleteRule = async (id: string) => {
-    if (confirm('Ești sigur că vrei să ștergi această regulă de recomandare?')) {
+    if (window.confirm('Ești sigur că vrei să ștergi această regulă de recomandare?')) {
         try{
             await rulesStore.deleteRule(id);
         }catch(error){
@@ -35,7 +39,7 @@ const handleDeleteRule = async (id: string) => {
       
       <button 
         class="bg-gray-900 text-white px-5 py-2.5 rounded-lg shadow-sm font-semibold hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
-        @click="alert('Funcționalitatea de adăugare manuală a regulilor va fi disponibilă în curând!')"
+        @click="showAddRuleMessage"
       >
         <span>+</span> Adaugă Regulă Manuală
       </button>

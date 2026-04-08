@@ -12,6 +12,7 @@ export interface CartItem extends Product {
 export const useCartStore = defineStore('cart', () => {
 
   const items = ref<CartItem[]>([])
+  const recommendedItemIds = ref<Set<string>>(new Set())
   const sessionStore = useSessionStore()
 
   const total = computed(() => {
@@ -27,8 +28,9 @@ export const useCartStore = defineStore('cart', () => {
     }
     const payload: UpdateOrderItemsRequest = {
       items: items.value.map((item) => ({
-        product_id: item.id,
-        quantity: item.quantity
+        productId: item.id,
+        quantity: item.quantity,
+        wasAiRecommended: recommendedItemIds.value.has(item.id)
       }))
     }
 
@@ -54,6 +56,11 @@ export const useCartStore = defineStore('cart', () => {
     await syncCartWithBackend()
   }
 
+  async function addRecommendedItem(product: Product) {
+    recommendedItemIds.value.add(product.id)
+    await addItem(product)
+  }
+
   async function removeItem(productId: string) {
     const item = items.value.find((i) => i.id === productId)
     if (item) {
@@ -61,6 +68,7 @@ export const useCartStore = defineStore('cart', () => {
         item.quantity--
       } else {
         items.value = items.value.filter((i) => i.id !== productId)
+        recommendedItemIds.value.delete(productId)
       }
 
       await syncCartWithBackend()
@@ -78,7 +86,8 @@ export const useCartStore = defineStore('cart', () => {
 
   function clearCart() {
     items.value = []
+    recommendedItemIds.value.clear()
   }
 
-  return { items, total , addItem, removeItem, clearCart, addLocalItemOnly}
+  return { items, total , addItem, addRecommendedItem, removeItem, clearCart, addLocalItemOnly}
 })

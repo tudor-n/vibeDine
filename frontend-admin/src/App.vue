@@ -33,6 +33,14 @@ import { RouterLink, RouterView } from 'vue-router'
       >
         <span>🔗</span> Reguli Recomandări
       </RouterLink>
+
+      <RouterLink 
+        to="/orders" 
+        class="px-4 py-3 rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 text-gray-300 hover:text-white"
+        active-class="bg-brand text-white font-bold shadow-md"
+      >
+        <span>🧾</span> Comenzi
+      </RouterLink>
     </nav>
 
     <main class="flex-1 p-4 md:p-8 overflow-y-auto">

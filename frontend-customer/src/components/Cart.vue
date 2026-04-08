@@ -11,6 +11,7 @@ const sessionStore = useSessionStore()
 const isSubmitting = ref(false)
 const submitError = ref<string | null>(null)
 const submitSuccess = ref(false)
+const isReinitializing = ref(false)
 
 async function submitOrder() {
   if (!sessionStore.orderId) {
@@ -33,9 +34,12 @@ async function submitOrder() {
     submitSuccess.value = true
     cartStore.clearCart()
 
-
-    sessionStorage.removeItem('orderId')
-    sessionStore.orderId = null
+    // Immediately get a fresh draft order so the stale submitted orderId
+    // doesn't block subsequent add-to-cart / submit calls if the user
+    // closes the cart modal (which unmounts this component and loses submitSuccess).
+    if (sessionStore.qrToken) {
+      await sessionStore.initializeSession(sessionStore.qrToken).catch(() => {})
+    }
 
   } catch (error) {
     if (error instanceof Error) {
@@ -47,6 +51,20 @@ async function submitOrder() {
     isSubmitting.value = false
   }
 }
+
+async function startNewOrder() {
+  const token = sessionStore.qrToken
+  if (!token) return
+  try {
+    isReinitializing.value = true
+    await sessionStore.initializeSession(token)
+    submitSuccess.value = false
+  } catch (e) {
+    submitError.value = 'Eroare la crearea unei comenzi noi.'
+  } finally {
+    isReinitializing.value = false
+  }
+}
 </script>
 
 <template>
@@ -54,7 +72,14 @@ async function submitOrder() {
     <div v-if="submitSuccess" class="text-center py-10">
       <div class="text-green-500 text-5xl mb-4">✓</div>
       <h3 class="text-2xl font-bold mb-2">Comanda a fost trimisă!</h3>
-      <p class="text-gray-600">Bucătarii noștri o pregătesc chiar acum.</p>
+      <p class="text-gray-600 mb-6">Bucătarii noștri o pregătesc chiar acum.</p>
+      <button
+        @click="startNewOrder"
+        :disabled="isReinitializing"
+        class="bg-brand text-white font-bold py-3 px-8 rounded-full disabled:opacity-50"
+      >
+        {{ isReinitializing ? 'Se pregătește...' : 'Comandă din nou' }}
+      </button>
     </div>
 
     <div v-else-if="cartStore.items.length === 0" class="text-center py-10 text-gray-500">

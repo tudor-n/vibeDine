@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import type { FlashDeal } from '@shared/types/models'
@@ -15,8 +15,7 @@ export function useWebSocket() {
   let socket: WebSocket | null = null
 
   function connect() {
-    if (!sessionStore.tableId || socket) return
-
+    if (socket) return  // already connected, don't check tableId here
 
     const socketUrl = `${BASE_WS_URL}/hubs/customer?token=${sessionStore.qrToken}`
 
@@ -26,7 +25,7 @@ export function useWebSocket() {
       console.log('Conexiune WebSocket stabilită!')
       isConnected.value = true
 
-
+      // Step 1: send handshake
       socket?.send(JSON.stringify({ protocol: 'json', version: 1 }) + '\x1e')
     }
 
@@ -39,10 +38,42 @@ export function useWebSocket() {
 
           const data = JSON.parse(msg)
 
+          // Step 2: after handshake ack (type 6), join the table group
+          if (data.type === 6 && sessionStore.tableId) {
+            socket?.send(
+              JSON.stringify({
+                type: 1,
+                target: 'JoinTableGroup',
+                arguments: [sessionStore.tableId]
+              }) + '\x1e'
+            )
+          }
+
           if (data.type === 1 && data.target) {
             if (data.target === 'FlashDealAvailable') {
-              const newDeal = data.arguments[0] as FlashDeal
-              flashDealStore.setActiveDeal(newDeal)
+              const raw = data.arguments[0]
+
+              const newDeal: FlashDeal = {
+                id: raw.dealId,
+                menuItemId: raw.productId,
+                menuItem: {
+                  id: raw.productId,
+                  name: raw.productName,
+                  price: raw.originalPrice,
+                  imageUrl: null
+                },
+                discountPercent: raw.discountPercent || 20,
+                discountedPrice: raw.discountPrice,
+                trigger: 'post_order',
+                countdownSeconds: 120,
+                expiresAt: raw.expiresAt,
+                reason: 'Ofertă specială pentru comanda ta!',
+                isActive: true,
+                createdAt: new Date().toISOString()
+              }
+
+              // Store the orderId the deal belongs to separately
+              flashDealStore.setActiveDeal(newDeal, raw.orderId)
             }
 
             if (data.target === 'FlashDealExpired') {
@@ -59,7 +90,9 @@ export function useWebSocket() {
       console.log('Conexiune WebSocket închisă.')
       isConnected.value = false
       socket = null
-      setTimeout(connect, 5000)
+      setTimeout(() => {
+        if (sessionStore.tableId) connect()
+      }, 5000)
     }
 
     socket.onerror = (error) => {
@@ -73,9 +106,16 @@ export function useWebSocket() {
     }
   }
 
-  onMounted(() => {
-    connect()
-  })
+  // Key fix: watch tableId instead of connecting blindly in onMounted
+  watch(
+    () => sessionStore.tableId,
+    (tableId) => {
+      if (tableId && !socket) {
+        connect()
+      }
+    },
+    { immediate: true }
+  )
 
   onUnmounted(() => {
     disconnect()

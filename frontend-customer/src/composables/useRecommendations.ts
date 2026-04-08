@@ -43,7 +43,7 @@ export function useRecommendations() {
                 name: 'Produs Recomandat',
                 description: '',
                 price: 0,
-                image_url: ''
+                imageUrl: ''
               }
 
               return {
@@ -51,16 +51,16 @@ export function useRecommendations() {
                 type: 'pairing',
                 reason: rec.reason,
                 confidence: rec.confidence || 1,
-                menu_item: {
+                menuItem: {
                   id: productInfo.id,
                   name: productInfo.name,
                   description: productInfo.description,
                   price: productInfo.price,
-                  image_url: productInfo.image_url,
-                  category_name: ''
+                  imageUrl: productInfo.imageUrl,
+                  categoryName: ''
                 },
-                reason_type: 'pairs_with_order',
-                discount: { percent: null, original_price: null, discounted_price: null },
+                reasonType: 'pairsWithOrder',
+                discount: { percent: null, originalPrice: null, discountedPrice: null },
                 source: 'ai'
               } as Recommendation
             })
@@ -79,6 +79,14 @@ export function useRecommendations() {
       }, 500)
     },
     { deep: true }
+  )
+
+  watch(
+    () => sessionStore.orderId,
+    () => {
+      pairings.value = []
+      upsells.value = []
+    }
   )
 
   return { pairings, upsells, isLoading }

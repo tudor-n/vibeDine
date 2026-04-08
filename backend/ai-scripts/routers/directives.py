@@ -8,7 +8,7 @@ import json
 router = APIRouter()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
 
-GEMINI_MODEL = "gemini-3-flash-preview"
+GEMINI_MODEL = "gemini-2.0-flash"
 
 
 @router.post("/directives/parse")

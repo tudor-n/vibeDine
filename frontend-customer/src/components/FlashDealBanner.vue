@@ -1,18 +1,15 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted, computed } from 'vue'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
-import { useSessionStore } from '@/stores/useSessionStore'
-import { useCartStore } from '@/stores/useCartStore'
 import { apiClient } from '@/services/api-client'
-import type { Product } from '@shared/types/models'
 
 const flashDealStore = useFlashDealStore()
-const sessionStore = useSessionStore()
-const cartStore = useCartStore()
 
 const timeLeft = ref(0)
 let timerInterval: ReturnType<typeof setInterval> | null = null
 const isClaiming = ref(false)
+const claimError = ref<string | null>(null)
+const claimSuccess = ref(false)
 
 
 const formattedTime = computed(() => {
@@ -30,7 +27,7 @@ const startTimer = () => {
 
   const updateTime = () => {
     const now = new Date().getTime()
-    const expires = new Date(deal.expires_at).getTime()
+    const expires = new Date(deal.expiresAt).getTime()
     const diff = Math.floor((expires - now) / 1000)
 
     if (diff <= 0) {
@@ -51,6 +48,8 @@ watch(
   () => flashDealStore.activeDeal,
   (newDeal) => {
     if (newDeal) {
+      claimError.value = null
+      claimSuccess.value = false
       startTimer()
     } else {
       if (timerInterval) clearInterval(timerInterval)
@@ -65,31 +64,32 @@ onUnmounted(() => {
 
 const claimDeal = async () => {
   const deal = flashDealStore.activeDeal
-  if (!deal || !sessionStore.orderId) return
+  const orderId = flashDealStore.activeDealOrderId
+
+  if (!deal || !orderId) {
+    claimError.value = 'Sesiune invalidă. Te rugăm să reîncărci pagina.'
+    return
+  }
 
   try {
     isClaiming.value = true
+    claimError.value = null
 
+    // Backend creates the OrderItem — we don't need addLocalItemOnly
+    await apiClient.claimFlashDeal(orderId, deal.id)
 
-    await apiClient.claimFlashDeal(sessionStore.orderId, deal.id)
+    claimSuccess.value = true
+    // Short delay so user sees the success state before banner disappears
+    setTimeout(() => {
+      flashDealStore.clearDeal()
+    }, 1500)
 
-
-    const productToAdd: Product = {
-      id: deal.menu_item.id,
-      category_id: '',
-      name: `${deal.menu_item.name} (⚡ Flash Deal)`,
-      description: deal.reason,
-      price: deal.discounted_price,
-      image_url: deal.menu_item.image_url,
-      is_available: true
-    }
-
-    cartStore.addLocalItemOnly(productToAdd)
-
-
-    flashDealStore.clearDeal()
   } catch (error) {
-    console.error('Eroare la revendicarea ofertei:', error)
+    if (error instanceof Error) {
+      claimError.value = error.message
+    } else {
+      claimError.value = 'Eroare la revendicarea ofertei. Încearcă din nou.'
+    }
   } finally {
     isClaiming.value = false
   }
@@ -110,28 +110,45 @@ const claimDeal = async () => {
             <h3 class="font-black text-lg uppercase tracking-wider text-yellow-300">Ofertă Limitată!</h3>
           </div>
           <p class="font-medium">
-            {{ flashDealStore.activeDeal.menu_item.name }}
+            {{ flashDealStore.activeDeal.menuItem.name }}
           </p>
           <div class="mt-1 flex items-center justify-center md:justify-start gap-3">
-            <span class="text-2xl font-bold">{{ flashDealStore.activeDeal.discounted_price }} RON</span>
+            <span class="text-2xl font-bold">{{ flashDealStore.activeDeal.discountedPrice }} RON</span>
             <span class="line-through text-brand-light opacity-80 text-sm">
-              {{ flashDealStore.activeDeal.menu_item.price }} RON
+              {{ flashDealStore.activeDeal.menuItem.price }} RON
             </span>
           </div>
         </div>
 
-        <div class="flex items-center gap-4 w-full md:w-auto">
-          <div class="bg-black/20 px-4 py-2 rounded-lg font-mono text-2xl font-bold min-w-[90px] text-center shadow-inner">
-            {{ formattedTime }}
+        <div class="flex flex-col items-center gap-2 w-full md:w-auto">
+          <div class="flex items-center gap-4">
+            <div class="bg-black/20 px-4 py-2 rounded-lg font-mono text-2xl font-bold min-w-[90px] text-center shadow-inner">
+              {{ formattedTime }}
+            </div>
+
+            <!-- Success state -->
+            <div
+              v-if="claimSuccess"
+              class="flex-1 md:flex-none bg-green-400 text-green-900 font-black py-3 px-6 rounded-xl shadow-lg flex items-center gap-2"
+            >
+              <span>✓</span> Adăugat!
+            </div>
+
+            <!-- Normal claim button -->
+            <button
+              v-else
+              @click="claimDeal"
+              :disabled="isClaiming"
+              class="flex-1 md:flex-none bg-yellow-400 text-red-900 font-black py-3 px-6 rounded-xl shadow-lg hover:bg-yellow-300 active:scale-95 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {{ isClaiming ? 'Se adaugă...' : 'Revendică' }}
+            </button>
           </div>
 
-          <button
-            @click="claimDeal"
-            :disabled="isClaiming"
-            class="flex-1 md:flex-none bg-yellow-400 text-red-900 font-black py-3 px-6 rounded-xl shadow-lg hover:bg-yellow-300 active:scale-95 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {{ isClaiming ? 'Se adaugă...' : 'Revendică' }}
-          </button>
+          <!-- Error message -->
+          <p v-if="claimError" class="text-xs text-yellow-200 bg-black/20 px-3 py-1 rounded-lg">
+            {{ claimError }}
+          </p>
         </div>
 
         <button
