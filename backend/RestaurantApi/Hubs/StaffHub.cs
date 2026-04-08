@@ -4,5 +4,13 @@ namespace RestaurantApi.Hubs;
 
 public class StaffHub : Hub
 {
-    // Beny's implementation: FlashDealClaimed event
+    public async Task JoinRoleGroup(string role)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, role);
+    }
+
+    public async Task LeaveRoleGroup(string role)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, role);
+    }
 }

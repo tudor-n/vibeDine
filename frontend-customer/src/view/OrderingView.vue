@@ -1,13 +1,19 @@
 <script setup lang="ts">
-
-import { ref, computed} from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/useCartStore'
+import { useSessionStore } from '@/stores/useSessionStore'
+import { useWebSocket } from '@/composables/useWebSocket'
 import MenuList from '@/components/MenuList.vue'
 import Cart from '@/components/Cart.vue';
 import FlashDealBanner from '@/components/FlashDealBanner.vue';
+import RecommendationWidget from '@/components/RecommendationWidget.vue';
 
-
+const route = useRoute()
 const cartStore = useCartStore()
+const sessionStore = useSessionStore()
+
+useWebSocket()
 
 const isCartModalOpen = ref(false)
 
@@ -15,6 +21,19 @@ const totalItems = computed(() => {
   return cartStore.items.reduce((sum, item) => sum + item.quantity, 0)
 })
 
+onMounted(async () => {
+
+  const tokenFromUrl = (route.params.qrToken as string) || '11111111-1111-1111-1111-111111111111'
+
+  if (!sessionStore.tableId || sessionStore.qrToken !== tokenFromUrl) {
+    try {
+      await sessionStore.initializeSession(tokenFromUrl)
+      console.log('Sesiune inițializată!', sessionStore.orderId)
+    } catch (e) {
+      console.error('Nu am putut inițializa sesiunea', e)
+    }
+  }
+})
 </script>
 
 
@@ -28,6 +47,7 @@ const totalItems = computed(() => {
 
     <main class="container mx-auto p-4 max-w-3xl">
       <MenuList />
+      <RecommendationWidget />
     </main>
 
     <div
