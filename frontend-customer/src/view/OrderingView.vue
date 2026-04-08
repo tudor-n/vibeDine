@@ -24,12 +24,11 @@ const totalItems = computed(() => {
 onMounted(async () => {
   const tokenFromUrl = (route.params.qrToken as string) || 'aaaaaaaa-0000-0000-0000-000000000001'
 
-  if (!sessionStore.tableId || sessionStore.qrToken !== tokenFromUrl) {
-    try {
-      await sessionStore.initializeSession(tokenFromUrl)
-    } catch (e) {
-      console.error('Nu am putut inițializa sesiunea', e)
-    }
+  // Always re-initialize: backend returns existing draft or creates new one
+  try {
+    await sessionStore.initializeSession(tokenFromUrl)
+  } catch (e) {
+    console.error('Nu am putut inițializa sesiunea', e)
   }
 })
 </script>

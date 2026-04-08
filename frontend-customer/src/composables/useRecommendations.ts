@@ -81,5 +81,13 @@ export function useRecommendations() {
     { deep: true }
   )
 
+  watch(
+    () => sessionStore.orderId,
+    () => {
+      pairings.value = []
+      upsells.value = []
+    }
+  )
+
   return { pairings, upsells, isLoading }
 }
