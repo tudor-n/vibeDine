@@ -30,7 +30,7 @@ const startTimer = () => {
 
   const updateTime = () => {
     const now = new Date().getTime()
-    const expires = new Date(deal.expires_at).getTime()
+    const expires = new Date(deal.expiresAt).getTime()
     const diff = Math.floor((expires - now) / 1000)
 
     if (diff <= 0) {
@@ -110,12 +110,12 @@ const claimDeal = async () => {
             <h3 class="font-black text-lg uppercase tracking-wider text-yellow-300">Ofertă Limitată!</h3>
           </div>
           <p class="font-medium">
-            {{ flashDealStore.activeDeal.menu_item.name }}
+            {{ flashDealStore.activeDeal.menuItem.name }}
           </p>
           <div class="mt-1 flex items-center justify-center md:justify-start gap-3">
-            <span class="text-2xl font-bold">{{ flashDealStore.activeDeal.discounted_price }} RON</span>
+            <span class="text-2xl font-bold">{{ flashDealStore.activeDeal.discountedPrice }} RON</span>
             <span class="line-through text-brand-light opacity-80 text-sm">
-              {{ flashDealStore.activeDeal.menu_item.price }} RON
+              {{ flashDealStore.activeDeal.menuItem.price }} RON
             </span>
           </div>
         </div>

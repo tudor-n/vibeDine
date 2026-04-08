@@ -26,7 +26,7 @@ export function useWebSocket() {
       console.log('Conexiune WebSocket stabilită!')
       isConnected.value = true
 
-
+      // Step 1: send handshake
       socket?.send(JSON.stringify({ protocol: 'json', version: 1 }) + '\x1e')
     }
 
@@ -39,9 +39,39 @@ export function useWebSocket() {
 
           const data = JSON.parse(msg)
 
+          // Step 2: after handshake ack (type 6), join the table group
+          if (data.type === 6 && sessionStore.tableId) {
+            socket?.send(
+              JSON.stringify({
+                type: 1,
+                target: 'JoinTableGroup',
+                arguments: [sessionStore.tableId]
+              }) + '\x1e'
+            )
+          }
+
           if (data.type === 1 && data.target) {
             if (data.target === 'FlashDealAvailable') {
-              const newDeal = data.arguments[0] as FlashDeal
+              const raw = data.arguments[0]
+              // Step 3: map backend payload to FlashDeal shape
+              const newDeal: FlashDeal = {
+                id: raw.dealId,
+                menuItemId: raw.dealId,
+                menuItem: {
+                  id: raw.dealId,
+                  name: raw.productName,
+                  price: raw.discountPrice,
+                  imageUrl: null
+                },
+                discountPercent: 0,
+                discountedPrice: raw.discountPrice,
+                trigger: 'post_order',
+                countdownSeconds: 120,
+                expiresAt: raw.expiresAt,
+                reason: 'Ofertă specială!',
+                isActive: true,
+                createdAt: new Date().toISOString()
+              }
               flashDealStore.setActiveDeal(newDeal)
             }
 

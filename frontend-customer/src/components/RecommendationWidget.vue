@@ -38,12 +38,12 @@ const addToCart = (rec: Recommendation) => {
         class="min-w-[200px] bg-white border border-brand-light/30 rounded-xl p-4 shadow-sm snap-center flex flex-col justify-between"
       >
         <div>
-          <h4 class="font-bold text-gray-800">{{ item.menu_item.name }}</h4>
+          <h4 class="font-bold text-gray-800">{{ item.menuItem.name }}</h4>
           <p class="text-xs text-gray-600 mt-1 italic">"{{ item.reason }}"</p>
         </div>
 
         <div class="mt-4 flex items-center justify-between">
-          <span class="font-bold text-brand">{{ item.menu_item.price }} RON</span>
+          <span class="font-bold text-brand">{{ item.menuItem.price }} RON</span>
           <button
             @click="addToCart(item)"
             class="text-sm bg-brand/10 text-brand font-bold py-1 px-3 rounded-full hover:bg-brand hover:text-white transition-colors"
