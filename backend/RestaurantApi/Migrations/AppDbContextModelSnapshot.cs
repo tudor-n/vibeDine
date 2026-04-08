@@ -242,6 +242,42 @@ namespace RestaurantApi.Migrations
                     b.ToTable("tables", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.SimilarityRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ProductAId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_a_id");
+
+                    b.Property<Guid>("ProductBId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_b_id");
+
+                    b.Property<string>("RuleType")
+                        .HasColumnType("text")
+                        .HasColumnName("rule_type");
+
+                    b.Property<decimal>("Score")
+                        .HasColumnType("decimal(5,4)")
+                        .HasColumnName("score");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductAId");
+
+                    b.HasIndex("ProductBId");
+
+                    b.ToTable("similarity_rules", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.FlashDealOffer", b =>
                 {
                     b.HasOne("RestaurantApi.Models.Order", "Order")
@@ -296,6 +332,25 @@ namespace RestaurantApi.Migrations
                         .IsRequired();
 
                     b.Navigation("Category");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.SimilarityRule", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Product", "ProductA")
+                        .WithMany()
+                        .HasForeignKey("ProductAId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RestaurantApi.Models.Product", "ProductB")
+                        .WithMany()
+                        .HasForeignKey("ProductBId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ProductA");
+
+                    b.Navigation("ProductB");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.Category", b =>

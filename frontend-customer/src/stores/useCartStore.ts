@@ -27,7 +27,7 @@ export const useCartStore = defineStore('cart', () => {
     }
     const payload: UpdateOrderItemsRequest = {
       items: items.value.map((item) => ({
-        product_id: item.id,
+        productId: item.id,
         quantity: item.quantity
       }))
     }
