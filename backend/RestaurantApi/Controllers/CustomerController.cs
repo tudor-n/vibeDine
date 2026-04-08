@@ -149,7 +149,7 @@ public class CustomerController : ControllerBase
             }
             else
             {
-                order.Items.Add(new OrderItem
+                var newItem = new OrderItem
                 {
                     Id = Guid.NewGuid(),
                     OrderId = order.Id,
@@ -157,7 +157,9 @@ public class CustomerController : ControllerBase
                     Quantity = reqItem.Quantity,
                     UnitPriceAtPurchase = product.Price,
                     IsFlashDealItem = false
-                });
+                };
+                _context.OrderItems.Add(newItem);
+                order.Items.Add(newItem);
             }
         }
 
