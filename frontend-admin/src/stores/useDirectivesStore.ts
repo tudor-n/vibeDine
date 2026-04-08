@@ -1,16 +1,16 @@
 import { defineStore } from "pinia";
 import { ref, computed} from 'vue';
 import { apiClient } from '@/services/api-client'
-import type { AdminAIConfig } from '@shared/types/models'
+import type { AIDirective } from "@shared/types/models";
 
 
 export const useDirectivesStore = defineStore('directives', () => {
 
-    const directives = ref<AdminAIConfig[]>([]);
+    const directives = ref<AIDirective[]>([]);
     const isLoading = ref(false);
 
     const activeDirective = computed(() => 
-        directives.value.find(d => d.is_active) || null
+        directives.value.find(d => d.isActive) || null
     )
 
     async function fetchDirectives() {
@@ -29,7 +29,7 @@ export const useDirectivesStore = defineStore('directives', () => {
             isLoading.value = true;
             const newConfig = await apiClient.postDirective(prompt)
 
-            directives.value = directives.value.map(d => ({ ...d, is_active: false}))
+            directives.value = directives.value.map(d => ({ ...d, isActive: false}))
             directives.value.unshift(newConfig)
         }catch(error){
             console.error('Eroare la salvarea directivei:', error);
