@@ -1,7 +1,6 @@
-using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ActionConstraints;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
 using RestaurantApi.Models;
@@ -17,13 +16,14 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IFlashDealService _flashDealService;
-
-    public AdminController(AppDbContext dbContext, IHttpClientFactory httpClientFactory, IFlashDealService flashDealService)
+    private readonly ILogger <AdminController> _logger;
+ 
+    public AdminController(AppDbContext dbContext, IHttpClientFactory httpClientFactory, IFlashDealService flashDealService, ILogger <AdminController> logger)
     {
         _dbContext = dbContext;
         _httpClientFactory = httpClientFactory;
         _flashDealService = flashDealService;
-
+        _logger=logger;
     }
 
     [HttpGet("directives")]
@@ -54,8 +54,9 @@ public class AdminController : ControllerBase
                 }
             }
         }
-        catch 
+        catch(Exception ex)
         {
+            _logger.LogWarning(ex, "Ai service failed to praise the directive");
         }
 
         var directive = new AIDirective
@@ -73,17 +74,18 @@ public class AdminController : ControllerBase
         return Ok(directive);
     }
 
+
     [HttpPatch("directives/{id}")]
-    public async Task<IActionResult> ToggleDirective(Guid id)
+    public async Task<IActionResult> ToggleDirective(Guid id, [FromBody] bool isActive)
     {
         var directive = await _dbContext.AIDirectives.FindAsync(id);
         if (directive == null) return NotFound();
 
-        directive.IsActive = !directive.IsActive;
+        directive.IsActive = isActive;
         await _dbContext.SaveChangesAsync();
-
         return Ok(directive);
     }
+
 
     [HttpPost("similarity-rules/auto-generate")]
     public async Task<IActionResult> AutoGenerateRules()
@@ -125,10 +127,10 @@ public class AdminController : ControllerBase
 
         return Ok(new
         {
-            totalDealsShown=totalDeals,
-            totalDealsClaimed=claimedDeals,
-            totalDealsExpired=expiredDeals,
-            UpSellRevenue = upSellRevenue
+           flashDealsShown = totalDeals,        
+           flashDealsClaimed = claimedDeals,    
+           flashDealsExpired = expiredDeals,    
+           upsellRevenue = upSellRevenue 
         });
     }
 
@@ -163,5 +165,6 @@ public class AdminController : ControllerBase
 
 public class CreateDirectiveRequest
 {
+    [JsonPropertyName("rawPrompt")]
     public string RawPrompt { get; set; } = string.Empty;
 }

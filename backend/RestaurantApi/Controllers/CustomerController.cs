@@ -256,9 +256,67 @@ public class CustomerController : ControllerBase
          return NotFound(new { message = "Order not found." });
         }
 
-        var recommendations = await _recommendationService.GetRecommendationsAsync(id);
+        var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id);
 
-        return Ok (recommendations);
+       if(rawRecommendations == null || !rawRecommendations.Any())
+        {
+          return Ok(new {pairings = new List<object>(), upsells = new List<object>(), flash_deal = (object)null});        
+          }
+
+        var recommendedProductIds = rawRecommendations.Select(r => r.ProductId).ToList();
+        var products = await _context.Products
+            .Where(p => recommendedProductIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id);
+
+        var mappedItems = rawRecommendations
+            .Where(r => products.ContainsKey(r.ProductId))
+            .Select(r => new
+            {
+                reason = r.Reason,
+                confidence = r.Confidence,
+                menu_item = new
+                {
+                    id = products[r.ProductId].Id,
+                    name = products[r.ProductId].Name,
+                    price = products[r.ProductId].Price,
+                    image_url = products[r.ProductId].ImageUrl 
+                }
+            })
+            .OrderByDescending(r => r.confidence)
+            .ToList();
+        var splitIndex = mappedItems.Count / 2;
+        var pairings = mappedItems.Take(splitIndex).ToList();
+        var upsells = mappedItems.Skip(splitIndex).ToList();
+
+        var activeFlashDeal = await _context.FlashDealOffers
+            .Include(d => d.Product)
+            .Where(d => d.OrderId == id && d.Status == "pending" && d.ExpiresAt > DateTime.UtcNow)
+            .FirstOrDefaultAsync();
+
+        object flashDealResponse = null;
+        if (activeFlashDeal != null && activeFlashDeal.Product != null)
+        {
+            flashDealResponse = new 
+            {
+                id = activeFlashDeal.Id,
+                discount_price = activeFlashDeal.DiscountPrice,
+                expires_at = activeFlashDeal.ExpiresAt,
+                menu_item = new 
+                {
+                    id = activeFlashDeal.Product.Id,
+                    name = activeFlashDeal.Product.Name,
+                    price = activeFlashDeal.Product.Price,
+                    image_url = activeFlashDeal.Product.ImageUrl
+                }
+            };
+        }
+
+        return Ok(new
+        {
+            pairings = pairings,
+            upsells = upsells,
+            flash_deal = flashDealResponse
+        });
     }
      
 }

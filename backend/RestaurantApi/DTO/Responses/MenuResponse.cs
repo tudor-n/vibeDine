@@ -1,6 +1,3 @@
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.Net.Http.Headers;
-
 namespace RestaurantApi.DTOs.Responses;
 
 public class MenuCategoryResponse
