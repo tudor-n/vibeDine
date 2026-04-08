@@ -6,6 +6,7 @@ using RestaurantApi.Data;
 using RestaurantApi.Models;
 using RestaurantApi.Services;
 
+
 namespace RestaurantApi.Controllers;
 
 [ApiController]
@@ -73,19 +74,40 @@ public class AdminController : ControllerBase
         return Ok(directive);
     }
 
+
     [HttpPatch("directives/{id}")]
-    public async Task<IActionResult> ToggleDirective(Guid id, [FromBody] JsonElement body)
+    public async Task<IActionResult> ToggleDirective(Guid id, [FromBody] bool isActive)
     {
         var directive = await _dbContext.AIDirectives.FindAsync(id);
         if (directive == null) return NotFound();
 
-        if (body.TryGetProperty("isActive", out var prop))
-            directive.IsActive = prop.GetBoolean();
-        else
-            directive.IsActive = !directive.IsActive;
-        
+        directive.IsActive = isActive;
         await _dbContext.SaveChangesAsync();
         return Ok(directive);
+    }
+
+
+    [HttpGet("similarity-rules")]
+    public async Task<IActionResult> GetSimilarityRules()
+    {
+        var rules = await _dbContext.SimilarityRules
+            .Include(r => r.ProductA)
+            .Include(r => r.ProductB)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new
+            {
+                r.Id,
+                r.ProductAId,
+                productAName = r.ProductA != null ? r.ProductA.Name : null,
+                r.ProductBId,
+                productBName = r.ProductB != null ? r.ProductB.Name : null,
+                r.Score,
+                r.RuleType,
+                r.CreatedAt
+            })
+            .ToListAsync();
+
+        return Ok(rules);
     }
 
     [HttpPost("similarity-rules/auto-generate")]
@@ -113,6 +135,7 @@ public class AdminController : ControllerBase
         return StatusCode(500);
     }
 
+
     [HttpGet("metrics")]
     public async Task <IActionResult> GetMetrics()
     {
@@ -124,13 +147,13 @@ public class AdminController : ControllerBase
         .Where(i=>i.IsFlashDealItem==true)
         .SumAsync(i => i.Quantity * i.UnitPriceAtPurchase);
 
+
         return Ok(new
         {
            flashDealsShown = totalDeals,        
            flashDealsClaimed = claimedDeals,    
            flashDealsExpired = expiredDeals,    
-           upsellRevenue = upSellRevenue,
-           flashDealRevenue = upSellRevenue
+           upsellRevenue = upSellRevenue 
         });
     }
 
@@ -154,60 +177,13 @@ public class AdminController : ControllerBase
     
     }
    
-    [HttpPost("flash-deals/trigger")]
-    public async Task<IActionResult> TriggerFlashDeal([FromBody] Guid orderId)
+   [HttpPost("flash-deals/trigger")]
+   public async Task<IActionResult> TriggerFlashDeal([FromBody] Guid orderId)
     {
         await _flashDealService.EvaluateEligibilityAsync(orderId);
         return Ok(new {message = "Flash deal triggered successfully."});
     }
 
-    [HttpGet("similarity-rules")]
-    public async Task<IActionResult> GetSimilarityRules()
-    {
-        var rules = await _dbContext.SimilarityRules
-            .Include(r => r.ProductA)
-            .Include(r => r.ProductB)
-            .OrderByDescending(r => r.Score)
-            .Select(r => new
-            {
-                r.Id,
-                id = r.Id,
-                source_item_id = r.ProductAId,
-                target_item_id = r.ProductBId,
-                score = r.Score,
-                reason = $"{r.ProductA!.Name} + {r.ProductB!.Name}",
-                rule_type = r.RuleType
-            })
-            .ToListAsync();
-
-        return Ok(rules);
-    }
-
-    [HttpPost("similarity-rules")]
-    public async Task<IActionResult> PostSimilarityRule([FromBody] JsonElement body)
-    {
-        var rule = new SimilarityRule
-        {
-            ProductAId = Guid.Parse(body.GetProperty("productAId").GetString()!),
-            ProductBId = Guid.Parse(body.GetProperty("productBId").GetString()!),
-            Score = body.TryGetProperty("score", out var s) ? s.GetDecimal() : 0.8m,
-            RuleType = "manual"
-        };
-
-        _dbContext.SimilarityRules.Add(rule);
-        await _dbContext.SaveChangesAsync();
-        return Ok(rule);
-    }
-
-    [HttpDelete("similarity-rules/{id}")]
-    public async Task<IActionResult> DeleteSimilarityRule(Guid id)
-    {
-        var rule = await _dbContext.SimilarityRules.FindAsync(id);
-        if (rule == null) return NotFound();
-        _dbContext.SimilarityRules.Remove(rule);
-        await _dbContext.SaveChangesAsync();
-        return NoContent();
-    }
 }
 
 public class CreateDirectiveRequest
