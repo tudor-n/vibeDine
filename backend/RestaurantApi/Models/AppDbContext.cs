@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<RestaurantTable> Tables => Set<RestaurantTable>();
     public DbSet<FlashDealOffer> FlashDealOffers => Set<FlashDealOffer>();
     public DbSet<AIDirective> AIDirectives => Set<AIDirective>();
+    public DbSet<SimilarityRule> SimilarityRules { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
