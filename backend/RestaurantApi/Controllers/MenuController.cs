@@ -41,7 +41,7 @@ public class MenuController: ControllerBase
             }).ToList()
         }).ToListAsync();
   
-     return Ok(availableProducts);
+     return Ok(new { categories = availableProducts });
     }
 
     [HttpGet("{categoryId:guid}")]

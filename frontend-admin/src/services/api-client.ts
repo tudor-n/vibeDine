@@ -1,7 +1,7 @@
-import type { AdminAIConfig, SimilarityRule, DailyMetrics } from '@shared/types/models'
+import type { AIDirective, SimilarityRule , DailyMetrics } from '@shared/types/models';
 
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}${endpoint}`, {
@@ -29,21 +29,37 @@ export const apiClient = {
         fetcher<DailyMetrics>('/api/admin/metrics'),
 
     getDirectives: () => 
-        fetcher<AdminAIConfig[]>('/api/admin/directives'),
+        fetcher<AIDirective[]>('/api/admin/directives'),
 
     postDirective: (prompt: string) => 
-        fetcher<AdminAIConfig>('/api/admin/directives', {
+        fetcher<AIDirective>('/api/admin/directives', {
       method: 'POST',
-      body: JSON.stringify({ raw_prompt: prompt }),
+      body: JSON.stringify({ rawPrompt: prompt }),
     }),
 
     toggleActiveDirective: (id: string, isActive: boolean) =>
         fetcher<void>(`/api/admin/directives/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ is_active: isActive })
+      body: JSON.stringify({ isActive: isActive })
     }),
 
    
     getSimilarityRules: () => 
         fetcher<SimilarityRule[]>('/api/admin/similarity-rules'),
+
+    postSimilarityRule: (rulePayload: any) => 
+        fetcher<SimilarityRule>('/api/admin/similarity-rules', {
+          method: 'POST',
+          body: JSON.stringify(rulePayload)
+        }),
+
+    deleteSimilarityRule: (id: string) =>
+        fetcher<void>(`/api/admin/similarity-rules/${id}`, {
+            method: 'DELETE'
+        }),
+
+    autoGenerateRules: () =>
+        fetcher<SimilarityRule[]>('/api/admin/similarity-rules/generate', {
+            method: 'POST'
+        })
 }

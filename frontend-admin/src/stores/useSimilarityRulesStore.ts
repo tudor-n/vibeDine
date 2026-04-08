@@ -31,12 +31,10 @@ export const useSimilarityRulesStore = defineStore('similarityRules', () => {
     async function addRule(newRulePayload: any) {
         try{
             isLoading.value = true;
-            // Notă: Va trebui să adăugăm `postSimilarityRule` în api-client.ts 
-      // const createdRule = await apiClient.postSimilarityRule(newRulePayload)
-      // rules.value.push(createdRule)
-      
-      // Momentan doar facem un refetch ca să fim siguri că avem datele corecte
-            await fetchRules();
+
+            const createdRule = await apiClient.postSimilarityRule(newRulePayload);
+            rules.value.push(createdRule);
+            
         }catch(err){
             console.error('Eroare la adăugarea regulii:', err);
             throw err
@@ -46,17 +44,28 @@ export const useSimilarityRulesStore = defineStore('similarityRules', () => {
     }
 
     async function deleteRule(ruleId: string) {
+        try {
+            isLoading.value = true;
+            await apiClient.deleteSimilarityRule(ruleId);
+            rules.value = rules.value.filter(r => r.id !== ruleId);
+        } catch(err) {
+            console.error('Eroare la ștergerea regulii:', err);
+            throw err;
+        } finally {
+            isLoading.value = false;
+        }
+    }
+
+    async function autoGenerate(){
         try{
             isLoading.value = true;
-            // Notă: Va trebui să adăugăm `deleteSimilarityRule` în api-client.ts
-            // await apiClient.deleteSimilarityRule(ruleId)
-
-            rules.value = rules.value.filter(r => r.id!== ruleId)
+            await apiClient.autoGenerateRules();
+            await fetchRules();
         }catch(err){
-            console.error('Eroare la ștergerea regulii:', err);
-            throw err
+            console.error('Eroare la autogenerarea regulilor:', err);
+            throw err;
         }finally{
-            isLoading.value = false
+            isLoading.value = false;
         }
     }
 
@@ -67,7 +76,8 @@ export const useSimilarityRulesStore = defineStore('similarityRules', () => {
     error, 
     fetchRules, 
     addRule, 
-    deleteRule 
+    deleteRule,
+    autoGenerate
   }
     
 
