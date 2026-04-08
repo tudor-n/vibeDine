@@ -45,7 +45,7 @@ const handleNewPrompt = async (prompt: string) => {
       </div>
       
       <div v-else-if="directivesStore.activeDirective" class="bg-white p-4 rounded border border-gray-100 shadow-sm text-gray-800 italic">
-        "{{ directivesStore.activeDirective.raw_prompt }}"
+        "{{ directivesStore.activeDirective.rawPrompt }}"
       </div>
       
       <div v-else class="text-gray-500 italic">

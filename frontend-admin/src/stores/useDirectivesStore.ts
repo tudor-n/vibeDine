@@ -3,14 +3,13 @@ import { ref, computed} from 'vue';
 import { apiClient } from '@/services/api-client'
 import type { AIDirective } from "@shared/types/models";
 
-
 export const useDirectivesStore = defineStore('directives', () => {
 
     const directives = ref<AIDirective[]>([]);
     const isLoading = ref(false);
 
     const activeDirective = computed(() => 
-        directives.value.find(d => d.isActive) || null
+        directives.value.find((d: any) => d.isActive) || null
     )
 
     async function fetchDirectives() {
