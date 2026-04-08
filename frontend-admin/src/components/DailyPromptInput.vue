@@ -6,7 +6,7 @@ const emit = defineEmits<{
     (e: 'submit', prompt: string): void;
 }>();
 
-const porps = defineProps<{
+const props = defineProps<{
     isLoading: boolean;
 }>();
 

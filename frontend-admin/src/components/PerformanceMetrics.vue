@@ -10,10 +10,9 @@ const props = defineProps<{
 const claimRate = computed(() => {
     if(!props.metrics || !props.metrics.flashDealsShown) return 0
 
-    const rate = (props.metrics.flashDealsClaimed / props.metrics.flashDealsShow) * 100;
+    const rate = (props.metrics.flashDealsClaimed / props.metrics.flashDealsShown) * 100;
     return rate.toFixed(1);
 })
-
 
 </script>
 

@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<FlashDealOffer> FlashDealOffers => Set<FlashDealOffer>();
     public DbSet<AIDirective> AIDirectives => Set<AIDirective>();
+    public DbSet<SimilarityRule> SimilarityRules => Set<SimilarityRule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -129,6 +130,29 @@ public class AppDbContext : DbContext
             e.Property(a => a.ParsedRules).HasColumnName("parsed_rules").HasColumnType("jsonb");
             e.Property(a => a.CreatedAt).HasColumnName("created_at");
             e.Property(a => a.IsActive).HasColumnName("is_active");
+        });
+
+        // ── SimilarityRules ──────────────────────────────────────────────────
+        modelBuilder.Entity<SimilarityRule>(e =>
+        {
+            e.ToTable("similarity_rules");
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasColumnName("id");
+            e.Property(s => s.ProductAId).HasColumnName("product_a_id");
+            e.Property(s => s.ProductBId).HasColumnName("product_b_id");
+            e.Property(s => s.Score).HasColumnName("score").HasColumnType("decimal(5,4)");
+            e.Property(s => s.RuleType).HasColumnName("rule_type");
+            e.Property(s => s.CreatedAt).HasColumnName("created_at");
+
+            e.HasOne(s => s.ProductA)
+             .WithMany()
+             .HasForeignKey(s => s.ProductAId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(s => s.ProductB)
+             .WithMany()
+             .HasForeignKey(s => s.ProductBId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

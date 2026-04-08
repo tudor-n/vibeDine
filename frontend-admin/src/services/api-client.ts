@@ -1,6 +1,5 @@
 import type { AIDirective, SimilarityRule , DailyMetrics } from '@shared/types/models';
 
-
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -40,10 +39,9 @@ export const apiClient = {
     toggleActiveDirective: (id: string, isActive: boolean) =>
         fetcher<void>(`/api/admin/directives/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ isActive: isActive })
+      body: JSON.stringify(isActive)
     }),
 
-   
     getSimilarityRules: () => 
         fetcher<SimilarityRule[]>('/api/admin/similarity-rules'),
 

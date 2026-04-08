@@ -245,45 +245,54 @@ public class CustomerController : ControllerBase
         return Ok(new {message = "Flash deal successfully added to your order!" });
     }
    
-   
-     [HttpGet("orders/{id:guid}/recommendations")]
-     public async Task <IActionResult> GetRecommendation (Guid id)
+    [HttpGet("orders/{id:guid}/recommendations")]
+    public async Task<IActionResult> GetRecommendation(Guid id)
     {
         var order = await _context.Orders.FindAsync(id);
 
-        if (order==null)
+        if (order == null)
         {
-         return NotFound(new { message = "Order not found." });
+            return NotFound(new { message = "Order not found." });
         }
 
         var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id);
 
-       if(rawRecommendations == null || !rawRecommendations.Any())
+        if (rawRecommendations == null || !rawRecommendations.Any())
         {
-          return Ok(new {pairings = new List<object>(), upsells = new List<object>(), flash_deal = (object)null});        
-          }
+            return Ok(new { pairings = new List<object>(), upsells = new List<object>(), flash_deal = (object?)null });        
+        }
 
-        var recommendedProductIds = rawRecommendations.Select(r => r.ProductId).ToList();
+        // Safely convert string ProductIds from AI into valid Guids for the database query
+        var recommendedProductIds = rawRecommendations
+            .Select(r => Guid.TryParse(r.ProductId, out var guid) ? guid : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .ToList();
+
         var products = await _context.Products
             .Where(p => recommendedProductIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id);
 
         var mappedItems = rawRecommendations
-            .Where(r => products.ContainsKey(r.ProductId))
-            .Select(r => new
+            .Where(r => Guid.TryParse(r.ProductId, out var g) && products.ContainsKey(g))
+            .Select(r => 
             {
-                reason = r.Reason,
-                confidence = r.Confidence,
-                menu_item = new
+                var pId = Guid.Parse(r.ProductId);
+                return new
                 {
-                    id = products[r.ProductId].Id,
-                    name = products[r.ProductId].Name,
-                    price = products[r.ProductId].Price,
-                    image_url = products[r.ProductId].ImageUrl 
-                }
+                    reason = r.Reason,
+                    confidence = r.Confidence,
+                    menu_item = new
+                    {
+                        id = products[pId].Id,
+                        name = products[pId].Name,
+                        price = products[pId].Price,
+                        image_url = products[pId].ImageUrl 
+                    }
+                };
             })
             .OrderByDescending(r => r.confidence)
             .ToList();
+            
         var splitIndex = mappedItems.Count / 2;
         var pairings = mappedItems.Take(splitIndex).ToList();
         var upsells = mappedItems.Skip(splitIndex).ToList();
@@ -293,7 +302,7 @@ public class CustomerController : ControllerBase
             .Where(d => d.OrderId == id && d.Status == "pending" && d.ExpiresAt > DateTime.UtcNow)
             .FirstOrDefaultAsync();
 
-        object flashDealResponse = null;
+        object? flashDealResponse = null;
         if (activeFlashDeal != null && activeFlashDeal.Product != null)
         {
             flashDealResponse = new 
@@ -318,5 +327,4 @@ public class CustomerController : ControllerBase
             flash_deal = flashDealResponse
         });
     }
-     
 }
