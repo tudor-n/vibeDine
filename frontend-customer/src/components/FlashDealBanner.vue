@@ -75,13 +75,13 @@ const claimDeal = async () => {
 
 
     const productToAdd: Product = {
-      id: deal.menu_item.id,
-      category_id: '',
-      name: `${deal.menu_item.name} (⚡ Flash Deal)`,
+      id: deal.menuItem.id,
+      categoryId: '',
+      name: `${deal.menuItem.name} (⚡ Flash Deal)`,
       description: deal.reason,
-      price: deal.discounted_price,
-      image_url: deal.menu_item.image_url,
-      is_available: true
+      price: deal.discountedPrice,
+      imageUrl: deal.menuItem.imageUrl,
+      isAvailable: true
     }
 
     cartStore.addLocalItemOnly(productToAdd)

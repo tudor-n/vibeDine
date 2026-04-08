@@ -22,13 +22,11 @@ const totalItems = computed(() => {
 })
 
 onMounted(async () => {
-
-  const tokenFromUrl = (route.params.qrToken as string) || '11111111-1111-1111-1111-111111111111'
+  const tokenFromUrl = (route.params.qrToken as string) || 'aaaaaaaa-0000-0000-0000-000000000001'
 
   if (!sessionStore.tableId || sessionStore.qrToken !== tokenFromUrl) {
     try {
       await sessionStore.initializeSession(tokenFromUrl)
-      console.log('Sesiune inițializată!', sessionStore.orderId)
     } catch (e) {
       console.error('Nu am putut inițializa sesiunea', e)
     }
@@ -65,7 +63,7 @@ onMounted(async () => {
       >
         Vezi Comanda
       </button>
-    </div>
+    </div>const tokenFromUrl = (route.params.qrToken as string) || 'aaaaaaaa-0000-0000-0000-000000000001'
 
     <div
       v-if="isCartModalOpen"

@@ -1,6 +1,7 @@
 import type { AIDirective, SimilarityRule , DailyMetrics } from '@shared/types/models';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5005';
+const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
+const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE_URL}${endpoint}`, {

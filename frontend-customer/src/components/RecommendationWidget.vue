@@ -10,13 +10,13 @@ const cartStore = useCartStore()
 const addToCart = (rec: Recommendation) => {
 
   const productToAdd: Product = {
-    id: rec.menu_item.id,
-    category_id: '',
-    name: rec.menu_item.name,
+    id: rec.menuItem.id,
+    categoryId: '',
+    name: rec.menuItem.name,
     description: rec.reason,
-    price: rec.menu_item.price,
-    image_url: rec.menu_item.image_url || '',
-    is_available: true
+    price: rec.menuItem.price,
+    imageUrl: rec.menuItem.imageUrl || '',
+    isAvailable: true
   }
   cartStore.addItem(productToAdd)
 }
