@@ -259,7 +259,7 @@ public class CustomerController : ControllerBase
 
         if (rawRecommendations == null || !rawRecommendations.Any())
         {
-            return Ok(new { pairings = new List<object>(), upsells = new List<object>(), flash_deal = (object?)null });        
+            return Ok(new { pairings = new List<object>(), upsells = new List<object>(), flashDeal = (object?)null });        
         }
 
         // Safely convert string ProductIds from AI into valid Guids for the database query
@@ -281,12 +281,12 @@ public class CustomerController : ControllerBase
                 {
                     reason = r.Reason,
                     confidence = r.Confidence,
-                    menu_item = new
+                    menuItem = new
                     {
                         id = products[pId].Id,
                         name = products[pId].Name,
                         price = products[pId].Price,
-                        image_url = products[pId].ImageUrl 
+                        imageUrl = products[pId].ImageUrl 
                     }
                 };
             })
@@ -308,14 +308,14 @@ public class CustomerController : ControllerBase
             flashDealResponse = new 
             {
                 id = activeFlashDeal.Id,
-                discount_price = activeFlashDeal.DiscountPrice,
-                expires_at = activeFlashDeal.ExpiresAt,
-                menu_item = new 
+                discountPrice = activeFlashDeal.DiscountPrice,
+                expiresAt = activeFlashDeal.ExpiresAt,
+                menuItem = new 
                 {
                     id = activeFlashDeal.Product.Id,
                     name = activeFlashDeal.Product.Name,
                     price = activeFlashDeal.Product.Price,
-                    image_url = activeFlashDeal.Product.ImageUrl
+                    imageUrl = activeFlashDeal.Product.ImageUrl
                 }
             };
         }
@@ -324,7 +324,7 @@ public class CustomerController : ControllerBase
         {
             pairings = pairings,
             upsells = upsells,
-            flash_deal = flashDealResponse
+            flashDeal = flashDealResponse
         });
     }
 }

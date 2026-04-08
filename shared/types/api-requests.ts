@@ -1,49 +1,49 @@
 import type { UUID, SimilarityRelationship, FlashDealConfig } from '../types/models';
 
 export interface CreateOrderRequest {
-  table_id: UUID;
+  tableId: UUID;
 }
 
 export interface UpdateOrderItemsRequest {
   items: {
-    product_id: UUID;
+    productId: UUID;
     quantity: number;
   }[];
 }
 
 
 export interface ClaimFlashDealRequest {
-  selected_modifiers?: {
-    modifier_id: UUID;
-    option_id: UUID;
+  selectedModifiers?: {
+    modifierId: UUID;
+    optionId: UUID;
   }[];
 }
 
 
 export interface PostAdminAIConfigRequest {
-  daily_prompt: string;
-  promoted_items: UUID[];
-  suppressed_items: UUID[];
-  flash_deal_config: FlashDealConfig;
+  dailyPrompt: string;
+  promotedItems: UUID[];
+  suppressedItems: UUID[];
+  flashDealConfig: FlashDealConfig;
 }
 
 
 export interface CreateSimilarityRuleRequest {
-  source_item_id: UUID | null;
-  source_category_id: UUID | null;
-  target_item_id: UUID;
+  sourceItemId: UUID | null;
+  sourceCategoryId: UUID | null;
+  targetItemId: UUID;
   relationship: SimilarityRelationship;
   weight?: number;
 }
 
 export interface AutoGenerateSimilarityRulesRequest {
-  min_co_occurrence?: number;
-  lookback_days?: number;
+  minCoOccurrence?: number;
+  lookbackDays?: number;
 }
 
 
 export interface TriggerFlashDealRequest {
-  product_id: UUID;
-  discount_percent: number;
-  countdown_seconds: number;
+  productId: UUID;
+  discountPercent: number;
+  countdownSeconds: number;
 }
