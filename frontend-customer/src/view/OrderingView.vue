@@ -63,7 +63,7 @@ onMounted(async () => {
       >
         Vezi Comanda
       </button>
-    </div>const tokenFromUrl = (route.params.qrToken as string) || 'aaaaaaaa-0000-0000-0000-000000000001'
+    </div>
 
     <div
       v-if="isCartModalOpen"
