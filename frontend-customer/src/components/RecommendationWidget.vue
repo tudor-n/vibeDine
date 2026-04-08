@@ -13,12 +13,12 @@ const addToCart = (rec: Recommendation) => {
     id: rec.menuItem.id,
     categoryId: '',
     name: rec.menuItem.name,
-    description: rec.reason,
+    description: rec.menuItem.description || '',
     price: rec.menuItem.price,
     imageUrl: rec.menuItem.imageUrl || '',
     isAvailable: true
   }
-  cartStore.addItem(productToAdd)
+  cartStore.addRecommendedItem(productToAdd)
 }
 </script>
 

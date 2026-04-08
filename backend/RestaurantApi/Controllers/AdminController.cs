@@ -143,18 +143,55 @@ public class AdminController : ControllerBase
         var claimedDeals = await _dbContext.FlashDealOffers.CountAsync(d=>d.Status=="claimed");
         var expiredDeals = await _dbContext.FlashDealOffers.CountAsync(d=>d.Status=="expired");
 
-        var upSellRevenue = await _dbContext.OrderItems
-        .Where(i=>i.IsFlashDealItem==true)
-        .SumAsync(i => i.Quantity * i.UnitPriceAtPurchase);
+        var upsellRevenue = await _dbContext.OrderItems
+        .Where(i=>i.WasAiRecommended==true)
+        .SumAsync(i => (decimal?)(i.Quantity * i.UnitPriceAtPurchase)) ?? 0;
 
+        var flashDealRevenue = await _dbContext.OrderItems
+        .Where(i=>i.IsFlashDealItem==true)
+        .SumAsync(i => (decimal?)(i.Quantity * i.UnitPriceAtPurchase)) ?? 0;
 
         return Ok(new
         {
            flashDealsShown = totalDeals,        
            flashDealsClaimed = claimedDeals,    
            flashDealsExpired = expiredDeals,    
-           upsellRevenue = upSellRevenue 
+           upsellRevenue = upsellRevenue,
+           flashDealRevenue = flashDealRevenue
         });
+    }
+
+    [HttpGet("orders")]
+    public async Task<IActionResult> GetOrders([FromQuery] int limit = 100)
+    {
+        var orders = await _dbContext.Orders
+            .Include(o => o.Table)
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+            .OrderByDescending(o => o.CreatedAt)
+            .Take(limit)
+            .Select(o => new
+            {
+                id = o.Id,
+                status = o.Status,
+                paymentStatus = o.PaymentStatus,
+                totalAmount = o.TotalAmount,
+                createdAt = o.CreatedAt,
+                tableNumber = o.Table != null ? o.Table.TableNumber : "?",
+                items = o.Items.Select(i => new
+                {
+                    id = i.Id,
+                    productName = i.Product != null ? i.Product.Name : "Produs șters",
+                    quantity = i.Quantity,
+                    unitPrice = i.UnitPriceAtPurchase,
+                    subtotal = i.Quantity * i.UnitPriceAtPurchase,
+                    wasAiRecommended = i.WasAiRecommended ?? false,
+                    isFlashDealItem = i.IsFlashDealItem ?? false
+                }).ToList()
+            })
+            .ToListAsync();
+
+        return Ok(orders);
     }
 
     [HttpGet("flash-deals")]

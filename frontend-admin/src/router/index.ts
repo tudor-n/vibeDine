@@ -20,6 +20,12 @@ const router = createRouter({
             path: '/rules',
             name: 'rules',
             component: () => import('@/views/RulesManagementView.vue')
+        },
+
+        {
+            path: '/orders',
+            name: 'orders',
+            component: () => import('@/views/OrdersLogView.vue')
         }
     ]
 })

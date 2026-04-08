@@ -28,6 +28,9 @@ export const apiClient = {
     getMetrics: () => 
         fetcher<DailyMetrics>('/api/admin/metrics'),
 
+    getOrders: (limit = 100) =>
+        fetcher<any[]>(`/api/admin/orders?limit=${limit}`),
+
     getDirectives: () => 
         fetcher<AIDirective[]>('/api/admin/directives'),
 
@@ -58,7 +61,7 @@ export const apiClient = {
         }),
 
     autoGenerateRules: () =>
-        fetcher<SimilarityRule[]>('/api/admin/similarity-rules/generate', {
+        fetcher<SimilarityRule[]>('/api/admin/similarity-rules/auto-generate', {
             method: 'POST'
         })
 }

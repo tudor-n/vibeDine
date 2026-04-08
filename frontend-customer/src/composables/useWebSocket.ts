@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import type { FlashDeal } from '@shared/types/models'
@@ -15,8 +15,7 @@ export function useWebSocket() {
   let socket: WebSocket | null = null
 
   function connect() {
-    if (!sessionStore.tableId || socket) return
-
+    if (socket) return  // already connected, don't check tableId here
 
     const socketUrl = `${BASE_WS_URL}/hubs/customer?token=${sessionStore.qrToken}`
 
@@ -53,26 +52,28 @@ export function useWebSocket() {
           if (data.type === 1 && data.target) {
             if (data.target === 'FlashDealAvailable') {
               const raw = data.arguments[0]
-              // Step 3: map backend payload to FlashDeal shape
+
               const newDeal: FlashDeal = {
                 id: raw.dealId,
-                menuItemId: raw.dealId,
+                menuItemId: raw.productId,
                 menuItem: {
-                  id: raw.dealId,
+                  id: raw.productId,
                   name: raw.productName,
-                  price: raw.discountPrice,
+                  price: raw.originalPrice,
                   imageUrl: null
                 },
-                discountPercent: 0,
+                discountPercent: raw.discountPercent || 20,
                 discountedPrice: raw.discountPrice,
                 trigger: 'post_order',
                 countdownSeconds: 120,
                 expiresAt: raw.expiresAt,
-                reason: 'Ofertă specială!',
+                reason: 'Ofertă specială pentru comanda ta!',
                 isActive: true,
                 createdAt: new Date().toISOString()
               }
-              flashDealStore.setActiveDeal(newDeal)
+
+              // Store the orderId the deal belongs to separately
+              flashDealStore.setActiveDeal(newDeal, raw.orderId)
             }
 
             if (data.target === 'FlashDealExpired') {
@@ -89,7 +90,9 @@ export function useWebSocket() {
       console.log('Conexiune WebSocket închisă.')
       isConnected.value = false
       socket = null
-      setTimeout(connect, 5000)
+      setTimeout(() => {
+        if (sessionStore.tableId) connect()
+      }, 5000)
     }
 
     socket.onerror = (error) => {
@@ -103,9 +106,16 @@ export function useWebSocket() {
     }
   }
 
-  onMounted(() => {
-    connect()
-  })
+  // Key fix: watch tableId instead of connecting blindly in onMounted
+  watch(
+    () => sessionStore.tableId,
+    (tableId) => {
+      if (tableId && !socket) {
+        connect()
+      }
+    },
+    { immediate: true }
+  )
 
   onUnmounted(() => {
     disconnect()

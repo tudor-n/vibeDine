@@ -33,7 +33,13 @@ async function submitOrder() {
 
     submitSuccess.value = true
     cartStore.clearCart()
-    // Don't touch orderId here — OrderingView will re-init on next mount
+
+    // Immediately get a fresh draft order so the stale submitted orderId
+    // doesn't block subsequent add-to-cart / submit calls if the user
+    // closes the cart modal (which unmounts this component and loses submitSuccess).
+    if (sessionStore.qrToken) {
+      await sessionStore.initializeSession(sessionStore.qrToken).catch(() => {})
+    }
 
   } catch (error) {
     if (error instanceof Error) {
