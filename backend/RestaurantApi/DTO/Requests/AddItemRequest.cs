@@ -21,4 +21,5 @@ public class OrderItemRequest
 {
     public Guid ProductId {get;set;}
     public int Quantity{get;set;}
+    public bool WasAiRecommended { get; set; } = false;
 }

@@ -145,7 +145,8 @@ public class CustomerController : ControllerBase
             
             if (existingItem != null)
             {
-                existingItem.Quantity = reqItem.Quantity; 
+                existingItem.Quantity = reqItem.Quantity;
+                // Don't overwrite WasAiRecommended — it's set on first add
             }
             else
             {
@@ -156,7 +157,8 @@ public class CustomerController : ControllerBase
                     ProductId = product.Id,
                     Quantity = reqItem.Quantity,
                     UnitPriceAtPurchase = product.Price,
-                    IsFlashDealItem = false
+                    IsFlashDealItem = false,
+                    WasAiRecommended = reqItem.WasAiRecommended
                 };
                 _context.OrderItems.Add(newItem);
                 order.Items.Add(newItem);
@@ -235,14 +237,21 @@ public class CustomerController : ControllerBase
     [HttpPost("orders/{orderId:guid}/claim-deal/{dealId:guid}")]
     public async Task <IActionResult> ClaimFlashDeal (Guid orderId, Guid dealId)
     {
-        var success = await _flashDealService.ClaimDealAsync(orderId, dealId);
-
-        if(!success)
+        try
         {
-            return BadRequest(new {message ="Deal is invalid, expired, or already claimed."});
-        }
+            var success = await _flashDealService.ClaimDealAsync(orderId, dealId);
 
-        return Ok(new {message = "Flash deal successfully added to your order!" });
+            if(!success)
+            {
+                return BadRequest(new {message ="Deal is invalid, expired, or already claimed."});
+            }
+
+            return Ok(new {message = "Flash deal successfully added to your order!" });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = $"Internal error claiming deal: {ex.Message}" });
+        }
     }
    
     [HttpGet("orders/{id:guid}/recommendations")]

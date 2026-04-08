@@ -8,6 +8,7 @@ export interface UpdateOrderItemsRequest {
   items: {
     productId: UUID;
     quantity: number;
+    wasAiRecommended?: boolean;
   }[];
 }
 
