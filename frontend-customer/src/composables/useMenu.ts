@@ -1,0 +1,83 @@
+import { ref, computed } from 'vue'
+import { apiClient } from '@/services/api-client'
+import type { Category, Product } from '@shared/types/models'
+
+const categories = ref<Category[]>([])
+const products = ref<Product[]>([])
+const isLoading = ref(false)
+const error = ref<string | null>(null)
+let loadPromise: Promise<void> | null = null
+
+async function load() {
+  if (loadPromise) return loadPromise
+  loadPromise = (async () => {
+    try {
+      isLoading.value = true
+      error.value = null
+
+      const response = await apiClient.getMenu()
+
+      categories.value = response.categories
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          // Tolerate both camelCase and snake_case shapes returned by the API.
+          sortOrder:
+            (c as { sortOrder?: number; sort_order?: number }).sortOrder ??
+            (c as { sortOrder?: number; sort_order?: number }).sort_order ??
+            0,
+        }))
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+
+      const all: Product[] = []
+      for (const cat of response.categories) {
+        const items = (cat as unknown as { products?: unknown[] }).products
+        if (!Array.isArray(items)) continue
+        for (const p of items as Array<Record<string, unknown>>) {
+          all.push({
+            id: p.id as string,
+            categoryId: cat.id,
+            name: p.name as string,
+            description: (p.description as string) ?? '',
+            price: p.price as number,
+            imageUrl:
+              (p.imageUrl as string) ??
+              (p.image_url as string) ??
+              null,
+            isAvailable:
+              p.isAvailable !== undefined
+                ? Boolean(p.isAvailable)
+                : p.is_available !== undefined
+                  ? Boolean(p.is_available)
+                  : true,
+          })
+        }
+      }
+      products.value = all
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Eroare la încărcarea meniului.'
+      loadPromise = null
+      throw e
+    } finally {
+      isLoading.value = false
+    }
+  })()
+  return loadPromise
+}
+
+function productsByCategory(categoryId: string) {
+  return products.value.filter((p) => p.categoryId === categoryId)
+}
+
+export function useMenu() {
+  return {
+    categories,
+    products,
+    isLoading,
+    error,
+    load,
+    productsByCategory,
+    countByCategory: (categoryId: string) =>
+      computed(() => productsByCategory(categoryId).length),
+  }
+}

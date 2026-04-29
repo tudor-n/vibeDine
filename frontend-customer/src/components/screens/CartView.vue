@@ -1,0 +1,314 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { toneFromKey } from '@/design/tokens'
+import { useTheme } from '@/composables/useTheme'
+import { useCartStore } from '@/stores/useCartStore'
+import { useSessionStore } from '@/stores/useSessionStore'
+import { apiClient } from '@/services/api-client'
+import PhoneScreen from '@/components/ui/PhoneScreen.vue'
+import BigButton from '@/components/ui/BigButton.vue'
+import FoodTile from '@/components/ui/FoodTile.vue'
+
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'submitted'): void
+}>()
+
+const cartStore = useCartStore()
+const sessionStore = useSessionStore()
+const { tokens: T, theme } = useTheme()
+
+const isSubmitting = ref(false)
+const submitError = ref<string | null>(null)
+
+const tableLabel = computed(() => {
+  const id = sessionStore.tableId
+  if (!id) return 'Masa'
+  const tail = id.slice(-2).replace(/^0+/, '') || id.slice(-2)
+  return `Masa ${tail}`
+})
+
+const itemCount = computed(() =>
+  cartStore.items.reduce((sum, i) => sum + i.quantity, 0),
+)
+
+const prepEstimate = computed(() => {
+  // Rough heuristic: 8 minutes base + 2 min per item.
+  return Math.max(12, 8 + itemCount.value * 2)
+})
+
+async function submit() {
+  if (!sessionStore.orderId) {
+    submitError.value = 'Sesiunea nu este validă.'
+    return
+  }
+  if (cartStore.items.length === 0) {
+    submitError.value = 'Coșul este gol.'
+    return
+  }
+  try {
+    isSubmitting.value = true
+    submitError.value = null
+    await apiClient.submitOrder(sessionStore.orderId)
+    emit('submitted')
+  } catch (e) {
+    submitError.value = e instanceof Error ? e.message : 'Eroare la trimitere.'
+  } finally {
+    isSubmitting.value = false
+  }
+}
+</script>
+
+<template>
+  <PhoneScreen :theme="theme">
+    <div class="header">
+      <div class="status-table" :style="{ color: T.ink70 }">{{ tableLabel }}</div>
+      <div class="title">Comanda mea</div>
+      <button
+        class="close-btn"
+        :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink }"
+        aria-label="Închide"
+        @click="emit('close')"
+      >✕</button>
+    </div>
+
+    <div class="scroll">
+    <p class="lede" :style="{ color: T.ink70 }">
+      <template v-if="cartStore.items.length > 0">
+        {{ itemCount }} {{ itemCount === 1 ? 'preparat selectat' : 'preparate selectate' }}
+        · pregătire aproximativ {{ prepEstimate }} de minute
+      </template>
+      <template v-else>
+        Coșul este gol. Adăugați preparate din meniu.
+      </template>
+    </p>
+
+    <div v-if="cartStore.items.length > 0" class="items">
+      <div
+        v-for="it in cartStore.items"
+        :key="it.id"
+        class="item"
+        :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
+      >
+        <FoodTile
+          :tone="toneFromKey(it.id)"
+          :image="it.imageUrl"
+          :radius="14"
+          class="item-tile"
+        />
+        <div class="item-body">
+          <div class="item-name">{{ it.name }}</div>
+          <div class="item-row">
+            <div class="item-price">
+              {{ it.price * it.quantity }}
+              <span class="item-price-unit" :style="{ color: T.ink70 }">RON</span>
+            </div>
+            <div
+              class="stepper"
+              :style="{ background: T.paper, border: `1px solid ${T.ink12}` }"
+            >
+              <button
+                class="stepper-btn"
+                :style="{ color: T.ink70 }"
+                aria-label="Scade cantitatea"
+                @click="cartStore.removeItem(it.id)"
+              >−</button>
+              <span class="qty">{{ it.quantity }}</span>
+              <button
+                class="stepper-btn"
+                :style="{ color: T.accent }"
+                aria-label="Crește cantitatea"
+                @click="cartStore.addItem(it)"
+              >+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="cartStore.items.length > 0" class="summary-wrap">
+      <div class="summary" :style="{ background: T.card, border: `1px solid ${T.ink12}` }">
+        <div class="row" :style="{ color: T.ink70 }">
+          <span>Subtotal</span><span>{{ cartStore.total }} RON</span>
+        </div>
+        <div class="row" :style="{ color: T.ink70 }">
+          <span>Serviciu</span><span>inclus</span>
+        </div>
+        <div class="total" :style="{ borderTop: `1px solid ${T.ink12}` }">
+          <span class="total-label">Total</span>
+          <span class="total-value">
+            {{ cartStore.total }}
+            <span class="total-unit" :style="{ color: T.ink70 }">RON</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="submitError"
+      class="error"
+      :style="{ background: `${T.accent}1F`, color: T.accentDk }"
+    >{{ submitError }}</div>
+    </div>
+
+    <div v-if="cartStore.items.length > 0" class="cta">
+      <BigButton :theme="theme" :disabled="isSubmitting" @click="submit">
+        <span>{{ isSubmitting ? 'Se trimite...' : 'Trimite la bucătărie' }}</span>
+      </BigButton>
+    </div>
+  </PhoneScreen>
+</template>
+
+<style scoped>
+.header {
+  padding: 10px 22px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.status-table {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+}
+.title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+.close-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  cursor: pointer;
+  flex: 1;
+  font-family: inherit;
+  max-width: 44px;
+}
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 130px;
+}
+.lede {
+  font-size: 16px;
+  margin: 0 22px 16px;
+  line-height: 1.45;
+}
+.items {
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.item {
+  border-radius: 22px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 14px;
+}
+.item-tile {
+  width: 68px;
+  height: 68px;
+}
+.item-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+.item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.item-price {
+  font-size: 22px;
+  font-weight: 700;
+}
+.item-price-unit {
+  font-size: 14px;
+  font-weight: 500;
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+}
+.stepper-btn {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.qty {
+  width: 28px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+}
+.summary-wrap {
+  padding: 16px 22px 0;
+}
+.summary {
+  border-radius: 20px;
+  padding: 16px 18px;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+.row + .row {
+  margin-bottom: 12px;
+}
+.total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 12px;
+}
+.total-label {
+  font-size: 18px;
+  font-weight: 600;
+}
+.total-value {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.total-unit {
+  font-size: 16px;
+  font-weight: 600;
+}
+.error {
+  margin: 12px 22px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+.cta {
+  position: absolute;
+  bottom: 28px;
+  left: 18px;
+  right: 18px;
+}
+</style>

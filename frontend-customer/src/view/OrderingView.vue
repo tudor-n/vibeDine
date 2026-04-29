@@ -3,98 +3,227 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { useWebSocket } from '@/composables/useWebSocket'
-import MenuList from '@/components/MenuList.vue'
-import Cart from '@/components/Cart.vue';
-import FlashDealBanner from '@/components/FlashDealBanner.vue';
-import RecommendationWidget from '@/components/RecommendationWidget.vue';
+import { useTheme } from '@/composables/useTheme'
+
+import WelcomeView from '@/components/screens/WelcomeView.vue'
+import PebblesView from '@/components/screens/PebblesView.vue'
+import MenuView from '@/components/screens/MenuView.vue'
+import CartView from '@/components/screens/CartView.vue'
+import FlashDealView from '@/components/screens/FlashDealView.vue'
+import OrderSentView from '@/components/screens/OrderSentView.vue'
+
+type Screen = 'welcome' | 'pebbles' | 'menu' | 'cart' | 'sent'
 
 const route = useRoute()
 const cartStore = useCartStore()
 const sessionStore = useSessionStore()
+const flashDealStore = useFlashDealStore()
+const { theme, tokens: T, toggle: toggleTheme } = useTheme()
 
 useWebSocket()
 
-const isCartModalOpen = ref(false)
-
-const totalItems = computed(() => {
-  return cartStore.items.reduce((sum, item) => sum + item.quantity, 0)
-})
+const screen = ref<Screen>('welcome')
+const activeCategoryId = ref<string | null>(null)
+const lastTotal = ref(0)
 
 onMounted(async () => {
   const tokenFromUrl = (route.params.qrToken as string) || 'aaaaaaaa-0000-0000-0000-000000000001'
-
-  // Always re-initialize: backend returns existing draft or creates new one
   try {
     await sessionStore.initializeSession(tokenFromUrl)
   } catch (e) {
     console.error('Nu am putut inițializa sesiunea', e)
   }
 })
+
+function openMenu() { screen.value = 'pebbles' }
+function openCategory(id: string) {
+  activeCategoryId.value = id
+  screen.value = 'menu'
+}
+function backToPebbles() { screen.value = 'pebbles' }
+function openCart() { screen.value = 'cart' }
+function backFromCart() { screen.value = 'menu' }
+
+async function handleSubmitted() {
+  lastTotal.value = cartStore.total
+  cartStore.clearCart()
+  screen.value = 'sent'
+  // Refresh the draft order so the next round of ordering has a fresh id.
+  if (sessionStore.qrToken) {
+    sessionStore.initializeSession(sessionStore.qrToken).catch(() => undefined)
+  }
+}
+
+function orderAgain() {
+  activeCategoryId.value = null
+  screen.value = 'pebbles'
+}
+
+const flashOverlayActive = computed(() => Boolean(flashDealStore.activeDeal))
 </script>
 
-
 <template>
-  <FlashDealBanner />
-  <div class="min-h-screen bg-gray-50 pb-24 relative">
+  <div class="stage" :style="{ background: T.paper }">
+    <div class="phone-frame">
+      <Transition name="fade" mode="out-in">
+        <WelcomeView
+          v-if="screen === 'welcome'"
+          key="welcome"
+          @open-menu="openMenu"
+        />
+        <PebblesView
+          v-else-if="screen === 'pebbles'"
+          key="pebbles"
+          @open-category="openCategory"
+          @back="screen = 'welcome'"
+        />
+        <MenuView
+          v-else-if="screen === 'menu' && activeCategoryId"
+          :key="`menu-${activeCategoryId}`"
+          :category-id="activeCategoryId"
+          @back="backToPebbles"
+          @open-cart="openCart"
+        />
+        <CartView
+          v-else-if="screen === 'cart'"
+          key="cart"
+          @close="backFromCart"
+          @submitted="handleSubmitted"
+        />
+        <OrderSentView
+          v-else-if="screen === 'sent'"
+          key="sent"
+          :total="lastTotal"
+          @order-again="orderAgain"
+          @call-waiter="() => undefined"
+        />
+      </Transition>
 
-    <header class="bg-white shadow-sm p-4 sticky top-0 z-10">
-      <h1 class="text-xl font-bold text-brand text-center">Meniul Nostru</h1>
-    </header>
-
-    <main class="container mx-auto p-4 max-w-3xl">
-      <MenuList />
-      <RecommendationWidget />
-    </main>
-
-    <div
-      v-if="cartStore.items.length > 0"
-      class="fixed bottom-0 left-0 right-0 bg-white border-t shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)] p-4 z-20 flex justify-between items-center"
-    >
-      <div class="flex flex-col">
-        <span class="text-sm text-gray-500">{{ totalItems }} produse</span>
-        <span class="font-bold text-xl text-brand">{{ cartStore.total }} RON</span>
-      </div>
+      <Transition name="overlay">
+        <div v-if="flashOverlayActive" class="overlay">
+          <FlashDealView />
+        </div>
+      </Transition>
 
       <button
-        @click="isCartModalOpen = true"
-        class="bg-brand text-white font-bold py-3 px-8 rounded-full shadow-md active:scale-95 transition-transform"
+        class="theme-toggle"
+        :style="{
+          background: T.card,
+          color: T.ink,
+          border: `1px solid ${T.ink12}`,
+        }"
+        :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
+        :aria-pressed="theme === 'dark'"
+        @click="toggleTheme"
       >
-        Vezi Comanda
+        <svg
+          v-if="theme === 'dark'"
+          viewBox="0 0 24 24"
+          width="22" height="22"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+        <svg
+          v-else
+          viewBox="0 0 24 24"
+          width="22" height="22"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
       </button>
     </div>
-
-    <div
-      v-if="isCartModalOpen"
-      class="fixed inset-0 z-30 flex flex-col bg-gray-50 slide-up"
-    >
-      <div class="p-4 border-b bg-white flex justify-between items-center shadow-sm">
-        <h2 class="text-xl font-bold">Comanda ta</h2>
-        <button
-          @click="isCartModalOpen = false"
-          class="text-gray-500 hover:text-black p-2 bg-gray-100 rounded-full w-10 h-10 flex items-center justify-center font-bold"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div class="flex-1 overflow-y-auto">
-        <Cart />
-      </div>
-    </div>
-
   </div>
 </template>
 
-
-
 <style scoped>
-
-.slide-up {
-  animation: slideUp 0.3s ease-out forwards;
+.stage {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
 }
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+.phone-frame {
+  width: 100%;
+  max-width: 390px;
+  min-height: 100vh;
+  height: 100dvh;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 30px 60px -20px rgba(21, 20, 15, 0.18);
+}
+@media (min-width: 480px) {
+  .stage {
+    padding: 24px 0;
+    align-items: center;
+  }
+  .phone-frame {
+    height: 844px;
+    min-height: 0;
+    border-radius: 44px;
+  }
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+}
+
+.theme-toggle {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 60;
+  font-family: inherit;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.25);
+}
+.theme-toggle:active {
+  transform: scale(0.94);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.overlay-enter-active,
+.overlay-leave-active {
+  transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.overlay-enter-from,
+.overlay-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
 }
 </style>
