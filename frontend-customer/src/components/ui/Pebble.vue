@@ -77,8 +77,8 @@ const fallbackBg = computed(() => (props.theme === 'dark' ? '#3a2418' : '#e8d5b9
         <path
           :d="path"
           fill="none"
-          :stroke="active ? t.accent : (theme === 'dark' ? 'rgba(245,240,232,0.18)' : 'rgba(21,20,15,0.14)')"
-          :stroke-width="active ? 2 : 0.8"
+          :stroke="t.accent"
+          :stroke-width="active ? 2.5 : 1.6"
         />
         <path
           v-if="active"
@@ -93,7 +93,7 @@ const fallbackBg = computed(() => (props.theme === 'dark' ? '#3a2418' : '#e8d5b9
     <div class="caption">
       <div
         class="label"
-        :style="{ color: active ? t.accent : t.ink }"
+        :style="{ color: t.accent }"
       >{{ label }}</div>
       <div v-if="sublabel" class="sublabel" :style="{ color: t.ink40 }">{{ sublabel }}</div>
     </div>

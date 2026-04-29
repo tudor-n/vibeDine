@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import { useMenu } from '@/composables/useMenu'
 import { useSessionStore } from '@/stores/useSessionStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
-import BigButton from '@/components/ui/BigButton.vue'
 import Pebble from '@/components/ui/Pebble.vue'
 
 const emit = defineEmits<{
@@ -74,15 +73,39 @@ const pebbles = computed(() =>
   })),
 )
 
-const activePebble = computed(() => pebbles.value.find((p) => p.id === active.value))
+type Pebble = (typeof pebbles)['value'][number]
 
-function toggle(id: string) {
-  active.value = active.value === id ? null : id
+const pebbleGroups = computed<Pebble[][]>(() => {
+  const groups: Pebble[][] = []
+  for (let i = 0; i < pebbles.value.length; i += 2) {
+    groups.push(pebbles.value.slice(i, i + 2))
+  }
+  return groups
+})
+
+const panelStyle = computed(() => {
+  const rgb = theme.value === 'dark' ? '232,37,90' : '255,74,28'
+  const bgAlpha = theme.value === 'dark' ? 0.16 : 0.13
+  const borderAlpha = theme.value === 'dark' ? 0.28 : 0.22
+  return {
+    background: `rgba(${rgb},${bgAlpha})`,
+    border: `1px solid rgba(${rgb},${borderAlpha})`,
+  }
+})
+
+let navigateTimer: ReturnType<typeof setTimeout> | null = null
+
+function handlePebbleClick(id: string) {
+  if (navigateTimer) return
+  active.value = id
+  navigateTimer = setTimeout(() => {
+    emit('open-category', id)
+  }, 320)
 }
 
-function confirm() {
-  if (active.value) emit('open-category', active.value)
-}
+onBeforeUnmount(() => {
+  if (navigateTimer) clearTimeout(navigateTimer)
+})
 </script>
 
 <template>
@@ -114,28 +137,28 @@ function confirm() {
     </div>
 
     <div v-else class="grid-wrap">
-      <div class="grid">
-        <Pebble
-          v-for="pb in pebbles"
-          :key="pb.id"
-          :label="pb.label"
-          :sublabel="`${pb.count} preparate`"
-          :path-index="pb.pathIndex"
-          :image="pb.image"
-          :active="pb.id === active"
-          :theme="theme"
-          @click="toggle(pb.id)"
-        />
+      <div class="groups">
+        <div
+          v-for="(group, gIdx) in pebbleGroups"
+          :key="gIdx"
+          class="panel"
+          :style="panelStyle"
+        >
+          <div class="grid">
+            <Pebble
+              v-for="pb in group"
+              :key="pb.id"
+              :label="pb.label"
+              :sublabel="`${pb.count} preparate`"
+              :path-index="pb.pathIndex"
+              :image="pb.image"
+              :active="pb.id === active"
+              :theme="theme"
+              @click="handlePebbleClick(pb.id)"
+            />
+          </div>
+        </div>
       </div>
-    </div>
-
-    <div
-      class="cta"
-      :style="{ transform: active ? 'translateY(0)' : 'translateY(120%)' }"
-    >
-      <BigButton :theme="theme" @click="confirm">
-        <span>Deschide: {{ activePebble?.label ?? '' }}</span>
-      </BigButton>
     </div>
   </PhoneScreen>
 </template>
@@ -187,20 +210,21 @@ function confirm() {
   position: relative;
   flex: 1;
   overflow: hidden auto;
-  padding: 12px 18px 140px;
+  padding: 12px 16px 32px;
+}
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.panel {
+  border-radius: 24px;
+  padding: 18px 14px 22px;
 }
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-.cta {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 10px 20px 32px;
-  transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-  z-index: 10;
+  gap: 0 10px;
+  align-items: start;
 }
 </style>
