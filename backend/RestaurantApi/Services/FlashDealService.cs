@@ -114,6 +114,18 @@ public class FlashDealService : IFlashDealService
 
         if (activeDirective != null)
         {
+            // Extract discount % from the raw prompt up-front so it applies regardless of
+            // which strategy locates the product
+            if (!string.IsNullOrWhiteSpace(activeDirective.RawPrompt))
+            {
+                var promptForPercent = activeDirective.RawPrompt.ToLowerInvariant();
+                var percentMatch = System.Text.RegularExpressions.Regex.Match(promptForPercent, @"(\d{1,3})\s*%");
+                if (percentMatch.Success && int.TryParse(percentMatch.Groups[1].Value, out var pct) && pct > 0 && pct < 100)
+                {
+                    discountPercent = pct;
+                }
+            }
+
             // Strategy 1: Try AI-parsed rules if available
             if (activeDirective.ParsedRules != null)
             {
@@ -147,8 +159,17 @@ public class FlashDealService : IFlashDealService
 
                     if (itemHints.Any())
                     {
+                        // Diacritic-insensitive match so a hint like "limonada cu menta"
+                        // still finds a product named "Limonadă cu mentă"
+                        var normalizedHints = itemHints
+                            .Select(RemoveDiacritics)
+                            .ToList();
+
                         selectedProduct = availableProducts.FirstOrDefault(p =>
-                            itemHints.Any(hint => p.Name.ToLowerInvariant().Contains(hint)));
+                        {
+                            var normalizedName = RemoveDiacritics(p.Name.ToLowerInvariant());
+                            return normalizedHints.Any(hint => normalizedName.Contains(hint));
+                        });
                     }
                 }
                 catch (Exception ex)
@@ -157,21 +178,15 @@ public class FlashDealService : IFlashDealService
                 }
             }
 
-            // Strategy 2: Parse the raw prompt directly for product name + discount %
+            // Strategy 2: Parse the raw prompt directly for product name
             // Handles directives like "offer lemonade at 30% off" even when AI service is down
             if (selectedProduct == null && !string.IsNullOrWhiteSpace(activeDirective.RawPrompt))
             {
                 var prompt = RemoveDiacritics(activeDirective.RawPrompt.ToLowerInvariant());
 
-                // Extract discount percentage (e.g. "30% off", "la 30%", "30 %", "cu 50%")
-                var percentMatch = System.Text.RegularExpressions.Regex.Match(prompt, @"(\d{1,3})\s*%");
-                if (percentMatch.Success && int.TryParse(percentMatch.Groups[1].Value, out var pct) && pct > 0 && pct < 100)
-                {
-                    discountPercent = pct;
-                }
-
-                // Match product by checking if any available product's name appears in the prompt
-                // Uses accent-insensitive matching so "limonada" matches "Limonadă"
+                // Match product by checking if any available product's full name appears in the prompt.
+                // Strict full-name match: admins must spell out the exact item ("Limonadă cu mentă"),
+                // since several variants of an item may exist on the menu.
                 selectedProduct = availableProducts
                     .OrderByDescending(p => p.Name.Length)  // prefer longest match to avoid false positives
                     .FirstOrDefault(p => prompt.Contains(RemoveDiacritics(p.Name.ToLowerInvariant())));

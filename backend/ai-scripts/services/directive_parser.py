@@ -2,7 +2,7 @@ import re
 
 
 _RECOMMEND_PATTERN = re.compile(
-    r"(recomand[ăa]|recommend|sugereaz[ăa]|suggest)\s+(.+)",
+    r"(recomand[ăa]|recommend|sugereaz[ăa]|suggest|ofer[ăa]|offer)\s+(.+)",
     re.IGNORECASE,
 )
 
@@ -20,6 +20,15 @@ _SENTENCE_SPLIT = re.compile(r"[.!?]+")
 
 _ITEM_SPLIT = re.compile(r"\s*(?:,|\s+[șs]i\s+|\s+and\s+)\s*", re.IGNORECASE)
 
+# Discount phrases like "la 30% reducere", "cu 30% off", "30% off", "at 30%"
+_DISCOUNT_PHRASE = re.compile(
+    r"\b(la|cu|at|with|de|pe)?\s*\d{1,3}\s*%\s*(off|reducere|reducer[ie])?",
+    re.IGNORECASE,
+)
+
+# Standalone discount keywords left over after stripping the percent phrase
+_DISCOUNT_WORD = re.compile(r"\b(off|reducere|reducer[ie])\b", re.IGNORECASE)
+
 
 def _clean(text: str) -> str:
     text = _END_CONDITION.sub("", text)
@@ -29,6 +38,9 @@ def _clean(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+    text = _DISCOUNT_PHRASE.sub("", text)
+    text = _DISCOUNT_WORD.sub("", text)
+    text = re.sub(r"\s+", " ", text)  # collapse extra whitespace
     return text.strip().strip(".,;:!? ")
 
 
