@@ -80,9 +80,12 @@ public class AppDbContext : DbContext
              .WithMany(o => o.Items)
              .HasForeignKey(oi => oi.OrderId);
 
+            // Restrict so deleting a Product cannot wipe historical OrderItems.
+            // Admins should soft-delete via IsAvailable=false instead.
             e.HasOne(oi => oi.Product)
              .WithMany()
-             .HasForeignKey(oi => oi.ProductId);
+             .HasForeignKey(oi => oi.ProductId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<FlashDealOffer>(e =>
@@ -129,11 +132,13 @@ public class AppDbContext : DbContext
 
             e.HasOne(r => r.ProductA)
              .WithMany()
-             .HasForeignKey(r => r.ProductAId);
+             .HasForeignKey(r => r.ProductAId)
+             .OnDelete(DeleteBehavior.Restrict);
 
             e.HasOne(r => r.ProductB)
              .WithMany()
-             .HasForeignKey(r => r.ProductBId);
+             .HasForeignKey(r => r.ProductBId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
