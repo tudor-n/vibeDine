@@ -56,7 +56,7 @@ public class AdminController : ControllerBase
         }
         catch(Exception ex)
         {
-            _logger.LogWarning(ex, "Ai service failed to praise the directive");
+            _logger.LogWarning(ex, "Ai service failed to parse the directive");
         }
 
         var directive = new AIDirective

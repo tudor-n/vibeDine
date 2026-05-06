@@ -184,8 +184,7 @@ public class FlashDealService : IFlashDealService
         // Fallback: random product, default discount
         if (selectedProduct == null)
         {
-            var random = new Random();
-            selectedProduct = availableProducts[random.Next(availableProducts.Count)];
+            selectedProduct = availableProducts[Random.Shared.Next(availableProducts.Count)];
             _logger.LogInformation("Flash deal: no directive match, selected random product '{Name}' at {Pct}% off", selectedProduct.Name, discountPercent);
         }
 
