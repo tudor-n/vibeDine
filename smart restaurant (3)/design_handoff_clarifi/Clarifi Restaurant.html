@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Clarifi · Restaurant customer app</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; padding: 0; background: #E9E2D3; }
+    body {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      color: #1C1A17;
+      min-height: 100vh;
+    }
+    * { box-sizing: border-box; }
+    button { font-family: inherit; }
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="ios-frame.jsx"></script>
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="screens.jsx"></script>
+  <script type="text/babel" src="pebbles-screen.jsx"></script>
+  <script type="text/babel" src="screens-dark.jsx"></script>
+  <script type="text/babel" src="screens-a11y.jsx"></script>
+  <script type="text/babel" src="screens-a11y-dark.jsx"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    function Phone({ children, dark = false }) {
+      return (
+        <IOSDevice width={390} height={844} dark={dark}>
+          {children}
+        </IOSDevice>
+      );
+    }
+
+    function App() {
+      const screens = [
+        { id: 'welcome',  label: '01 · Welcome',    Comp: window.WelcomeScreen },
+        { id: 'pebbles',  label: '02 · Pebbles',    Comp: window.PebblesScreen },
+        { id: 'menu',     label: '03 · Menu + recs', Comp: window.MenuScreen },
+        { id: 'cart',     label: '04 · Cart',        Comp: window.CartScreen },
+        { id: 'flash',    label: '05 · Flash deal',  Comp: window.FlashDealScreen },
+        { id: 'sent',     label: '06 · Order sent',  Comp: window.SentScreen },
+      ];
+
+      const a11yScreens = [
+        { id: 'aw',  label: '01 · Welcome',    Comp: window.WelcomeScreenA11y },
+        { id: 'ap',  label: '02 · Pebbles',    Comp: window.PebblesScreenA11y },
+        { id: 'am',  label: '03 · Menu + recs', Comp: window.MenuScreenA11y },
+        { id: 'ac',  label: '04 · Cart',        Comp: window.CartScreenA11y },
+        { id: 'af',  label: '05 · Flash deal',  Comp: window.FlashDealScreenA11y },
+        { id: 'as',  label: '06 · Order sent',  Comp: window.SentScreenA11y },
+      ];
+
+      const a11yDarkScreens = [
+        { id: 'adw', label: '01 · Welcome',    Comp: window.WelcomeScreenA11yDark },
+        { id: 'adp', label: '02 · Pebbles',    Comp: window.PebblesScreenA11yDark },
+        { id: 'adm', label: '03 · Menu + recs', Comp: window.MenuScreenA11yDark },
+        { id: 'adc', label: '04 · Cart',        Comp: window.CartScreenA11yDark },
+        { id: 'adf', label: '05 · Flash deal',  Comp: window.FlashDealScreenA11yDark },
+        { id: 'ads', label: '06 · Order sent',  Comp: window.SentScreenA11yDark },
+      ];
+
+      const darkScreens = [
+        { id: 'dw',  label: '01 · Welcome',    Comp: window.WelcomeScreenDark },
+        { id: 'dp',  label: '02 · Pebbles',    Comp: window.PebblesScreenDark },
+        { id: 'dm',  label: '03 · Menu + recs', Comp: window.MenuScreenDark },
+        { id: 'dca', label: '04 · Cart',        Comp: window.CartScreenDark },
+        { id: 'df',  label: '05 · Flash deal',  Comp: window.FlashDealScreenDark },
+        { id: 'ds',  label: '06 · Order sent',  Comp: window.SentScreenDark },
+      ];
+
+      return (
+        <DesignCanvas
+          title="Clarifi · Customer app"
+          subtitle="Smart restaurant — two colour directions"
+        >
+          <DCSection id="a11y" title="Warm — Ospătăria Curții · Accesibil" subtitle="Text mare · butoane mari · pentru oaspeți seniori">
+            {a11yScreens.map(s => (
+              <DCArtboard key={s.id} id={s.id} label={s.label} width={390} height={844}>
+                <Phone><s.Comp /></Phone>
+              </DCArtboard>
+            ))}
+          </DCSection>
+          <DCSection id="a11y-dark" title="Dark — Supporter Sports Pub · Accesibil" subtitle="Text mare · butoane mari · pentru oaspeți seniori">
+            {a11yDarkScreens.map(s => (
+              <DCArtboard key={s.id} id={s.id} label={s.label} width={390} height={844}>
+                <Phone dark><s.Comp /></Phone>
+              </DCArtboard>
+            ))}
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

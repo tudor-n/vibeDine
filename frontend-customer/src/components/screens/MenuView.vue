@@ -20,7 +20,25 @@ const cartStore = useCartStore()
 const { pairings, upsells } = useRecommendations()
 const { tokens: T, theme } = useTheme()
 
-const filter = ref<'all'>('all')
+type FilterKey = 'all' | 'meat' | 'fish' | 'veggie' | 'chef'
+const filter = ref<FilterKey>('all')
+
+const FILTERS: Array<{ key: FilterKey; label: string }> = [
+  { key: 'all',    label: 'Toate' },
+  { key: 'meat',   label: 'Carne' },
+  { key: 'fish',   label: 'Pește' },
+  { key: 'veggie', label: 'Vegetarian' },
+  { key: 'chef',   label: 'Chef' },
+]
+
+// Lightweight client-side filter — backend doesn't tag dishes by diet, so we
+// heuristically match against name + description.
+const FILTER_PATTERNS: Record<Exclude<FilterKey, 'all'>, RegExp> = {
+  meat:   /carne|vit[aă]|porc|miel|pui|chicken|beef|burger|șunc|sunc|cârn|carn/i,
+  fish:   /pe[șs]te|somon|salmon|tuna|scoici|fruct.?de.?mare|cremă.?de.?pe|caracati/i,
+  veggie: /vegetar|vegan|legum|sala[tț]|brocoli|spanac|ciuperc|paste|risotto/i,
+  chef:   /chef|signature|special|degustare|tasting|maturat/i,
+}
 
 onMounted(() => {
   load().catch(() => undefined)
@@ -30,7 +48,15 @@ const category = computed(() =>
   categories.value.find((c) => c.id === props.categoryId),
 )
 
-const items = computed<Product[]>(() => productsByCategory(props.categoryId))
+const allItems = computed<Product[]>(() => productsByCategory(props.categoryId))
+
+const items = computed<Product[]>(() => {
+  if (filter.value === 'all') return allItems.value
+  const pattern = FILTER_PATTERNS[filter.value]
+  return allItems.value.filter((p) =>
+    pattern.test(`${p.name} ${p.description ?? ''}`),
+  )
+})
 
 const cartCount = computed(() =>
   cartStore.items.reduce((sum, i) => sum + i.quantity, 0),
@@ -57,6 +83,15 @@ function addRecommendation(rec: Recommendation) {
 
 <template>
   <PhoneScreen :theme="theme">
+    <div
+      class="bloom bloom-accent"
+      :style="{ background: `radial-gradient(circle, ${T.accent} 0%, transparent 70%)` }"
+    />
+    <div
+      class="bloom bloom-lime"
+      :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
+    />
+
     <div class="header">
       <button
         class="circle-btn"
@@ -77,11 +112,24 @@ function addRecommendation(rec: Recommendation) {
 
     <div class="scroll">
     <div class="chips">
-      <span
-        class="chip chip-active"
-        :style="{ background: T.ink, color: T.paperHi }"
-      >Toate</span>
+      <button
+        v-for="f in FILTERS"
+        :key="f.key"
+        class="chip"
+        type="button"
+        :style="filter === f.key
+          ? { background: T.ink, color: T.paperHi, border: 'none' }
+          : { background: T.card, color: T.ink, border: `1px solid ${T.ink12}` }"
+        :aria-pressed="filter === f.key"
+        @click="filter = f.key"
+      >{{ f.label }}</button>
     </div>
+
+    <div
+      v-if="!isLoading && !error && items.length === 0"
+      class="state"
+      :style="{ color: T.ink70 }"
+    >Niciun preparat în acest filtru.</div>
 
     <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">Se încarcă...</div>
     <div v-else-if="error" class="state" :style="{ color: T.accent }">{{ error }}</div>
@@ -169,11 +217,13 @@ function addRecommendation(rec: Recommendation) {
           :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
         >Coșul meu</div>
         <div class="cart-summary">
-          {{ cartStore.total }} RON · {{ cartCount }} {{ cartCount === 1 ? 'preparat' : 'preparate' }}
+          {{ cartStore.total }} RON · {{ cartCount }}
+          {{ cartCount === 1 ? 'preparat' : 'preparate' }}
         </div>
       </div>
       <button
         class="cart-cta"
+        type="button"
         :style="{ background: T.accent, color: T.onAccent }"
         @click="emit('open-cart')"
       >Coș →</button>
@@ -182,7 +232,31 @@ function addRecommendation(rec: Recommendation) {
 </template>
 
 <style scoped>
+.bloom {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.bloom-accent {
+  top: -40px;
+  left: -60px;
+  width: 260px;
+  height: 260px;
+  filter: blur(45px);
+  opacity: 0.25;
+}
+.bloom-lime {
+  bottom: 120px;
+  right: -60px;
+  width: 200px;
+  height: 200px;
+  filter: blur(40px);
+  opacity: 0.20;
+}
 .header {
+  position: relative;
+  z-index: 1;
   padding: 10px 20px 14px;
   display: flex;
   align-items: center;
@@ -218,6 +292,8 @@ function addRecommendation(rec: Recommendation) {
   margin-top: 2px;
 }
 .scroll {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -239,6 +315,10 @@ function addRecommendation(rec: Recommendation) {
   padding: 10px 18px;
   border-radius: 999px;
   flex-shrink: 0;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 44px;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 .state {
   padding: 24px;

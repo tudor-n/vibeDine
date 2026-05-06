@@ -7,6 +7,10 @@ const props = withDefaults(
     theme?: 'light' | 'dark'
     bg?: string
     color?: string
+    /** Optional override for the inline arrow circle background. */
+    arrowBg?: string
+    /** Optional override for the inline arrow glyph colour. */
+    arrowColor?: string
     arrow?: boolean
     disabled?: boolean
     fontSize?: number
@@ -19,10 +23,18 @@ const emit = defineEmits<{ (e: 'click', ev: MouseEvent): void }>()
 const t = computed<ThemeTokens>(() => (props.theme === 'dark' ? TD : T))
 const bg = computed(() => props.bg ?? t.value.accent)
 const color = computed(() => props.color ?? t.value.onAccent)
-const arrowBg = computed(() =>
-  props.theme === 'dark' ? t.value.ink : t.value.onAccent,
-)
-const arrowColor = computed(() => bg.value)
+// When the button is the brand accent, the arrow circle uses the on-accent
+// foreground; otherwise we default to the foreground colour the caller chose
+// (which works for the lime "Revendică oferta" CTA in the flash deal screen).
+const arrowBg = computed(() => {
+  if (props.arrowBg) return props.arrowBg
+  if (!props.bg) {
+    // Default brand button — same logic as before.
+    return props.theme === 'dark' ? t.value.ink : t.value.onAccent
+  }
+  return color.value
+})
+const arrowColor = computed(() => props.arrowColor ?? bg.value)
 
 function onClick(ev: MouseEvent) {
   if (props.disabled) return

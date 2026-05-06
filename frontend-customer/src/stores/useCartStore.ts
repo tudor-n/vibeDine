@@ -89,5 +89,18 @@ export const useCartStore = defineStore('cart', () => {
     recommendedItemIds.value.clear()
   }
 
-  return { items, total , addItem, addRecommendedItem, removeItem, clearCart, addLocalItemOnly}
+  function wasRecommended(productId: string): boolean {
+    return recommendedItemIds.value.has(productId)
+  }
+
+  return {
+    items,
+    total,
+    addItem,
+    addRecommendedItem,
+    removeItem,
+    clearCart,
+    addLocalItemOnly,
+    wasRecommended,
+  }
 })

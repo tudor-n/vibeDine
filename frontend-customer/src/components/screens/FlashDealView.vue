@@ -103,18 +103,28 @@ function dismiss() {
 
 <template>
   <PhoneScreen v-if="store.activeDeal" :theme="theme">
+    <!-- Lime-dominant blooms per the design (the deal screen is the only
+         lime-led surface in the app). -->
     <div
-      class="halo"
-      :style="{ background: `radial-gradient(circle, ${T.accent} 0%, transparent 70%)` }"
+      class="bloom bloom-lime"
+      :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
+    />
+    <div
+      class="bloom bloom-lime-soft"
+      :style="{ background: `radial-gradient(circle, #9DC41A 0%, transparent 70%)` }"
     />
 
     <div class="header">
-      <div class="badge" :style="{ background: `${T.accent}1A`, color: T.accent }">
-        <span class="dot" :style="{ background: T.accent, boxShadow: `0 0 8px ${T.accent}` }" />
+      <div
+        class="badge"
+        :style="{ background: T.lime, color: '#000' }"
+      >
+        <span class="dot" :style="{ background: '#000' }" />
         Ofertă specială
       </div>
       <button
         class="dismiss"
+        type="button"
         :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink70 }"
         aria-label="Închide oferta"
         @click="dismiss"
@@ -124,7 +134,10 @@ function dismiss() {
     <div class="scroll">
     <div class="hero">
       <h1 class="title">
-        Ofertă<br /><span :style="{ color: T.accent }">limitată</span><br />de chef.
+        Ofertă<br /><span
+          class="hero-mark"
+          :style="{ background: T.lime, color: '#000' }"
+        >limitată</span><br />de chef.
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
         {{ store.activeDeal.reason || 'O porție specială la preț redus, doar câteva minute.' }}
@@ -149,7 +162,12 @@ function dismiss() {
           <div class="deal-name">{{ store.activeDeal.menuItem.name }}</div>
           <div class="deal-meta" :style="{ color: T.ink70 }">Chef's cut · porție limitată</div>
           <div class="prices">
-            <span class="price-now" :style="{ color: T.accent }">
+            <!-- Dark green per the handoff (#3E7B10) on warm; on dark theme
+                 we keep the brand lime for contrast. -->
+            <span
+              class="price-now"
+              :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }"
+            >
               {{ store.activeDeal.discountedPrice }}
               <span class="price-unit" :style="{ color: T.ink70 }">RON</span>
             </span>
@@ -166,7 +184,7 @@ function dismiss() {
         <div class="countdown-label" :style="{ color: T.ink70 }">Timp rămas</div>
         <div class="countdown-row">
           <span class="num">{{ minutes }}</span>
-          <span class="colon" :style="{ color: T.accent }">:</span>
+          <span class="colon" :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }">:</span>
           <span class="num">{{ seconds }}</span>
           <span class="unit" :style="{ color: T.ink70 }">minute</span>
         </div>
@@ -175,7 +193,7 @@ function dismiss() {
             class="fill"
             :style="{
               width: `${progressPct}%`,
-              background: `linear-gradient(90deg, ${T.accent}, ${T.lime})`,
+              background: `linear-gradient(90deg, ${T.lime}, #9DC41A)`,
             }"
           />
         </div>
@@ -184,7 +202,16 @@ function dismiss() {
     </div>
 
     <div class="cta">
-      <BigButton :theme="theme" :disabled="isClaiming || claimSuccess" @click="claim">
+      <!-- Lime CTA with an ink arrow circle filled lime, per the handoff. -->
+      <BigButton
+        :theme="theme"
+        :bg="T.lime"
+        :color="T.ink"
+        :arrow-bg="T.ink"
+        :arrow-color="T.lime"
+        :disabled="isClaiming || claimSuccess"
+        @click="claim"
+      >
         <span>{{
           claimSuccess
             ? 'Adăugat ✓'
@@ -195,6 +222,7 @@ function dismiss() {
       </BigButton>
       <button
         class="reject"
+        type="button"
         :style="{ color: T.ink70 }"
         @click="dismiss"
       >Nu mulțumesc</button>
@@ -204,19 +232,31 @@ function dismiss() {
 </template>
 
 <style scoped>
-.halo {
+.bloom {
   position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.bloom-lime {
   top: -60px;
   right: -80px;
-  width: 300px;
-  height: 300px;
-  border-radius: 50%;
+  width: 320px;
+  height: 320px;
   filter: blur(50px);
-  opacity: 0.45;
-  pointer-events: none;
+  opacity: 0.6;
+}
+.bloom-lime-soft {
+  bottom: 200px;
+  left: -80px;
+  width: 260px;
+  height: 260px;
+  filter: blur(55px);
+  opacity: 0.35;
 }
 .header {
   position: relative;
+  z-index: 1;
   padding: 10px 24px 0;
   display: flex;
   justify-content: space-between;
@@ -248,6 +288,8 @@ function dismiss() {
   font-family: inherit;
 }
 .scroll {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -264,6 +306,11 @@ function dismiss() {
   line-height: 0.95;
   letter-spacing: -0.03em;
   margin: 0 0 16px;
+}
+.hero-mark {
+  display: inline-block;
+  border-radius: 8px;
+  padding: 0 10px 2px;
 }
 .lede {
   font-size: 18px;
@@ -367,6 +414,7 @@ function dismiss() {
 }
 .cta {
   position: absolute;
+  z-index: 2;
   bottom: 28px;
   left: 18px;
   right: 18px;

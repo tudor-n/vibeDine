@@ -18,6 +18,14 @@ const cartStore = useCartStore()
 const sessionStore = useSessionStore()
 const { tokens: T, theme } = useTheme()
 
+// Defensive against HMR: the store may not yet expose `wasRecommended`
+// after a hot reload until Pinia re-evaluates the setup. Wrap the call so
+// a stale store can never break the render.
+function isRecommended(id: string): boolean {
+  const fn = (cartStore as { wasRecommended?: (id: string) => boolean }).wasRecommended
+  return typeof fn === 'function' ? fn(id) : false
+}
+
 const isSubmitting = ref(false)
 const submitError = ref<string | null>(null)
 
@@ -61,6 +69,15 @@ async function submit() {
 
 <template>
   <PhoneScreen :theme="theme">
+    <div
+      class="bloom bloom-accent"
+      :style="{ background: `radial-gradient(circle, ${T.accent} 0%, transparent 70%)` }"
+    />
+    <div
+      class="bloom bloom-lime"
+      :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
+    />
+
     <div class="header">
       <div class="status-table" :style="{ color: T.ink70 }">{{ tableLabel }}</div>
       <div class="title">Comanda mea</div>
@@ -98,6 +115,11 @@ async function submit() {
         />
         <div class="item-body">
           <div class="item-name">{{ it.name }}</div>
+          <div
+            v-if="isRecommended(it.id)"
+            class="ai-pill"
+            :style="{ background: T.lime, color: T.ink }"
+          >Sugerat de AI</div>
           <div class="item-row">
             <div class="item-price">
               {{ it.price * it.quantity }}
@@ -160,7 +182,31 @@ async function submit() {
 </template>
 
 <style scoped>
+.bloom {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.bloom-accent {
+  top: -50px;
+  right: -60px;
+  width: 240px;
+  height: 240px;
+  filter: blur(45px);
+  opacity: 0.20;
+}
+.bloom-lime {
+  bottom: 140px;
+  left: -50px;
+  width: 200px;
+  height: 200px;
+  filter: blur(40px);
+  opacity: 0.18;
+}
 .header {
+  position: relative;
+  z-index: 1;
   padding: 10px 22px 16px;
   display: flex;
   align-items: center;
@@ -191,6 +237,8 @@ async function submit() {
   max-width: 44px;
 }
 .scroll {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -225,6 +273,15 @@ async function submit() {
   letter-spacing: -0.01em;
   line-height: 1.2;
   margin-bottom: 4px;
+}
+.ai-pill {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
 }
 .item-row {
   display: flex;
@@ -307,6 +364,7 @@ async function submit() {
 }
 .cta {
   position: absolute;
+  z-index: 2;
   bottom: 28px;
   left: 18px;
   right: 18px;

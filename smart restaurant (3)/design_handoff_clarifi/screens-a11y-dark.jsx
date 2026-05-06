@@ -174,7 +174,19 @@ function PebblesScreenA11yDark() {
       </div>
 
       <div style={{ position: 'relative', flex: 1, overflow: 'hidden auto', padding: '12px 16px 100px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Background bloom — behind all cards, never touches buttons */}
+        <div style={{
+          position: 'absolute', top: '8%', left: '-18%', width: 260, height: 260,
+          borderRadius: '50%', filter: 'blur(65px)', opacity: 0.30, pointerEvents: 'none', zIndex: 0,
+          background: `radial-gradient(circle, ${TD.lime} 0%, transparent 70%)`,
+        }} />
+        <div style={{
+          position: 'absolute', bottom: '18%', right: '-14%', width: 220, height: 220,
+          borderRadius: '50%', filter: 'blur(60px)', opacity: 0.26, pointerEvents: 'none', zIndex: 0,
+          background: `radial-gradient(circle, ${TD.accent} 0%, transparent 70%)`,
+        }} />
+
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {[0, 1, 2].map(group => (
             <div key={group} style={{
               background: 'rgba(232,37,90,0.16)',
@@ -198,7 +210,7 @@ function PebblesScreenA11yDark() {
                         transform: `scale(${isActive ? 1.06 : 1}) translateY(${isActive ? -4 : 0}px)`,
                         transition: 'transform 0.45s cubic-bezier(0.34,1.4,0.64,1)',
                         filter: isActive
-                          ? `drop-shadow(0 16px 22px ${TD.accent}66) drop-shadow(0 4px 8px ${TD.accent}33)`
+                          ? `drop-shadow(0 16px 24px ${TD.lime}88) drop-shadow(0 4px 8px rgba(0,0,0,0.4))`
                           : 'drop-shadow(0 8px 16px rgba(0,0,0,0.55))',
                       }}>
                         <svg viewBox="0 0 100 100" width="158" height="158" style={{ display: 'block', overflow: 'visible' }}>
@@ -217,15 +229,37 @@ function PebblesScreenA11yDark() {
                           <image href={pb.img} x="0" y="0" width="100" height="100" preserveAspectRatio="xMidYMid slice" clipPath={`url(#${clipId})`} />
                           <path d={path} fill={`url(#adpsh-${pb.id})`} opacity={isActive ? 0.35 : 0.6} />
                           <path d={path} fill={`url(#${hiId})`} />
-                          <path d={path} fill="none" stroke={TD.accent} strokeWidth={isActive ? 2.5 : 1.6} />
-                          {isActive && <path d={path} fill="none" stroke="rgba(245,240,232,0.3)" strokeWidth="3.5" />}
+                          {/* Outline: lime when active, subtle otherwise */}
+                          <path d={path} fill="none"
+                            stroke={isActive ? TD.lime : 'rgba(245,240,232,0.12)'}
+                            strokeWidth={isActive ? 2.8 : 1.0} />
+                          {/* Secondary gold ring when active */}
+                          {isActive && (
+                            <path d={path} fill="none" stroke="#D9A520" strokeWidth="1.2" strokeDasharray="4 3" opacity="0.85" />
+                          )}
                         </svg>
                       </div>
+                      {/* Label: square chip when active */}
                       <div style={{ textAlign: 'center', paddingBottom: 2 }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: TD.accent, lineHeight: 1.2, transition: 'color 0.3s' }}>
-                          {pb.label}
-                        </div>
-                        <div style={{ fontSize: 14, color: TD.ink70, fontWeight: 500, marginTop: 3 }}>{pb.count} preparate</div>
+                        {isActive ? (
+                          <div style={{
+                            display: 'inline-block',
+                            background: TD.lime,
+                            borderRadius: 6,
+                            padding: '4px 10px',
+                            fontSize: 15, fontWeight: 800, letterSpacing: '-0.01em',
+                            color: '#000', lineHeight: 1.25,
+                            border: `2px solid #D9A520`,
+                            transition: 'all 0.25s',
+                          }}>
+                            {pb.label}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: TD.ink, lineHeight: 1.2 }}>
+                            {pb.label}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 14, color: TD.ink70, fontWeight: 500, marginTop: 4 }}>{pb.count} preparate</div>
                       </div>
                     </button>
                   );
@@ -236,6 +270,41 @@ function PebblesScreenA11yDark() {
         </div>
       </div>
 
+      {/* Sticky bottom — Recomandarea zilei */}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0,
+        padding: '10px 16px 28px',
+        background: `linear-gradient(to bottom, transparent, ${TD.paper} 28%)`,
+        zIndex: 20, pointerEvents: 'none',
+      }}>
+        <button style={{
+          width: '100%', pointerEvents: 'auto',
+          background: TD.paperHi, color: TD.ink,
+          border: `1px solid ${TD.ink12}`,
+          borderRadius: 22, padding: '14px 16px',
+          display: 'flex', gap: 14, alignItems: 'center',
+          cursor: 'pointer', textAlign: 'left',
+          boxShadow: '0 16px 40px -12px rgba(0,0,0,0.55)',
+        }}>
+          <DFoodTile label="AZI" tone="pink" style={{ width: 58, height: 68, flexShrink: 0, borderRadius: 12 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: TD.lime, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+              Recomandarea zilei
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.2, marginBottom: 2 }}>
+              Mușchi de vită Oltenia
+            </div>
+            <div style={{ fontSize: 13, color: TD.ink70, fontWeight: 500 }}>
+              Maturat 28 zile · 128 RON
+            </div>
+          </div>
+          <div style={{
+            width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+            background: TD.accent, color: '#fff',
+            display: 'grid', placeItems: 'center', fontSize: 18,
+          }}>→</div>
+        </button>
+      </div>
 
     </div>
   );
@@ -247,6 +316,8 @@ function PebblesScreenA11yDark() {
 function MenuScreenA11yDark() {
   return (
     <ADScreen>
+      <div style={{ position: 'absolute', top: -40, left: -60, width: 260, height: 260, borderRadius: '50%', filter: 'blur(45px)', opacity: 0.30, background: `radial-gradient(circle, ${TD.accent} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: 120, right: -60, width: 200, height: 200, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.24, background: `radial-gradient(circle, ${TD.lime} 0%, transparent 70%)`, pointerEvents: 'none' }} />
       <div style={{ padding: '10px 20px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <button style={{ width: 48, height: 48, borderRadius: '50%', background: TD.card, border: `1px solid ${TD.ink12}`, display: 'grid', placeItems: 'center', fontSize: 20, cursor: 'pointer', color: TD.ink }}>←</button>
         <div style={{ textAlign: 'center' }}>
@@ -326,6 +397,8 @@ function CartScreenA11yDark() {
   const subtotal = dCartItems.reduce((s, i) => s + i.price * i.qty, 0);
   return (
     <ADScreen>
+      <div style={{ position: 'absolute', top: -50, right: -60, width: 240, height: 240, borderRadius: '50%', filter: 'blur(45px)', opacity: 0.25, background: `radial-gradient(circle, ${TD.accent} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: 140, left: -50, width: 200, height: 200, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.20, background: `radial-gradient(circle, ${TD.lime} 0%, transparent 70%)`, pointerEvents: 'none' }} />
       <div style={{ padding: '10px 22px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: TD.ink70 }}>Masa 7</div>
         <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>Comanda mea</div>
@@ -381,11 +454,12 @@ function CartScreenA11yDark() {
 function FlashDealScreenA11yDark() {
   return (
     <ADScreen>
-      <div style={{ position: 'absolute', top: -60, right: -80, width: 300, height: 300, borderRadius: '50%', filter: 'blur(50px)', opacity: 0.45, background: `radial-gradient(circle, ${TD.accent} 0%, transparent 70%)` }} />
+      <div style={{ position: 'absolute', top: -60, right: -80, width: 320, height: 320, borderRadius: '50%', filter: 'blur(55px)', opacity: 0.55, background: `radial-gradient(circle, ${TD.lime} 0%, transparent 70%)` }} />
+      <div style={{ position: 'absolute', bottom: 200, left: -80, width: 260, height: 260, borderRadius: '50%', filter: 'blur(55px)', opacity: 0.3, background: `radial-gradient(circle, #C8A030 0%, transparent 70%)` }} />
 
       <div style={{ position: 'relative', padding: '10px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: `rgba(232,37,90,0.18)`, color: TD.accent, padding: '8px 16px', borderRadius: 999, fontSize: 15, fontWeight: 700 }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: TD.accent, boxShadow: `0 0 8px ${TD.accent}` }} />
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: TD.lime, color: '#000', padding: '8px 16px', borderRadius: 999, fontSize: 15, fontWeight: 700 }}>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#000' }} />
           Ofertă specială
         </div>
         <div style={{ fontSize: 15, color: TD.ink70, fontWeight: 500 }}>Masa 7</div>
@@ -393,7 +467,7 @@ function FlashDealScreenA11yDark() {
 
       <div style={{ position: 'relative', padding: '28px 24px 0' }}>
         <h1 style={{ fontFamily: TD.display, fontWeight: 700, fontSize: 46, lineHeight: 0.95, letterSpacing: '-0.03em', margin: '0 0 16px' }}>
-          Ofertă<br/><span style={{ color: TD.accent }}>limitată</span><br/>de chef.
+          Ofertă<br/><span style={{ color: TD.paper, background: TD.lime, borderRadius: 8, padding: '0 10px 2px', display: 'inline-block' }}>limitată</span><br/>de chef.
         </h1>
         <p style={{ fontSize: 18, lineHeight: 1.55, color: TD.ink70, margin: '0 0 22px' }}>
           Chef Andrei oferă o porție specială la preț redus. Disponibilă doar câteva minute.
@@ -408,7 +482,7 @@ function FlashDealScreenA11yDark() {
               <div style={{ fontSize: 14, color: TD.ink70, marginTop: 4 }}>Chef's cut · porție limitată</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 10 }}>
-              <span style={{ fontSize: 32, fontWeight: 800, color: TD.accent }}>48 <span style={{ fontSize: 16, color: TD.ink70, fontWeight: 600 }}>RON</span></span>
+              <span style={{ fontSize: 32, fontWeight: 800, color: TD.lime }}>48 <span style={{ fontSize: 16, color: TD.ink70, fontWeight: 600 }}>RON</span></span>
               <span style={{ fontSize: 16, color: TD.ink40, textDecoration: 'line-through' }}>84 RON</span>
             </div>
           </div>
@@ -418,20 +492,20 @@ function FlashDealScreenA11yDark() {
           <div style={{ fontSize: 15, fontWeight: 600, color: TD.ink70, marginBottom: 8 }}>Timp rămas</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
             <span style={{ fontFamily: TD.mono, fontSize: 56, fontWeight: 600, letterSpacing: '-0.04em', lineHeight: 1 }}>03</span>
-            <span style={{ fontFamily: TD.mono, fontSize: 56, color: TD.accent, lineHeight: 1 }}>:</span>
+            <span style={{ fontFamily: TD.mono, fontSize: 56, color: TD.lime, lineHeight: 1 }}>:</span>
             <span style={{ fontFamily: TD.mono, fontSize: 56, fontWeight: 600, letterSpacing: '-0.04em', lineHeight: 1 }}>47</span>
             <span style={{ fontSize: 16, color: TD.ink70, marginLeft: 8, fontWeight: 500 }}>minute</span>
           </div>
           <div style={{ height: 8, background: TD.paperHi, marginTop: 14, borderRadius: 999, overflow: 'hidden' }}>
-            <div style={{ width: '62%', height: '100%', background: `linear-gradient(90deg, ${TD.accent}, ${TD.lime})`, borderRadius: 999 }} />
+            <div style={{ width: '62%', height: '100%', background: `linear-gradient(90deg, ${TD.lime}, #C8A030)`, borderRadius: 999 }} />
           </div>
         </div>
       </div>
 
       <div style={{ position: 'absolute', bottom: 28, left: 18, right: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <ADBigBtn>
+        <ADBigBtn bg={TD.lime} color={TD.paper}>
           <span>Adaugă în comandă</span>
-          <ADArrow />
+          <ADArrow bg={TD.paper} color={TD.lime} />
         </ADBigBtn>
         <div style={{ textAlign: 'center', fontSize: 15, color: TD.ink70, fontWeight: 500 }}>Nu mulțumesc</div>
       </div>
@@ -451,10 +525,11 @@ function SentScreenA11yDark() {
   return (
     <ADScreen>
       <div style={{ position: 'absolute', top: 0, right: -80, width: 280, height: 280, borderRadius: '50%', filter: 'blur(50px)', opacity: 0.28, background: `radial-gradient(circle, ${TD.lime} 0%, transparent 70%)` }} />
+      <div style={{ position: 'absolute', bottom: 100, left: -60, width: 200, height: 200, borderRadius: '50%', filter: 'blur(40px)', opacity: 0.20, background: `radial-gradient(circle, ${TD.accent} 0%, transparent 70%)`, pointerEvents: 'none' }} />
 
       <div style={{ position: 'relative', padding: '10px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 16, color: TD.ink70, fontWeight: 500 }}>Masa 7</div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(76,175,80,0.14)', padding: '8px 14px', borderRadius: 999, fontSize: 16, fontWeight: 700, color: '#4CAF50' }}>Confirmat ✓</div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: TD.lime, padding: '8px 14px', borderRadius: 999, fontSize: 16, fontWeight: 700, color: '#000' }}>Confirmat ✓</div>
       </div>
 
       <div style={{ position: 'relative', padding: '32px 24px 0' }}>

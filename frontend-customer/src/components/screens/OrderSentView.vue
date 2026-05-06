@@ -88,18 +88,19 @@ const steps = computed(() => {
 <template>
   <PhoneScreen :theme="theme">
     <div
-      class="halo"
+      class="bloom bloom-lime"
       :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
+    />
+    <div
+      class="bloom bloom-accent"
+      :style="{ background: `radial-gradient(circle, ${T.accent} 0%, transparent 70%)` }"
     />
 
     <div class="header">
       <div class="status-table" :style="{ color: T.ink70 }">{{ tableLabel }}</div>
       <div
         class="confirm-pill"
-        :style="{
-          background: theme === 'dark' ? 'rgba(120,200,120,0.16)' : 'rgba(60,122,60,0.10)',
-          color: theme === 'dark' ? '#9DD89D' : '#3C7A3C',
-        }"
+        :style="{ background: T.lime, color: '#000' }"
       >
         Confirmat ✓
       </div>
@@ -176,19 +177,31 @@ const steps = computed(() => {
 </template>
 
 <style scoped>
-.halo {
+.bloom {
   position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.bloom-lime {
   top: 0;
   right: -80px;
   width: 280px;
   height: 280px;
-  border-radius: 50%;
   filter: blur(50px);
   opacity: 0.35;
-  pointer-events: none;
+}
+.bloom-accent {
+  bottom: 100px;
+  left: -60px;
+  width: 200px;
+  height: 200px;
+  filter: blur(40px);
+  opacity: 0.18;
 }
 .header {
   position: relative;
+  z-index: 1;
   padding: 10px 24px 0;
   display: flex;
   justify-content: space-between;
@@ -208,6 +221,8 @@ const steps = computed(() => {
   font-weight: 700;
 }
 .scroll {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -289,6 +304,7 @@ const steps = computed(() => {
 }
 .cta {
   position: absolute;
+  z-index: 2;
   bottom: 28px;
   left: 18px;
   right: 18px;
