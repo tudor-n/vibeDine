@@ -48,6 +48,12 @@ public class MenuController: ControllerBase
 
     public async Task<IActionResult> GetMenuByCategory(Guid categoryId)
     {
+        var categoryExists = await _context.Categories.AnyAsync(c => c.Id == categoryId);
+        if (!categoryExists)
+        {
+            return NotFound(new { message = "Category not found." });
+        }
+
         var products = await _context.Products
         .Where(p=> p.CategoryId == categoryId && p.IsAvailable==true)
         .Select(product => new MenuProductResponse
@@ -60,11 +66,6 @@ public class MenuController: ControllerBase
         })
         .ToListAsync();
 
-        if(products.Count==0)
-        {
-            return NotFound(new {message = "No available products found for this category."});
-        }
-       
         return Ok(products);
     }
 

@@ -77,6 +77,14 @@ public class RecommendationService
                         return validRecs;
                 }
             }
+            else
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning(
+                    "AI /recommend returned non-success status {StatusCode}. Body: {Body}",
+                    (int)response.StatusCode,
+                    body);
+            }
         }
         catch (Exception ex)
         {
