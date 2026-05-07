@@ -26,11 +26,11 @@ const handleNewPrompt = async (prompt: string) => {
 
     <!-- Status row -->
     <div class="flex items-center justify-between mb-8">
-      <div class="tag-pill">
-        <span class="live-dot" style="background: var(--lime); box-shadow: 0 0 10px var(--lime);"></span>
+      <div class="tag-pill" role="status" aria-label="AI brain GPT activ">
+        <span class="live-dot" style="background: var(--lime); box-shadow: 0 0 10px var(--lime);" aria-hidden="true"></span>
         <span>brain · gpt</span>
       </div>
-      <div class="tag-pill">module · upsell</div>
+      <div class="tag-pill" aria-label="Modul curent: upsell">module · upsell</div>
     </div>
 
     <header class="mb-10">
@@ -59,8 +59,12 @@ const handleNewPrompt = async (prompt: string) => {
             <div class="eyebrow mb-1">Directivă · activă acum</div>
             <h3 class="display-title text-2xl">Ce ascultă AI-ul</h3>
           </div>
-          <span class="tag-pill" :style="directivesStore.activeDirective ? 'background: var(--lime); color: var(--onLime); border-color: var(--ink12);' : ''">
-            <span v-if="directivesStore.activeDirective" class="w-2 h-2 rounded-full bg-ink"></span>
+          <span
+            class="tag-pill"
+            :style="directivesStore.activeDirective ? 'background: var(--lime); color: var(--onLime); border-color: var(--ink12);' : ''"
+            :aria-label="directivesStore.activeDirective ? 'Directivă activă' : 'Nicio directivă activă'"
+          >
+            <span v-if="directivesStore.activeDirective" class="w-2 h-2 rounded-full bg-ink" aria-hidden="true"></span>
             {{ directivesStore.activeDirective ? 'live' : 'inactiv' }}
           </span>
         </div>
@@ -73,8 +77,9 @@ const handleNewPrompt = async (prompt: string) => {
         <blockquote
           v-else-if="directivesStore.activeDirective"
           class="card-white p-6 relative"
+          aria-label="Prompt activ"
         >
-          <span class="absolute -top-3 left-6 tag-pill" style="background: var(--ink); color: var(--lime); border-color: var(--ink);">prompt</span>
+          <span class="absolute -top-3 left-6 tag-pill" style="background: var(--ink); color: var(--lime); border-color: var(--ink);" aria-hidden="true">prompt</span>
           <p class="text-ink text-lg leading-relaxed font-medium pt-1">
             "{{ directivesStore.activeDirective.rawPrompt }}"
           </p>

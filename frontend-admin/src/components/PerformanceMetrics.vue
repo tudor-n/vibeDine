@@ -17,49 +17,49 @@ const claimRate = computed(() => {
 </script>
 
 <template>
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5" role="list" aria-label="Indicatori de performanță">
 
     <!-- Oferte afișate -->
-    <div class="metric-card">
+    <div class="metric-card" role="listitem">
       <div class="metric-eyebrow">Oferte afișate · azi</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
         {{ metrics?.flashDealsShown || 0 }}
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-ink"></span>
+        <span class="metric-dot metric-dot-ink" aria-hidden="true"></span>
         <span>impressions · table-side</span>
       </div>
     </div>
 
     <!-- Oferte revendicate -->
-    <div class="metric-card metric-card-accent">
+    <div class="metric-card metric-card-accent" role="listitem">
       <div class="metric-eyebrow">Oferte revendicate</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton metric-skeleton-on-dark"></div>
       <div v-else class="metric-value">
         {{ metrics?.flashDealsClaimed || 0 }}
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-lime"></span>
+        <span class="metric-dot metric-dot-lime" aria-hidden="true"></span>
         <span>conversii · cu confirmare</span>
       </div>
     </div>
 
     <!-- Conversie -->
-    <div class="metric-card metric-card-lime">
+    <div class="metric-card metric-card-lime" role="listitem">
       <div class="metric-eyebrow">Rata de conversie</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
         {{ claimRate }}<span class="metric-unit ml-1">%</span>
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-ink"></span>
+        <span class="metric-dot metric-dot-ink" aria-hidden="true"></span>
         <span>claim / shown</span>
       </div>
     </div>
 
     <!-- Venit upsell -->
-    <div class="metric-card">
+    <div class="metric-card" role="listitem">
       <div class="metric-eyebrow">Venit extra · AI upsell</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
@@ -67,13 +67,13 @@ const claimRate = computed(() => {
         <span class="metric-unit ml-1">RON</span>
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-accent"></span>
+        <span class="metric-dot metric-dot-accent" aria-hidden="true"></span>
         <span>recomandări acceptate</span>
       </div>
     </div>
 
     <!-- Venit flash -->
-    <div class="metric-card">
+    <div class="metric-card" role="listitem">
       <div class="metric-eyebrow">Venit oferte fulger</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
@@ -81,7 +81,7 @@ const claimRate = computed(() => {
         <span class="metric-unit ml-1">RON</span>
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-accent"></span>
+        <span class="metric-dot metric-dot-accent" aria-hidden="true"></span>
         <span>preparate cu reducere</span>
       </div>
     </div>

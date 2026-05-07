@@ -31,7 +31,7 @@ const onSubmit = () => {
                     <div class="prompt-eyebrow mb-2">Regulă scrisă · prompt</div>
                     <h2 class="prompt-title">Spune AI-ului ce să recomande</h2>
                 </div>
-                <span class="prompt-tag prompt-tag-lime">✦ pairing · AI</span>
+                <span class="prompt-tag prompt-tag-lime" aria-label="Modul pairing AI activ"><span aria-hidden="true">✦</span> pairing · AI</span>
             </div>
             <p class="prompt-lede mb-6 leading-relaxed max-w-xl">
                 Scrie o frază care leagă un produs de o recomandare. AI-ul rezolvă numele
@@ -40,14 +40,19 @@ const onSubmit = () => {
 
             <form @submit.prevent="onSubmit">
                 <div class="textarea-wrap">
+                    <label for="recommendation-rule-input" class="visually-hidden">
+                        Regulă scrisă de recomandare
+                    </label>
                     <textarea
+                        id="recommendation-rule-input"
                         v-model="promptText"
                         rows="4"
                         placeholder="Ex: pentru tiramisu oferă limonadă cu mentă"
                         class="prompt-textarea"
                         :disabled="isLoading"
+                        :aria-busy="isLoading"
                     ></textarea>
-                    <div class="textarea-foot">
+                    <div class="textarea-foot" aria-hidden="true">
                         <span class="textarea-meta">{{ promptText.length }} caractere</span>
                     </div>
                 </div>
@@ -60,12 +65,13 @@ const onSubmit = () => {
                     <button
                         type="submit"
                         :disabled="isLoading || promptText.trim() === ''"
+                        :aria-busy="isLoading"
                         class="pill-btn"
                     >
-                        <span v-if="isLoading" class="animate-spin">↻</span>
-                        <span v-else>✦</span>
+                        <span v-if="isLoading" class="animate-spin" aria-hidden="true">↻</span>
+                        <span v-else aria-hidden="true">✦</span>
                         <span>{{ isLoading ? 'AI procesează...' : 'Salvează regula' }}</span>
-                        <span v-if="!isLoading" class="opacity-70">→</span>
+                        <span v-if="!isLoading" class="opacity-70" aria-hidden="true">→</span>
                     </button>
                 </div>
             </form>

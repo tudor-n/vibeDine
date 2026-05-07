@@ -31,8 +31,8 @@ const onSubmit = () => {
           <div class="prompt-eyebrow mb-2">Directivă zilnică · prompt</div>
           <h2 class="prompt-title">Ce promovăm azi?</h2>
         </div>
-        <span class="prompt-tag prompt-tag-lime">
-          ✦ flux · AI
+        <span class="prompt-tag prompt-tag-lime" aria-label="Modul flux AI activ">
+          <span aria-hidden="true">✦</span> flux · AI
         </span>
       </div>
       <p class="prompt-lede mb-6 leading-relaxed max-w-xl">
@@ -42,14 +42,19 @@ const onSubmit = () => {
 
       <form @submit.prevent="onSubmit">
         <div class="textarea-wrap">
+          <label for="daily-prompt-input" class="visually-hidden">
+            Directiva zilnică pentru AI
+          </label>
           <textarea
+            id="daily-prompt-input"
             v-model="promptText"
             rows="5"
             placeholder="Ex: Astăzi vrem să sugerăm un Tiramisu sau o Cafea la orice comandă de paste..."
             class="prompt-textarea"
             :disabled="isLoading"
+            :aria-busy="isLoading"
           ></textarea>
-          <div class="textarea-foot">
+          <div class="textarea-foot" aria-hidden="true">
             <span class="textarea-meta">
               {{ promptText.length }} caractere
             </span>
@@ -64,12 +69,13 @@ const onSubmit = () => {
           <button
             type="submit"
             :disabled="isLoading || promptText.trim() === ''"
+            :aria-busy="isLoading"
             class="pill-btn"
           >
-            <span v-if="isLoading" class="animate-spin">↻</span>
-            <span v-else>✦</span>
+            <span v-if="isLoading" class="animate-spin" aria-hidden="true">↻</span>
+            <span v-else aria-hidden="true">✦</span>
             <span>{{ isLoading ? 'AI procesează...' : 'Generează reguli' }}</span>
-            <span v-if="!isLoading" class="opacity-70">→</span>
+            <span v-if="!isLoading" class="opacity-70" aria-hidden="true">→</span>
           </button>
         </div>
       </form>

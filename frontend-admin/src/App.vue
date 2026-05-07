@@ -29,6 +29,7 @@ const { theme, toggle: toggleTheme } = useTheme()
 
     <nav
       class="relative z-10 w-full md:w-72 flex-shrink-0 p-5 md:p-6 flex md:flex-col gap-1 md:gap-1.5 md:min-h-screen md:border-r border-ink-12 nav-shell"
+      aria-label="Navigare admin"
     >
       <!-- Brand block -->
       <div class="hidden md:block mb-8">
@@ -37,7 +38,7 @@ const { theme, toggle: toggleTheme } = useTheme()
           Admin<br /><span class="text-accent">Curții.</span>
         </div>
         <div class="mt-3 flex items-center gap-2">
-          <span class="live-dot"></span>
+          <span class="live-dot" aria-hidden="true"></span>
           <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-70">live · v1</span>
         </div>
       </div>
@@ -50,27 +51,27 @@ const { theme, toggle: toggleTheme } = useTheme()
       <div class="hidden md:block eyebrow mb-2 mt-2">Navigare</div>
 
       <RouterLink to="/" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">◆</span>
+        <span class="nav-icon" aria-hidden="true">◆</span>
         <span class="nav-label">Dashboard</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink to="/ai-config" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">✦</span>
+        <span class="nav-icon" aria-hidden="true">✦</span>
         <span class="nav-label">Configurare AI</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink to="/rules" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">∞</span>
+        <span class="nav-icon" aria-hidden="true">∞</span>
         <span class="nav-label">Reguli</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink to="/orders" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">◐</span>
+        <span class="nav-icon" aria-hidden="true">◐</span>
         <span class="nav-label">Comenzi</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <!-- Footer chip -->
@@ -101,6 +102,7 @@ const { theme, toggle: toggleTheme } = useTheme()
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
+  min-height: var(--tap-min);
   border-radius: 999px;
   font-size: 15px;
   font-weight: 600;
@@ -157,8 +159,8 @@ const { theme, toggle: toggleTheme } = useTheme()
   position: fixed;
   top: 18px;
   right: 18px;
-  width: 42px;
-  height: 42px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   border-radius: 50%;
   background: var(--card);
   color: var(--ink);

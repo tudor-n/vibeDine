@@ -53,7 +53,7 @@ const emit = defineEmits<{
           </div>
 
           <!-- Connector arrow -->
-          <div class="rule-connector">
+          <div class="rule-connector" aria-hidden="true">
             <span class="rule-connector-line"></span>
             <span class="rule-connector-arrow">→</span>
             <span class="rule-connector-line"></span>
@@ -78,13 +78,13 @@ const emit = defineEmits<{
             aria-label="Șterge regula"
             @click="emit('delete', rule.id)"
           >
-            <span>✕</span>
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
 
         <!-- Reason / AI explanation -->
         <div v-if="rule.reason" class="rule-reason">
-          <span class="rule-ai-tag">✦ AI</span>
+          <span class="rule-ai-tag" aria-label="Explicație AI"><span aria-hidden="true">✦</span> AI</span>
           <p class="rule-reason-text">"{{ rule.reason }}"</p>
         </div>
       </article>
@@ -206,8 +206,8 @@ const emit = defineEmits<{
   letter-spacing: -0.01em;
 }
 .rule-delete {
-  width: 38px;
-  height: 38px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   border-radius: 50%;
   background: var(--accentSoft);
   color: var(--accentDk);

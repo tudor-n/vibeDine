@@ -89,14 +89,15 @@ const ruleCount = computed(
     <div class="max-w-6xl mx-auto relative">
         <!-- Status row -->
         <div class="flex items-center justify-between mb-8">
-            <div class="tag-pill">
+            <div class="tag-pill" role="status" aria-label="Modul cross-sell activ">
                 <span
                     class="live-dot"
                     style="background: var(--lime); box-shadow: 0 0 10px var(--lime);"
+                    aria-hidden="true"
                 ></span>
                 <span>cross-sell · graf</span>
             </div>
-            <div class="tag-pill">{{ ruleCount }} reguli active</div>
+            <div class="tag-pill" aria-label="Reguli active">{{ ruleCount }} reguli active</div>
         </div>
 
         <header
@@ -116,9 +117,12 @@ const ruleCount = computed(
 
             <button
                 class="pill-btn whitespace-nowrap"
+                type="button"
+                :aria-expanded="isInputOpen"
+                aria-controls="manual-rule-form"
                 @click="isInputOpen = !isInputOpen"
             >
-                <span>{{ isInputOpen ? '×' : '+' }}</span>
+                <span aria-hidden="true">{{ isInputOpen ? '×' : '+' }}</span>
                 <span>{{ isInputOpen ? 'Închide formularul' : 'Adaugă regulă manuală' }}</span>
             </button>
         </header>
@@ -127,15 +131,17 @@ const ruleCount = computed(
             v-if="rulesStore.error || recRulesStore.error"
             class="card-paper p-5 mb-6"
             style="border-color: var(--accentBorder); background: var(--accentSoft);"
+            role="alert"
         >
-            <span class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold">
-                ⚠ {{ rulesStore.error || recRulesStore.error }}
+            <span class="font-mono text-xs uppercase tracking-[0.18em] font-bold" style="color: var(--accentDk);">
+                <span aria-hidden="true">⚠</span> {{ rulesStore.error || recRulesStore.error }}
             </span>
         </div>
 
         <!-- Manual prompt input (toggle) -->
         <RecommendationRuleInput
             v-if="isInputOpen"
+            id="manual-rule-form"
             :is-loading="recRulesStore.isLoading"
             @submit="handleSubmitRule"
         />
@@ -189,12 +195,17 @@ const ruleCount = computed(
                         <div class="flex items-center gap-2 shrink-0">
                             <button
                                 class="pill-btn pill-btn-ghost"
+                                type="button"
+                                :aria-label="d.isActive ? 'Pune regula pe pauză' : 'Activează regula'"
+                                :aria-pressed="!d.isActive"
                                 @click="handleToggleRule(d.id, d.isActive)"
                             >
                                 {{ d.isActive ? 'Pauză' : 'Activează' }}
                             </button>
                             <button
                                 class="pill-btn pill-btn-danger"
+                                type="button"
+                                aria-label="Șterge regula scrisă"
                                 @click="handleDeleteRecRule(d.id)"
                             >
                                 Șterge
@@ -245,9 +256,10 @@ const ruleCount = computed(
                             v-if="(parseDirective(d)?.unresolved?.length ?? 0) > 0"
                             class="card-white p-4 mt-2"
                             style="border-color: var(--accentBorder); background: var(--accentSoft);"
+                            role="alert"
                         >
-                            <div class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold mb-1">
-                                ⚠ AI nu a putut potrivi
+                            <div class="font-mono text-xs uppercase tracking-[0.18em] font-bold mb-1" style="color: var(--accentDk);">
+                                <span aria-hidden="true">⚠</span> AI nu a putut potrivi
                             </div>
                             <div class="text-ink text-sm">
                                 {{ parseDirective(d)?.unresolved?.join(', ') }}
@@ -290,10 +302,12 @@ const ruleCount = computed(
     background: transparent;
     color: var(--ink);
     border: 1px solid var(--ink12);
+    box-shadow: none;
 }
 .pill-btn-danger {
     background: transparent;
-    color: var(--accent);
+    color: var(--accentDk);
     border: 1px solid var(--accentBorder);
+    box-shadow: none;
 }
 </style>

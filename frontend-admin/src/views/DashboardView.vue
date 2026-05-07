@@ -27,11 +27,11 @@ const clockLabel = computed(() => {
 
     <!-- Status row, Clarifi-style -->
     <div class="flex items-center justify-between mb-8">
-      <div class="tag-pill">
-        <span class="live-dot"></span>
+      <div class="tag-pill" role="status" aria-live="polite">
+        <span class="live-dot" aria-hidden="true"></span>
         <span>{{ metricsStore.isLoading ? 'Sincronizare' : 'Live · sala 1' }}</span>
       </div>
-      <div class="tag-pill">{{ clockLabel }} · azi</div>
+      <div class="tag-pill" :aria-label="`Ora curentă ${clockLabel}`">{{ clockLabel }} · azi</div>
     </div>
 
     <!-- Hero -->
@@ -52,8 +52,11 @@ const clockLabel = computed(() => {
       v-if="metricsStore.error"
       class="card-paper p-5 mb-8 flex items-start gap-4"
       style="border-color: var(--accentBorder); background: var(--accentSoft);"
+      role="alert"
     >
-      <span class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold mt-0.5">⚠ Eroare</span>
+      <span class="font-mono text-xs uppercase tracking-[0.18em] font-bold mt-0.5" style="color: var(--accentDk);">
+        <span aria-hidden="true">⚠</span> Eroare
+      </span>
       <p class="text-sm text-ink flex-1">{{ metricsStore.error }}</p>
     </div>
 

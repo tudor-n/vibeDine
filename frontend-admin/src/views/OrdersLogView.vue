@@ -28,13 +28,13 @@ const error = ref<string | null>(null)
 const expandedOrderId = ref<string | null>(null)
 const filterStatus = ref<string>('all')
 
-const STATUS_LABELS: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  draft:      { label: 'Ciornă',      bg: 'var(--ink06)',     color: 'var(--ink70)', border: 'var(--ink12)' },
-  submitted:  { label: 'Trimisă',     bg: 'var(--lime)',      color: 'var(--onLime)', border: 'var(--ink12)' },
-  preparing:  { label: 'Pregătire',   bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
-  ready:      { label: 'Gată',        bg: 'var(--ink)',       color: 'var(--lime)',  border: 'var(--ink)' },
-  completed:  { label: 'Finalizată',  bg: 'var(--ink)',       color: 'var(--paperHi)', border: 'var(--ink)' },
-  cancelled:  { label: 'Anulată',     bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
+const STATUS_LABELS: Record<string, { label: string; icon: string; bg: string; color: string; border: string }> = {
+  draft:      { label: 'Ciornă',      icon: '✎', bg: 'var(--ink06)',     color: 'var(--ink70)', border: 'var(--ink12)' },
+  submitted:  { label: 'Trimisă',     icon: '↗', bg: 'var(--lime)',      color: 'var(--onLime)', border: 'var(--ink12)' },
+  preparing:  { label: 'Pregătire',   icon: '◔', bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
+  ready:      { label: 'Gată',        icon: '✓', bg: 'var(--ink)',       color: 'var(--lime)',  border: 'var(--ink)' },
+  completed:  { label: 'Finalizată',  icon: '●', bg: 'var(--ink)',       color: 'var(--paperHi)', border: 'var(--ink)' },
+  cancelled:  { label: 'Anulată',     icon: '✕', bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
 }
 
 const FILTERS: Array<{ key: string; label: string }> = [
@@ -97,11 +97,11 @@ onMounted(fetchOrders)
 
     <!-- Status row -->
     <div class="flex items-center justify-between mb-8">
-      <div class="tag-pill">
-        <span class="live-dot"></span>
+      <div class="tag-pill" role="status" aria-label="Stare jurnal: live">
+        <span class="live-dot" aria-hidden="true"></span>
         <span>jurnal · live</span>
       </div>
-      <div class="tag-pill">{{ orders.length }} înregistrări</div>
+      <div class="tag-pill" aria-label="Total înregistrări">{{ orders.length }} înregistrări</div>
     </div>
 
     <header class="mb-10">
@@ -118,13 +118,18 @@ onMounted(fetchOrders)
 
     <!-- Filter chips + reload -->
     <div class="flex items-center justify-between gap-3 mb-6 flex-wrap">
-      <div class="flex gap-2 overflow-x-auto hide-scrollbar -mx-1 px-1 py-1 flex-1">
+      <div
+        class="flex gap-2 overflow-x-auto hide-scrollbar -mx-1 px-1 py-1 flex-1"
+        role="group"
+        aria-label="Filtrează comenzile după stare"
+      >
         <button
           v-for="f in FILTERS"
           :key="f.key"
           type="button"
           class="filter-chip"
           :class="{ 'filter-chip-active': filterStatus === f.key }"
+          :aria-pressed="filterStatus === f.key"
           @click="filterStatus = f.key"
         >{{ f.label }}</button>
       </div>
@@ -133,20 +138,21 @@ onMounted(fetchOrders)
         @click="fetchOrders"
         :disabled="isLoading"
         class="pill-btn-ink whitespace-nowrap"
+        :aria-label="isLoading ? 'Se reîncarcă comenzile' : 'Reîncarcă comenzile'"
       >
-        <span :class="{ 'animate-spin': isLoading }">↻</span>
+        <span :class="{ 'animate-spin': isLoading }" aria-hidden="true">↻</span>
         Reîncarcă
       </button>
     </div>
 
     <!-- Legend -->
-    <div class="flex items-center gap-3 mb-7 flex-wrap">
-      <span class="eyebrow">Legendă</span>
+    <div class="flex items-center gap-3 mb-7 flex-wrap" role="group" aria-label="Legendă etichete">
+      <span class="eyebrow" aria-hidden="true">Legendă</span>
       <span class="legend-pill" style="background: var(--ink); color: var(--lime); border-color: var(--ink);">
-        ✦ AI · upsell
+        <span aria-hidden="true">✦</span> AI · upsell
       </span>
       <span class="legend-pill" style="background: var(--lime); color: var(--onLime); border-color: var(--ink12);">
-        ⚡ Flash deal
+        <span aria-hidden="true">⚡</span> Flash deal
       </span>
     </div>
 
@@ -155,8 +161,11 @@ onMounted(fetchOrders)
       v-if="error"
       class="card-paper p-5 mb-6"
       style="border-color: var(--accentBorder); background: var(--accentSoft);"
+      role="alert"
     >
-      <span class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold">⚠ {{ error }}</span>
+      <span class="font-mono text-xs uppercase tracking-[0.18em] font-bold" style="color: var(--accentDk);">
+        <span aria-hidden="true">⚠</span> {{ error }}
+      </span>
     </div>
 
     <!-- Loading skeleton -->
@@ -183,11 +192,15 @@ onMounted(fetchOrders)
       >
         <button
           class="order-row"
+          type="button"
+          :aria-expanded="expandedOrderId === order.id"
+          :aria-controls="`order-detail-${order.id}`"
+          :aria-label="`Comandă masa ${order.tableNumber ?? 'necunoscută'}, ${STATUS_LABELS[order.status]?.label ?? order.status}, ${order.items.length} preparate, total ${order.totalAmount.toFixed(2)} RON`"
           @click="toggleExpand(order.id)"
         >
-          <span class="order-arrow" :class="{ 'rotate-90': expandedOrderId === order.id }">›</span>
+          <span class="order-arrow" :class="{ 'rotate-90': expandedOrderId === order.id }" aria-hidden="true">›</span>
 
-          <div class="order-table">
+          <div class="order-table" aria-hidden="true">
             <span class="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-40 leading-none">Masa</span>
             <span class="font-display text-xl font-bold leading-tight mt-0.5">{{ order.tableNumber ?? '?' }}</span>
           </div>
@@ -205,9 +218,10 @@ onMounted(fetchOrders)
                   borderColor: STATUS_LABELS[order.status]?.border,
                 }"
               >
+                <span aria-hidden="true">{{ STATUS_LABELS[order.status]?.icon }}</span>
                 {{ STATUS_LABELS[order.status]?.label ?? order.status }}
               </span>
-              <span v-if="orderHasAiItems(order)" class="text-sm">
+              <span v-if="orderHasAiItems(order)" class="text-sm" aria-hidden="true">
                 <span v-if="order.items.some(i => i.isFlashDealItem)" class="ml-1">⚡</span>
                 <span v-if="order.items.some(i => i.wasAiRecommended)" class="ml-0.5">✦</span>
               </span>
@@ -217,7 +231,7 @@ onMounted(fetchOrders)
             </div>
           </div>
 
-          <div class="text-right flex-shrink-0">
+          <div class="text-right flex-shrink-0" aria-hidden="true">
             <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-40">total</div>
             <div class="font-display text-2xl font-bold text-ink leading-tight">
               {{ order.totalAmount.toFixed(2) }}
@@ -227,7 +241,7 @@ onMounted(fetchOrders)
         </button>
 
         <Transition name="expand">
-          <div v-if="expandedOrderId === order.id" class="order-expand">
+          <div v-if="expandedOrderId === order.id" class="order-expand" :id="`order-detail-${order.id}`">
             <div class="grid items-center px-5 py-2.5 text-[10px] uppercase tracking-[0.18em] text-ink-40 font-mono"
                  style="grid-template-columns: 1fr 60px 100px 110px;">
               <span>Produs</span>
@@ -276,6 +290,7 @@ onMounted(fetchOrders)
   font-size: 14px;
   font-weight: 600;
   padding: 9px 16px;
+  min-height: var(--tap-min);
   border-radius: 999px;
   background: var(--paperHi);
   color: var(--ink);
