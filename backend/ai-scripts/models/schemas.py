@@ -35,3 +35,14 @@ class AutoGenerateRequest(BaseModel):
 
 class ParseDirectiveRequest(BaseModel):
     raw_prompt: str
+
+
+class RecommendationMenuItem(BaseModel):
+    product_id: str
+    name: str
+    category: Optional[str] = None
+
+
+class ParseRecommendationDirectiveRequest(BaseModel):
+    raw_prompt: str
+    menu_items: List[RecommendationMenuItem] = []

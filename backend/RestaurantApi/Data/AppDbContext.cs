@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<RestaurantTable> Tables => Set<RestaurantTable>();
     public DbSet<FlashDealOffer> FlashDealOffers => Set<FlashDealOffer>();
     public DbSet<AIDirective> AIDirectives => Set<AIDirective>();
+    public DbSet<RecommendationDirective> RecommendationDirectives => Set<RecommendationDirective>();
     public DbSet<SimilarityRule> SimilarityRules { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -112,6 +113,16 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AIDirective>(e =>
         {
             e.ToTable("ai_directives");
+            e.Property(a => a.Id).HasColumnName("id");
+            e.Property(a => a.RawPrompt).HasColumnName("raw_prompt");
+            e.Property(a => a.ParsedRules).HasColumnName("parsed_rules");
+            e.Property(a => a.CreatedAt).HasColumnName("created_at");
+            e.Property(a => a.IsActive).HasColumnName("is_active");
+        });
+
+        modelBuilder.Entity<RecommendationDirective>(e =>
+        {
+            e.ToTable("recommendation_directives");
             e.Property(a => a.Id).HasColumnName("id");
             e.Property(a => a.RawPrompt).HasColumnName("raw_prompt");
             e.Property(a => a.ParsedRules).HasColumnName("parsed_rules");

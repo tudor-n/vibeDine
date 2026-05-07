@@ -1,4 +1,4 @@
-import type { AIDirective, SimilarityRule , DailyMetrics } from '@shared/types/models';
+import type { AIDirective, RecommendationDirective, SimilarityRule , DailyMetrics } from '@shared/types/models';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
@@ -46,7 +46,27 @@ export const apiClient = {
       body: JSON.stringify(isActive)
     }),
 
-    getSimilarityRules: () => 
+    getRecommendationDirectives: () =>
+        fetcher<RecommendationDirective[]>('/api/admin/recommendation-directives'),
+
+    postRecommendationDirective: (prompt: string) =>
+        fetcher<RecommendationDirective>('/api/admin/recommendation-directives', {
+            method: 'POST',
+            body: JSON.stringify({ rawPrompt: prompt }),
+        }),
+
+    toggleRecommendationDirective: (id: string, isActive: boolean) =>
+        fetcher<void>(`/api/admin/recommendation-directives/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(isActive),
+        }),
+
+    deleteRecommendationDirective: (id: string) =>
+        fetcher<void>(`/api/admin/recommendation-directives/${id}`, {
+            method: 'DELETE',
+        }),
+
+    getSimilarityRules: () =>
         fetcher<SimilarityRule[]>('/api/admin/similarity-rules'),
 
     postSimilarityRule: (rulePayload: any) => 
@@ -63,5 +83,8 @@ export const apiClient = {
     autoGenerateRules: () =>
         fetcher<SimilarityRule[]>('/api/admin/similarity-rules/auto-generate', {
             method: 'POST'
-        })
+        }),
+
+    getMenu: () =>
+        fetcher<{ categories: Array<{ id: string; name: string; products: Array<{ id: string; name: string }> }> }>('/api/menu'),
 }
