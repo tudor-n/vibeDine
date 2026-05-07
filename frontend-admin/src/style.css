@@ -1,3 +1,169 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Clarifi palette — warm (light) is default */
+:root {
+  --paper:    #F4EEE2;
+  --paperHi:  #FBF7EC;
+  --card:     #FFFFFF;
+  --ink:      #15140F;
+  --ink-rgb:  21, 20, 15;
+  --paper-rgb: 251, 247, 236;
+  --ink70:    rgba(21, 20, 15, 0.62);
+  --ink40:    rgba(21, 20, 15, 0.34);
+  --ink12:    rgba(21, 20, 15, 0.10);
+  --ink06:    rgba(21, 20, 15, 0.05);
+  --accent:   #FF4A1C;
+  --accentDk: #C0340F;
+  --accentSoft: rgba(255, 74, 28, 0.10);
+  --accentBorder: rgba(255, 74, 28, 0.30);
+  --lime:     #D9F54A;
+  --onAccent: #FFF4EC;
+  --onLime:   #15140F;
+  --shadow-soft: 0 16px 36px -22px rgba(21, 20, 15, 0.35);
+  --shadow-pop:  0 30px 60px -30px rgba(21, 20, 15, 0.50);
+}
+
+/* Dark direction — hot pink + warm gold over deep charcoal */
+:root[data-theme="dark"] {
+  --paper:    #1B1814;
+  --paperHi:  #221F1A;
+  --card:     #2C2923;
+  --ink:      #F5F0E8;
+  --ink-rgb:  245, 240, 232;
+  --paper-rgb: 27, 24, 20;
+  --ink70:    rgba(245, 240, 232, 0.65);
+  --ink40:    rgba(245, 240, 232, 0.38);
+  --ink12:    rgba(245, 240, 232, 0.10);
+  --ink06:    rgba(245, 240, 232, 0.05);
+  --accent:   #E8255A;
+  --accentDk: #B81A47;
+  --accentSoft: rgba(232, 37, 90, 0.14);
+  --accentBorder: rgba(232, 37, 90, 0.40);
+  --lime:     #FFD166;
+  --onAccent: #1B1814;
+  --onLime:   #1B1814;
+  --shadow-soft: 0 16px 36px -22px rgba(0, 0, 0, 0.55);
+  --shadow-pop:  0 30px 60px -30px rgba(0, 0, 0, 0.70);
+}
+
+@layer base {
+  html, body, #app {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter Tight', -apple-system, system-ui, sans-serif;
+    font-feature-settings: 'ss01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+}
+
+@layer components {
+  .eyebrow {
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--ink70);
+  }
+
+  .display-title {
+    font-family: 'Inter Tight', -apple-system, system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    line-height: 0.95;
+    color: var(--ink);
+  }
+
+  .pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 22px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--onAccent);
+    font-weight: 700;
+    font-size: 15px;
+    box-shadow: 0 16px 32px -16px var(--accent);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  }
+  .pill-btn:hover { transform: translateY(-1px); }
+  .pill-btn:active { transform: scale(0.97); }
+  .pill-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .pill-btn-ink {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--paperHi);
+    font-weight: 700;
+    font-size: 14px;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .pill-btn-ink:hover { transform: translateY(-1px); }
+  .pill-btn-ink:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .card-paper {
+    background: var(--paperHi);
+    border: 1px solid var(--ink12);
+    border-radius: 24px;
+  }
+  .card-white {
+    background: var(--card);
+    border: 1px solid var(--ink12);
+    border-radius: 22px;
+  }
+
+  .bloom {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .bloom-accent {
+    background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+    filter: blur(60px);
+    opacity: 0.32;
+  }
+  .bloom-lime {
+    background: radial-gradient(circle, var(--lime) 0%, transparent 70%);
+    filter: blur(55px);
+    opacity: 0.32;
+  }
+
+  .tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--ink06);
+    border: 1px solid var(--ink12);
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink70);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    display: inline-block;
+  }
+}
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

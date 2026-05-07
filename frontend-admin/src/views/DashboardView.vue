@@ -1,6 +1,6 @@
 <script setup lang="ts">
 
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, computed } from 'vue'
 import { useMetricsStore } from '@/stores/useMetricsStore';
 import PerformanceMetrics from '@/components/PerformanceMetrics.vue';
 
@@ -14,47 +14,80 @@ onMounted(() => {
 onUnmounted(() => {
     metricsStore.stopPolling();
 })
+
+const clockLabel = computed(() => {
+  const d = new Date()
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+})
 </script>
 
 
 <template>
-  <div class="p-6 max-w-7xl mx-auto">
-    
-    <header class="mb-8 flex justify-between items-center">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900">Dashboard Live</h1>
-        <p class="text-gray-500 mt-1">Monitorizează performanța ofertelor și a recomandărilor AI.</p>
-      </div>
+  <div class="max-w-7xl mx-auto relative">
 
-      <div class="flex items-center gap-2 text-sm text-gray-500 bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
-        <span v-if="metricsStore.isLoading" class="flex h-3 w-3 relative">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-3 w-3 bg-brand"></span>
-        </span>
-        <span v-else class="h-3 w-3 rounded-full bg-green-500"></span>
-        {{ metricsStore.isLoading ? 'Se actualizează...' : 'Date la zi' }}
+    <!-- Status row, Clarifi-style -->
+    <div class="flex items-center justify-between mb-8">
+      <div class="tag-pill">
+        <span class="live-dot"></span>
+        <span>{{ metricsStore.isLoading ? 'Sincronizare' : 'Live · sala 1' }}</span>
       </div>
+      <div class="tag-pill">{{ clockLabel }} · azi</div>
+    </div>
+
+    <!-- Hero -->
+    <header class="mb-10 max-w-3xl">
+      <div class="eyebrow mb-4">Astăzi · pulsul casei</div>
+      <h1 class="display-title text-[56px] md:text-[68px]">
+        Dashboard<br />
+        <span class="text-accent">live.</span>
+      </h1>
+      <p class="text-ink-70 text-lg mt-5 leading-relaxed">
+        Monitorizați performanța ofertelor fulger și a recomandărilor AI — în timp real,
+        așa cum sunt servite la mesele din sală.
+      </p>
     </header>
 
-    <div v-if="metricsStore.error" class="bg-red-50 border-l-4 border-red-500 p-4 mb-8 rounded-r-lg">
-      <div class="flex">
-        <div class="flex-shrink-0">
-          <span class="text-red-500 font-bold">⚠ Eroare</span>
-        </div>
-        <div class="ml-3">
-          <p class="text-sm text-red-700">{{ metricsStore.error }}</p>
-        </div>
+    <!-- Error -->
+    <div
+      v-if="metricsStore.error"
+      class="card-paper p-5 mb-8 flex items-start gap-4"
+      style="border-color: var(--accentBorder); background: var(--accentSoft);"
+    >
+      <span class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold mt-0.5">⚠ Eroare</span>
+      <p class="text-sm text-ink flex-1">{{ metricsStore.error }}</p>
+    </div>
+
+    <!-- Section: KPIs -->
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="eyebrow mb-1">Indicatori</div>
+        <h2 class="display-title text-2xl">Cum se vinde acum</h2>
+      </div>
+      <div class="hidden md:block tag-pill">
+        actualizare · {{ metricsStore.isLoading ? '...' : 'just now' }}
       </div>
     </div>
 
-    <PerformanceMetrics 
-      :metrics="metricsStore.metrics" 
-      :is-loading="metricsStore.isLoading" 
+    <PerformanceMetrics
+      :metrics="metricsStore.metrics"
+      :is-loading="metricsStore.isLoading"
     />
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-64 flex items-center justify-center text-gray-400">
-      <p>Aici va veni secțiunea de activitate recentă...</p>
+    <!-- Activity card -->
+    <div class="card-paper p-8 mt-8 relative overflow-hidden">
+      <div class="bloom bloom-lime" style="top: -40px; right: -40px; width: 200px; height: 200px; opacity: 0.25;" />
+      <div class="relative z-10">
+        <div class="eyebrow mb-3">În curând</div>
+        <h3 class="display-title text-3xl mb-3">Activitate recentă</h3>
+        <p class="text-ink-70 leading-relaxed max-w-xl">
+          Aici va apărea fluxul live al comenzilor, alăturat reacțiilor în sală la
+          fiecare ofertă fulger pe care o trimiteți.
+        </p>
+        <div class="mt-6 flex items-center gap-3">
+          <span class="tag-pill">flux · websocket</span>
+          <span class="tag-pill">jurnal · timeline</span>
+        </div>
+      </div>
     </div>
-
   </div>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 
-import { onMounted } from 'vue'
+import { onMounted, computed } from 'vue'
 import { useSimilarityRulesStore } from '@/stores/useSimilarityRulesStore'
 import SimilarityRuleTable from '@/components/SimilarityRuleTable.vue'
 
@@ -24,33 +24,56 @@ const handleDeleteRule = async (id: string) => {
         }
     }
 }
+
+const ruleCount = computed(() => rulesStore.rules?.length ?? 0)
 </script>
 
 
 
 <template>
-  <div class="p-6 max-w-6xl mx-auto">
-    
-    <header class="mb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900">Reguli Recomandări</h1>
-        <p class="text-gray-500 mt-1">Gestionează legăturile dintre produse pentru cross-sell și upsell.</p>
+  <div class="max-w-6xl mx-auto relative">
+
+    <!-- Status row -->
+    <div class="flex items-center justify-between mb-8">
+      <div class="tag-pill">
+        <span class="live-dot" style="background: var(--lime); box-shadow: 0 0 10px var(--lime);"></span>
+        <span>cross-sell · graf</span>
       </div>
-      
-      <button 
-        class="bg-gray-900 text-white px-5 py-2.5 rounded-lg shadow-sm font-semibold hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+      <div class="tag-pill">{{ ruleCount }} reguli active</div>
+    </div>
+
+    <header class="mb-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+      <div class="max-w-2xl">
+        <div class="eyebrow mb-4">Recomandări · pebble pairing</div>
+        <h1 class="display-title text-[56px] md:text-[68px]">
+          Reguli<br />
+          <span class="text-accent">recomandări.</span>
+        </h1>
+        <p class="text-ink-70 text-lg mt-5 leading-relaxed">
+          Legăturile dintre produse care alimentează cross-sell-ul și upsell-ul
+          în sală — fie generate de AI, fie scrise manual.
+        </p>
+      </div>
+
+      <button
+        class="pill-btn whitespace-nowrap"
         @click="showAddRuleMessage"
       >
-        <span>+</span> Adaugă Regulă Manuală
+        <span>+</span>
+        <span>Adaugă regulă manuală</span>
       </button>
     </header>
 
-    <div v-if="rulesStore.error" class="bg-red-50 border border-red-200 text-red-700 p-4 mb-6 rounded-lg">
-      {{ rulesStore.error }}
+    <div
+      v-if="rulesStore.error"
+      class="card-paper p-5 mb-6"
+      style="border-color: var(--accentBorder); background: var(--accentSoft);"
+    >
+      <span class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold">⚠ {{ rulesStore.error }}</span>
     </div>
 
-    <SimilarityRuleTable 
-      :rules="rulesStore.rules" 
+    <SimilarityRuleTable
+      :rules="rulesStore.rules"
       :is-loading="rulesStore.isLoading"
       @delete="handleDeleteRule"
     />
