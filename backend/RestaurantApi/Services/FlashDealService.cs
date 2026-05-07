@@ -124,6 +124,28 @@ public class FlashDealService : IFlashDealService
                 {
                     discountPercent = pct;
                 }
+
+                // Extract a min-order-total threshold like "peste 190 de lei" / "over 190 RON".
+                // If the order doesn't meet it, no deal is offered for this submit.
+                var thresholdMatch = System.Text.RegularExpressions.Regex.Match(
+                    promptForPercent,
+                    @"\b(peste|over|above|cel\s+pu[țt]in|at\s+least|min(?:imum)?)\s+(\d+(?:[.,]\d+)?)\s*(?:de\s+)?(?:lei|ron)?",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (thresholdMatch.Success && decimal.TryParse(
+                        thresholdMatch.Groups[2].Value.Replace(',', '.'),
+                        System.Globalization.NumberStyles.Number,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var threshold))
+                {
+                    var orderTotal = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
+                    if (orderTotal < threshold)
+                    {
+                        _logger.LogInformation(
+                            "Flash deal skipped: order total {Total} below threshold {Threshold} (directive: {Prompt})",
+                            orderTotal, threshold, activeDirective.RawPrompt);
+                        return;
+                    }
+                }
             }
 
             // Strategy 1: Try AI-parsed rules if available

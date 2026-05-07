@@ -80,8 +80,12 @@ app.MapControllers();
 app.MapHub<CustomerHub>("/hubs/customer");
 app.MapHub<StaffHub>("/hubs/staff");
 
-using (var scope = app.Services.CreateScope())
+// Auto-migrate and seed only in Development. In production, run
+// `dotnet ef database update` as part of the deploy pipeline so a bad
+// migration never blocks the API from starting.
+if (app.Environment.IsDevelopment())
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
     await SeedData.InitializeAsync(db);
