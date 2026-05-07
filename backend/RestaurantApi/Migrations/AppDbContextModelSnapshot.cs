@@ -222,6 +222,34 @@ namespace RestaurantApi.Migrations
                     b.ToTable("products", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.RecommendationDirective", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool?>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("ParsedRules")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("parsed_rules");
+
+                    b.Property<string>("RawPrompt")
+                        .HasColumnType("text")
+                        .HasColumnName("raw_prompt");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("recommendation_directives", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.RestaurantTable", b =>
                 {
                     b.Property<Guid>("Id")
@@ -315,7 +343,7 @@ namespace RestaurantApi.Migrations
                     b.HasOne("RestaurantApi.Models.Product", "Product")
                         .WithMany()
                         .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Order");
@@ -339,13 +367,13 @@ namespace RestaurantApi.Migrations
                     b.HasOne("RestaurantApi.Models.Product", "ProductA")
                         .WithMany()
                         .HasForeignKey("ProductAId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("RestaurantApi.Models.Product", "ProductB")
                         .WithMany()
                         .HasForeignKey("ProductBId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("ProductA");

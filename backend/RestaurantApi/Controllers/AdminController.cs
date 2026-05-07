@@ -87,6 +87,95 @@ public class AdminController : ControllerBase
     }
 
 
+    [HttpGet("recommendation-directives")]
+    public async Task<IActionResult> GetRecommendationDirectives()
+    {
+        var directives = await _dbContext.RecommendationDirectives
+            .OrderByDescending(d => d.CreatedAt)
+            .ToListAsync();
+
+        return Ok(directives);
+    }
+
+    [HttpPost("recommendation-directives")]
+    public async Task<IActionResult> CreateRecommendationDirective(
+        [FromBody] CreateRecommendationDirectiveRequest request)
+    {
+        var menuItems = await _dbContext.Products
+            .Include(p => p.Category)
+            .Where(p => p.IsAvailable == true)
+            .Select(p => new
+            {
+                product_id = p.Id.ToString(),
+                name = p.Name,
+                category = p.Category != null ? p.Category.Name : null
+            })
+            .ToListAsync();
+
+        var client = _httpClientFactory.CreateClient("AiService");
+        string? parsedRules = null;
+
+        try
+        {
+            var aiResponse = await client.PostAsJsonAsync(
+                "/recommendation-directives/parse",
+                new { raw_prompt = request.RawPrompt, menu_items = menuItems });
+
+            if (aiResponse.IsSuccessStatusCode)
+            {
+                parsedRules = await aiResponse.Content.ReadAsStringAsync();
+            }
+            else
+            {
+                var body = await aiResponse.Content.ReadAsStringAsync();
+                _logger.LogWarning(
+                    "AI /recommendation-directives/parse returned non-success status {StatusCode}. Body: {Body}",
+                    (int)aiResponse.StatusCode, body);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI service failed to parse recommendation directive");
+        }
+
+        var directive = new RecommendationDirective
+        {
+            Id = Guid.NewGuid(),
+            RawPrompt = request.RawPrompt,
+            ParsedRules = parsedRules,
+            CreatedAt = DateTime.UtcNow,
+            IsActive = true
+        };
+
+        _dbContext.RecommendationDirectives.Add(directive);
+        await _dbContext.SaveChangesAsync();
+
+        return Ok(directive);
+    }
+
+    [HttpPatch("recommendation-directives/{id}")]
+    public async Task<IActionResult> ToggleRecommendationDirective(Guid id, [FromBody] bool isActive)
+    {
+        var directive = await _dbContext.RecommendationDirectives.FindAsync(id);
+        if (directive == null) return NotFound();
+
+        directive.IsActive = isActive;
+        await _dbContext.SaveChangesAsync();
+        return Ok(directive);
+    }
+
+    [HttpDelete("recommendation-directives/{id}")]
+    public async Task<IActionResult> DeleteRecommendationDirective(Guid id)
+    {
+        var directive = await _dbContext.RecommendationDirectives.FindAsync(id);
+        if (directive == null) return NotFound();
+
+        _dbContext.RecommendationDirectives.Remove(directive);
+        await _dbContext.SaveChangesAsync();
+        return NoContent();
+    }
+
+
     [HttpGet("similarity-rules")]
     public async Task<IActionResult> GetSimilarityRules()
     {
@@ -224,6 +313,12 @@ public class AdminController : ControllerBase
 }
 
 public class CreateDirectiveRequest
+{
+    [JsonPropertyName("rawPrompt")]
+    public string RawPrompt { get; set; } = string.Empty;
+}
+
+public class CreateRecommendationDirectiveRequest
 {
     [JsonPropertyName("rawPrompt")]
     public string RawPrompt { get; set; } = string.Empty;

@@ -131,6 +131,26 @@ export interface AIDirective {
   isActive: boolean | null;
 }
 
+export interface RecommendationDirective {
+  id: UUID;
+  rawPrompt: string | null;
+  parsedRules: string | null;
+  createdAt: ISODateString;
+  isActive: boolean | null;
+}
+
+export interface RecommendationDirectiveRule {
+  trigger_product_ids: UUID[];
+  recommend_product_ids: UUID[];
+  reason: string;
+  confidence: number;
+}
+
+export interface ParsedRecommendationDirective {
+  rules: RecommendationDirectiveRule[];
+  unresolved: string[];
+}
+
 
 export type SimilarityRelationship = 'pairsWith' | 'upgradeTo' | 'followWith' | 'sameVibe';
 
