@@ -28,13 +28,13 @@ const error = ref<string | null>(null)
 const expandedOrderId = ref<string | null>(null)
 const filterStatus = ref<string>('all')
 
-const STATUS_LABELS: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  draft:      { label: 'Ciornă',      bg: 'var(--ink06)',     color: 'var(--ink70)', border: 'var(--ink12)' },
-  submitted:  { label: 'Trimisă',     bg: 'var(--lime)',      color: 'var(--onLime)', border: 'var(--ink12)' },
-  preparing:  { label: 'Pregătire',   bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
-  ready:      { label: 'Gată',        bg: 'var(--ink)',       color: 'var(--lime)',  border: 'var(--ink)' },
-  completed:  { label: 'Finalizată',  bg: 'var(--ink)',       color: 'var(--paperHi)', border: 'var(--ink)' },
-  cancelled:  { label: 'Anulată',     bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
+const STATUS_LABELS: Record<string, { label: string; icon: string; bg: string; color: string; border: string }> = {
+  draft:      { label: 'Ciornă',      icon: '✎', bg: 'var(--ink06)',     color: 'var(--ink70)', border: 'var(--ink12)' },
+  submitted:  { label: 'Trimisă',     icon: '↗', bg: 'var(--lime)',      color: 'var(--onLime)', border: 'var(--ink12)' },
+  preparing:  { label: 'Pregătire',   icon: '◔', bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
+  ready:      { label: 'Gată',        icon: '✓', bg: 'var(--ink)',       color: 'var(--lime)',  border: 'var(--ink)' },
+  completed:  { label: 'Finalizată',  icon: '●', bg: 'var(--ink)',       color: 'var(--paperHi)', border: 'var(--ink)' },
+  cancelled:  { label: 'Anulată',     icon: '✕', bg: 'var(--accentSoft)', color: 'var(--accentDk)', border: 'var(--accentBorder)' },
 }
 
 const FILTERS: Array<{ key: string; label: string }> = [
@@ -97,20 +97,20 @@ onMounted(fetchOrders)
 
     <!-- Status row -->
     <div class="flex items-center justify-between mb-8">
-      <div class="tag-pill">
-        <span class="live-dot"></span>
-        <span>jurnal · live</span>
+      <div class="tag-pill" role="status" aria-label="Jurnalul comenzilor este activ">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>Jurnal activ</span>
       </div>
-      <div class="tag-pill">{{ orders.length }} înregistrări</div>
+      <div class="tag-pill" aria-label="Total înregistrări">{{ orders.length }} comenzi</div>
     </div>
 
     <header class="mb-10">
-      <div class="eyebrow mb-4">Operațiuni · servire</div>
-      <h1 class="display-title text-[56px] md:text-[68px]">
+      <div class="eyebrow mb-4">Comenzile zilei</div>
+      <h1 class="display-title text-[44px] md:text-[56px]">
         Jurnal<br />
         <span class="text-accent">comenzi.</span>
       </h1>
-      <p class="text-ink-70 text-lg mt-5 leading-relaxed max-w-2xl">
+      <p class="text-ink text-lg mt-5 leading-relaxed max-w-2xl">
         Istoricul comenzilor cu detalii despre fiecare preparat și sursa acestuia —
         recomandare AI, ofertă fulger sau alegere directă.
       </p>
@@ -118,13 +118,18 @@ onMounted(fetchOrders)
 
     <!-- Filter chips + reload -->
     <div class="flex items-center justify-between gap-3 mb-6 flex-wrap">
-      <div class="flex gap-2 overflow-x-auto hide-scrollbar -mx-1 px-1 py-1 flex-1">
+      <div
+        class="flex gap-2 overflow-x-auto hide-scrollbar -mx-1 px-1 py-1 flex-1"
+        role="group"
+        aria-label="Filtrează comenzile după stare"
+      >
         <button
           v-for="f in FILTERS"
           :key="f.key"
           type="button"
           class="filter-chip"
           :class="{ 'filter-chip-active': filterStatus === f.key }"
+          :aria-pressed="filterStatus === f.key"
           @click="filterStatus = f.key"
         >{{ f.label }}</button>
       </div>
@@ -133,20 +138,21 @@ onMounted(fetchOrders)
         @click="fetchOrders"
         :disabled="isLoading"
         class="pill-btn-ink whitespace-nowrap"
+        :aria-label="isLoading ? 'Se reîncarcă comenzile' : 'Reîncarcă comenzile'"
       >
-        <span :class="{ 'animate-spin': isLoading }">↻</span>
+        <span :class="{ 'animate-spin': isLoading }" aria-hidden="true">↻</span>
         Reîncarcă
       </button>
     </div>
 
     <!-- Legend -->
-    <div class="flex items-center gap-3 mb-7 flex-wrap">
-      <span class="eyebrow">Legendă</span>
+    <div class="flex items-center gap-3 mb-7 flex-wrap" role="group" aria-label="Legendă etichete">
+      <span class="eyebrow" aria-hidden="true">Legendă</span>
       <span class="legend-pill" style="background: var(--ink); color: var(--lime); border-color: var(--ink);">
-        ✦ AI · upsell
+        <span aria-hidden="true">✦</span> AI · upsell
       </span>
       <span class="legend-pill" style="background: var(--lime); color: var(--onLime); border-color: var(--ink12);">
-        ⚡ Flash deal
+        <span aria-hidden="true">⚡</span> Flash deal
       </span>
     </div>
 
@@ -155,8 +161,11 @@ onMounted(fetchOrders)
       v-if="error"
       class="card-paper p-5 mb-6"
       style="border-color: var(--accentBorder); background: var(--accentSoft);"
+      role="alert"
     >
-      <span class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold">⚠ {{ error }}</span>
+      <span class="font-mono text-sm uppercase tracking-[0.06em] font-bold" style="color: var(--accentDk);">
+        <span aria-hidden="true">⚠</span> {{ error }}
+      </span>
     </div>
 
     <!-- Loading skeleton -->
@@ -183,18 +192,22 @@ onMounted(fetchOrders)
       >
         <button
           class="order-row"
+          type="button"
+          :aria-expanded="expandedOrderId === order.id"
+          :aria-controls="`order-detail-${order.id}`"
+          :aria-label="`Comandă masa ${order.tableNumber ?? 'necunoscută'}, ${STATUS_LABELS[order.status]?.label ?? order.status}, ${order.items.length} preparate, total ${order.totalAmount.toFixed(2)} RON`"
           @click="toggleExpand(order.id)"
         >
-          <span class="order-arrow" :class="{ 'rotate-90': expandedOrderId === order.id }">›</span>
+          <span class="order-arrow" :class="{ 'rotate-90': expandedOrderId === order.id }" aria-hidden="true">›</span>
 
-          <div class="order-table">
-            <span class="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-40 leading-none">Masa</span>
+          <div class="order-table" aria-hidden="true">
+            <span class="font-mono text-[12px] uppercase tracking-[0.06em] leading-none" style="color: rgba(245,240,232,0.75);">Masa</span>
             <span class="font-display text-xl font-bold leading-tight mt-0.5">{{ order.tableNumber ?? '?' }}</span>
           </div>
 
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap mb-1">
-              <span class="font-bold text-ink text-base">
+              <span class="font-bold text-ink text-lg">
                 {{ order.items.length }} {{ order.items.length === 1 ? 'preparat' : 'preparate' }}
               </span>
               <span
@@ -205,30 +218,31 @@ onMounted(fetchOrders)
                   borderColor: STATUS_LABELS[order.status]?.border,
                 }"
               >
+                <span aria-hidden="true">{{ STATUS_LABELS[order.status]?.icon }}</span>
                 {{ STATUS_LABELS[order.status]?.label ?? order.status }}
               </span>
-              <span v-if="orderHasAiItems(order)" class="text-sm">
+              <span v-if="orderHasAiItems(order)" class="text-base" aria-hidden="true">
                 <span v-if="order.items.some(i => i.isFlashDealItem)" class="ml-1">⚡</span>
                 <span v-if="order.items.some(i => i.wasAiRecommended)" class="ml-0.5">✦</span>
               </span>
             </div>
-            <div class="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-40">
+            <div class="font-mono text-[13px] uppercase tracking-[0.04em] text-ink font-medium">
               {{ formatTime(order.createdAt) }}
             </div>
           </div>
 
-          <div class="text-right flex-shrink-0">
-            <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-40">total</div>
+          <div class="text-right flex-shrink-0" aria-hidden="true">
+            <div class="font-mono text-[12px] uppercase tracking-[0.06em] text-ink font-semibold">total</div>
             <div class="font-display text-2xl font-bold text-ink leading-tight">
               {{ order.totalAmount.toFixed(2) }}
-              <span class="text-base font-semibold text-ink-70">RON</span>
+              <span class="text-base font-semibold text-ink">RON</span>
             </div>
           </div>
         </button>
 
         <Transition name="expand">
-          <div v-if="expandedOrderId === order.id" class="order-expand">
-            <div class="grid items-center px-5 py-2.5 text-[10px] uppercase tracking-[0.18em] text-ink-40 font-mono"
+          <div v-if="expandedOrderId === order.id" class="order-expand" :id="`order-detail-${order.id}`">
+            <div class="grid items-center px-5 py-3 text-[12.5px] uppercase tracking-[0.06em] text-ink font-mono font-semibold"
                  style="grid-template-columns: 1fr 60px 100px 110px;">
               <span>Produs</span>
               <span class="text-center">Cant.</span>
@@ -238,7 +252,7 @@ onMounted(fetchOrders)
             <div
               v-for="item in order.items"
               :key="item.id"
-              class="grid items-center px-5 py-3.5 text-sm"
+              class="grid items-center px-5 py-4 text-base"
               style="grid-template-columns: 1fr 60px 100px 110px; border-top: 1px solid var(--ink06);"
             >
               <div class="flex items-center gap-2 flex-wrap">
@@ -253,15 +267,15 @@ onMounted(fetchOrders)
                   }"
                 >{{ itemLabel(item)!.icon }} {{ itemLabel(item)!.text }}</span>
               </div>
-              <div class="text-center text-ink-70 font-mono text-[13px]">× {{ item.quantity }}</div>
-              <div class="text-right text-ink-70">{{ item.unitPrice.toFixed(2) }} RON</div>
+              <div class="text-center text-ink font-mono text-[15px]">× {{ item.quantity }}</div>
+              <div class="text-right text-ink">{{ item.unitPrice.toFixed(2) }} RON</div>
               <div class="text-right font-semibold text-ink">{{ item.subtotal.toFixed(2) }} RON</div>
             </div>
             <div class="order-total-row">
               <span class="eyebrow">Total comandă</span>
               <span class="font-display text-2xl font-bold text-accent">
                 {{ order.totalAmount.toFixed(2) }}
-                <span class="text-base text-ink-70 font-semibold">RON</span>
+                <span class="text-base text-ink font-semibold">RON</span>
               </span>
             </div>
           </div>
@@ -273,9 +287,10 @@ onMounted(fetchOrders)
 
 <style scoped>
 .filter-chip {
-  font-size: 14px;
+  font-size: 15.5px;
   font-weight: 600;
-  padding: 9px 16px;
+  padding: 10px 18px;
+  min-height: var(--tap-min);
   border-radius: 999px;
   background: var(--paperHi);
   color: var(--ink);
@@ -296,14 +311,14 @@ onMounted(fetchOrders)
 .legend-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
+  gap: 5px;
+  padding: 5px 12px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   border: 1px solid;
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -366,14 +381,14 @@ onMounted(fetchOrders)
 .status-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
+  gap: 5px;
+  padding: 4px 12px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   border: 1px solid;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   font-family: 'JetBrains Mono', monospace;
 }
 .order-expand {

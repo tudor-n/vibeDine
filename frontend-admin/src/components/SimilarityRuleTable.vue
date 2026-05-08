@@ -19,19 +19,19 @@ const emit = defineEmits<{
 
     <!-- Loading -->
     <div v-if="isLoading && rules.length === 0" class="rules-state">
-      <div class="eyebrow mb-3">Sincronizare · graf</div>
+      <div class="eyebrow mb-3">Sincronizare</div>
       <h3 class="display-title text-2xl mb-2">Se încarcă regulile...</h3>
-      <p class="text-ink-70">AI-ul construiește harta de potriviri.</p>
+      <p class="text-ink text-base">AI-ul construiește harta de potriviri.</p>
     </div>
 
     <!-- Empty -->
     <div v-else-if="rules.length === 0" class="rules-state relative overflow-hidden">
-      <div class="bloom bloom-accent" style="top: -60px; right: -60px; width: 240px; height: 240px; opacity: 0.20;" />
-      <div class="bloom bloom-lime" style="bottom: -40px; left: -40px; width: 220px; height: 220px; opacity: 0.20;" />
+      <div class="bloom bloom-accent" style="top: -60px; right: -60px; width: 240px; height: 240px; opacity: 0.14;" />
+      <div class="bloom bloom-lime" style="bottom: -40px; left: -40px; width: 220px; height: 220px; opacity: 0.14;" />
       <div class="relative z-10">
-        <div class="eyebrow mb-3">Goală</div>
+        <div class="eyebrow mb-3">Listă goală</div>
         <h3 class="display-title text-3xl mb-3">Nicio regulă încă</h3>
-        <p class="text-ink-70 max-w-md mx-auto">
+        <p class="text-ink max-w-md mx-auto text-base">
           Mergeți la <span class="font-semibold text-ink">Configurare AI</span> pentru a
           genera reguli automate de recomandare.
         </p>
@@ -53,7 +53,7 @@ const emit = defineEmits<{
           </div>
 
           <!-- Connector arrow -->
-          <div class="rule-connector">
+          <div class="rule-connector" aria-hidden="true">
             <span class="rule-connector-line"></span>
             <span class="rule-connector-arrow">→</span>
             <span class="rule-connector-line"></span>
@@ -78,13 +78,13 @@ const emit = defineEmits<{
             aria-label="Șterge regula"
             @click="emit('delete', rule.id)"
           >
-            <span>✕</span>
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
 
         <!-- Reason / AI explanation -->
         <div v-if="rule.reason" class="rule-reason">
-          <span class="rule-ai-tag">✦ AI</span>
+          <span class="rule-ai-tag" aria-label="Explicație AI"><span aria-hidden="true">✦</span> AI</span>
           <p class="rule-reason-text">"{{ rule.reason }}"</p>
         </div>
       </article>
@@ -146,16 +146,17 @@ const emit = defineEmits<{
 }
 .rule-pebble-eyebrow {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  opacity: 0.6;
+  letter-spacing: 0.06em;
+  opacity: 0.78;
 }
 .rule-pebble-eyebrow-target {
-  opacity: 0.7;
+  opacity: 0.82;
 }
 .rule-pebble-name {
-  font-size: 16px;
+  font-size: 17.5px;
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -189,25 +190,26 @@ const emit = defineEmits<{
 }
 .rule-score-eyebrow {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--ink40);
+  letter-spacing: 0.06em;
+  color: var(--ink70);
 }
 .rule-score-value {
   background: var(--lime);
   border: 1px solid var(--ink12);
   color: var(--onLime);
   font-weight: 800;
-  font-size: 13px;
-  padding: 4px 10px;
+  font-size: 14.5px;
+  padding: 5px 12px;
   border-radius: 999px;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: -0.01em;
 }
 .rule-delete {
-  width: 38px;
-  height: 38px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   border-radius: 50%;
   background: var(--accentSoft);
   color: var(--accentDk);
@@ -239,24 +241,24 @@ const emit = defineEmits<{
 .rule-ai-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
+  gap: 5px;
+  padding: 5px 12px;
   border-radius: 999px;
   background: var(--ink);
   color: var(--lime);
   border: 1px solid var(--ink);
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   flex-shrink: 0;
 }
 .rule-reason-text {
-  font-size: 14px;
-  color: var(--ink70);
+  font-size: 15.5px;
+  color: var(--ink);
   font-style: italic;
-  line-height: 1.5;
+  line-height: 1.55;
   flex: 1;
 }
 </style>
