@@ -31,7 +31,7 @@ const onSubmit = () => {
                     <div class="prompt-eyebrow mb-2">Regulă scrisă manual</div>
                     <h2 class="prompt-title">Spune AI-ului ce să recomande</h2>
                 </div>
-                <span class="prompt-tag prompt-tag-lime" aria-label="AI activ pentru potrivirea produselor"><span aria-hidden="true">✦</span> potrivire · AI</span>
+                <span class="prompt-tag prompt-tag-lime" aria-label="AI activ"><span aria-hidden="true">✦</span> AI activ</span>
             </div>
             <p class="prompt-lede mb-6 leading-relaxed max-w-xl">
                 Scrie o frază care leagă un produs de o recomandare. AI-ul găsește numele
@@ -57,11 +57,7 @@ const onSubmit = () => {
                     </div>
                 </div>
 
-                <div class="flex items-center justify-between mt-5">
-                    <div class="hidden md:flex items-center gap-2">
-                        <span class="prompt-tag">ton · sugestiv</span>
-                        <span class="prompt-tag">aplicabil · meniu activ</span>
-                    </div>
+                <div class="flex items-center justify-end mt-5">
                     <button
                         type="submit"
                         :disabled="isLoading || promptText.trim() === ''"

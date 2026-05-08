@@ -26,15 +26,15 @@ const handleNewPrompt = async (prompt: string) => {
 
     <!-- Status row -->
     <div class="flex items-center justify-between mb-8">
-      <div class="tag-pill" role="status" aria-label="AI activ pe motorul GPT">
+      <div class="tag-pill" role="status" aria-label="AI activ">
         <span class="live-dot" style="background: var(--lime); box-shadow: 0 0 10px var(--lime);" aria-hidden="true"></span>
-        <span>AI activ · GPT</span>
+        <span>AI activ</span>
       </div>
-      <div class="tag-pill" aria-label="Modul curent: sugestii de produse">modul · sugestii</div>
+      <div class="tag-pill" aria-label="Sugestii pentru clienți">sugestii pentru clienți</div>
     </div>
 
     <header class="mb-10">
-      <div class="eyebrow mb-4">Astăzi · directiva chefului</div>
+      <div class="eyebrow mb-4">Directiva zilei</div>
       <h1 class="display-title text-[44px] md:text-[56px]">
         Spune AI-ului<br />
         <span class="text-accent">ce vinzi.</span>
@@ -56,7 +56,7 @@ const handleNewPrompt = async (prompt: string) => {
       <div class="relative z-10">
         <div class="flex items-center justify-between mb-5">
           <div>
-            <div class="eyebrow mb-1">Directivă · activă acum</div>
+            <div class="eyebrow mb-1">Directivă activă acum</div>
             <h3 class="display-title text-2xl">Ce ascultă AI-ul</h3>
           </div>
           <span

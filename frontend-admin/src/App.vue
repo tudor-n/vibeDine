@@ -33,19 +33,19 @@ const { theme, toggle: toggleTheme } = useTheme()
     >
       <!-- Brand block -->
       <div class="hidden md:block mb-8">
-        <div class="eyebrow mb-2">CLARIFI · SUITE</div>
+        <div class="eyebrow mb-2">SMART RESTAURANT</div>
         <div class="display-title text-[34px] leading-[0.95]">
           Admin<br /><span class="text-accent">Curții.</span>
         </div>
         <div class="mt-3 flex items-center gap-2">
           <span class="live-dot" aria-hidden="true"></span>
-          <span class="font-mono text-[13px] uppercase tracking-[0.06em] text-ink font-semibold">în direct · v1</span>
+          <span class="font-mono text-[13px] uppercase tracking-[0.06em] text-ink font-semibold">Versiunea 1</span>
         </div>
       </div>
 
       <!-- Mobile brand (leaves room for the fixed top-right toggle) -->
       <div class="md:hidden flex items-center gap-3 pr-14 flex-1">
-        <div class="display-title text-2xl">Clarifi</div>
+        <div class="display-title text-2xl">Smart Restaurant</div>
       </div>
 
       <div class="hidden md:block eyebrow mb-2 mt-2">Navigare</div>

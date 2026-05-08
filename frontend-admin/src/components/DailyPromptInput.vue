@@ -61,11 +61,7 @@ const onSubmit = () => {
           </div>
         </div>
 
-        <div class="flex items-center justify-between mt-5">
-          <div class="hidden md:flex items-center gap-2">
-            <span class="prompt-tag">ton · directiv</span>
-            <span class="prompt-tag">aplicabil · sala 1</span>
-          </div>
+        <div class="flex items-center justify-end mt-5">
           <button
             type="submit"
             :disabled="isLoading || promptText.trim() === ''"

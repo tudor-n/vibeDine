@@ -29,14 +29,14 @@ const clockLabel = computed(() => {
     <div class="flex items-center justify-between mb-8">
       <div class="tag-pill" role="status" aria-live="polite">
         <span class="live-dot" aria-hidden="true"></span>
-        <span>{{ metricsStore.isLoading ? 'Sincronizare' : 'În direct · sala 1' }}</span>
+        <span>{{ metricsStore.isLoading ? 'Se sincronizează…' : 'Activ în sala 1' }}</span>
       </div>
       <div class="tag-pill" :aria-label="`Ora curentă ${clockLabel}`">{{ clockLabel }} · azi</div>
     </div>
 
     <!-- Hero -->
     <header class="mb-10 max-w-3xl">
-      <div class="eyebrow mb-4">Astăzi · pulsul restaurantului</div>
+      <div class="eyebrow mb-4">Astăzi în restaurant</div>
       <h1 class="display-title text-[44px] md:text-[56px]">
         Tablou de bord<br />
         <span class="text-accent">în direct.</span>
@@ -67,7 +67,7 @@ const clockLabel = computed(() => {
         <h2 class="display-title text-2xl">Cum se vinde acum</h2>
       </div>
       <div class="hidden md:block tag-pill">
-        actualizat · {{ metricsStore.isLoading ? 'se încarcă' : 'chiar acum' }}
+        {{ metricsStore.isLoading ? 'Se încarcă…' : 'Actualizat acum' }}
       </div>
     </div>
 
@@ -76,8 +76,8 @@ const clockLabel = computed(() => {
       :is-loading="metricsStore.isLoading"
     />
 
-    <!-- Activity card -->
-    <div class="card-paper p-8 mt-8 relative overflow-hidden">
+    <!-- Activity card — hidden until implemented; flip v-if to true to restore -->
+    <div v-if="false" class="card-paper p-8 mt-8 relative overflow-hidden">
       <div class="bloom bloom-lime" style="top: -40px; right: -40px; width: 200px; height: 200px; opacity: 0.18;" />
       <div class="relative z-10">
         <div class="eyebrow mb-3">În curând</div>

@@ -97,15 +97,15 @@ onMounted(fetchOrders)
 
     <!-- Status row -->
     <div class="flex items-center justify-between mb-8">
-      <div class="tag-pill" role="status" aria-label="Jurnalul comenzilor este în direct">
+      <div class="tag-pill" role="status" aria-label="Jurnalul comenzilor este activ">
         <span class="live-dot" aria-hidden="true"></span>
-        <span>jurnal · în direct</span>
+        <span>Jurnal activ</span>
       </div>
-      <div class="tag-pill" aria-label="Total înregistrări">{{ orders.length }} înregistrări</div>
+      <div class="tag-pill" aria-label="Total înregistrări">{{ orders.length }} comenzi</div>
     </div>
 
     <header class="mb-10">
-      <div class="eyebrow mb-4">Operațiuni · servire</div>
+      <div class="eyebrow mb-4">Comenzile zilei</div>
       <h1 class="display-title text-[44px] md:text-[56px]">
         Jurnal<br />
         <span class="text-accent">comenzi.</span>

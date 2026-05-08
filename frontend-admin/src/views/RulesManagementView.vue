@@ -89,13 +89,13 @@ const ruleCount = computed(
     <div class="max-w-6xl mx-auto relative">
         <!-- Status row -->
         <div class="flex items-center justify-between mb-8">
-            <div class="tag-pill" role="status" aria-label="Modul de recomandări încrucișate este activ">
+            <div class="tag-pill" role="status" aria-label="Recomandările sunt active">
                 <span
                     class="live-dot"
                     style="background: var(--lime); box-shadow: 0 0 10px var(--lime);"
                     aria-hidden="true"
                 ></span>
-                <span>recomandări · activ</span>
+                <span>recomandări active</span>
             </div>
             <div class="tag-pill" aria-label="Reguli active">{{ ruleCount }} reguli active</div>
         </div>
@@ -104,7 +104,7 @@ const ruleCount = computed(
             class="mb-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6"
         >
             <div class="max-w-2xl">
-                <div class="eyebrow mb-4">Recomandări · perechi de produse</div>
+                <div class="eyebrow mb-4">Perechi recomandate</div>
                 <h1 class="display-title text-[44px] md:text-[56px]">
                     Reguli<br />
                     <span class="text-accent">recomandări.</span>
@@ -150,7 +150,7 @@ const ruleCount = computed(
         <section class="mb-12">
             <div class="flex items-center justify-between mb-5">
                 <div>
-                    <div class="eyebrow mb-2">Reguli scrise · de la directivă la regulă</div>
+                    <div class="eyebrow mb-2">Scrise în limbaj natural</div>
                     <h2 class="display-title text-3xl">Reguli scrise de tine</h2>
                 </div>
                 <span class="tag-pill">
@@ -185,7 +185,7 @@ const ruleCount = computed(
                     <div class="flex items-start justify-between gap-4 mb-4">
                         <div class="flex-1">
                             <div class="eyebrow mb-2">
-                                {{ d.isActive ? 'în direct · regulă activă' : 'pe pauză · inactivă' }}
+                                {{ d.isActive ? 'Regulă activă' : 'Regulă în pauză' }}
                             </div>
                             <p class="text-ink text-lg leading-relaxed font-medium">
                                 "{{ d.rawPrompt }}"
@@ -278,8 +278,8 @@ const ruleCount = computed(
             </div>
         </section>
 
-        <!-- Auto-generated similarity rules section -->
-        <section>
+        <!-- Auto-generated similarity rules section — hidden until implemented; flip v-if to true to restore -->
+        <section v-if="false">
             <div class="mb-5">
                 <div class="eyebrow mb-2">Sugestii · produse cumpărate împreună</div>
                 <h2 class="display-title text-3xl">Sugestii AI generate automat</h2>
