@@ -28,7 +28,7 @@ const claimRate = computed(() => {
       </div>
       <div class="metric-foot">
         <span class="metric-dot metric-dot-ink" aria-hidden="true"></span>
-        <span>impressions · table-side</span>
+        <span>afișări la masă</span>
       </div>
     </div>
 
@@ -41,7 +41,7 @@ const claimRate = computed(() => {
       </div>
       <div class="metric-foot">
         <span class="metric-dot metric-dot-lime" aria-hidden="true"></span>
-        <span>conversii · cu confirmare</span>
+        <span>confirmate de client</span>
       </div>
     </div>
 
@@ -54,7 +54,7 @@ const claimRate = computed(() => {
       </div>
       <div class="metric-foot">
         <span class="metric-dot metric-dot-ink" aria-hidden="true"></span>
-        <span>claim / shown</span>
+        <span>revendicate din afișate</span>
       </div>
     </div>
 
@@ -131,22 +131,22 @@ const claimRate = computed(() => {
 
 .metric-eyebrow {
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink70);
+  color: var(--ink);
 }
 .metric-value {
   font-family: 'Inter Tight', sans-serif;
-  font-size: 48px;
+  font-size: 52px;
   line-height: 1;
   font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--ink);
 }
 .metric-unit {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 600;
   color: var(--ink70);
 }
@@ -154,9 +154,9 @@ const claimRate = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--ink70);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 .metric-dot {
   width: 7px;

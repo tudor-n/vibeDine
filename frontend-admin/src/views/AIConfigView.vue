@@ -26,22 +26,22 @@ const handleNewPrompt = async (prompt: string) => {
 
     <!-- Status row -->
     <div class="flex items-center justify-between mb-8">
-      <div class="tag-pill" role="status" aria-label="AI brain GPT activ">
+      <div class="tag-pill" role="status" aria-label="AI activ pe motorul GPT">
         <span class="live-dot" style="background: var(--lime); box-shadow: 0 0 10px var(--lime);" aria-hidden="true"></span>
-        <span>brain · gpt</span>
+        <span>AI activ · GPT</span>
       </div>
-      <div class="tag-pill" aria-label="Modul curent: upsell">module · upsell</div>
+      <div class="tag-pill" aria-label="Modul curent: sugestii de produse">modul · sugestii</div>
     </div>
 
     <header class="mb-10">
       <div class="eyebrow mb-4">Astăzi · directiva chefului</div>
-      <h1 class="display-title text-[56px] md:text-[68px]">
+      <h1 class="display-title text-[44px] md:text-[56px]">
         Spune AI-ului<br />
         <span class="text-accent">ce vinzi.</span>
       </h1>
-      <p class="text-ink-70 text-lg mt-5 leading-relaxed max-w-2xl">
+      <p class="text-ink text-lg mt-5 leading-relaxed max-w-2xl">
         Scrieți o frază — AI-ul transformă intenția în reguli concrete de
-        cross-sell și upsell pentru fiecare comandă din sală.
+        sugestii și recomandări pentru fiecare comandă din sală.
       </p>
     </header>
 
@@ -52,7 +52,7 @@ const handleNewPrompt = async (prompt: string) => {
 
     <!-- Active directive -->
     <div class="card-paper p-7 relative overflow-hidden">
-      <div class="bloom bloom-lime" style="top: -60px; right: -60px; width: 220px; height: 220px; opacity: 0.22;" />
+      <div class="bloom bloom-lime" style="top: -60px; right: -60px; width: 220px; height: 220px; opacity: 0.16;" />
       <div class="relative z-10">
         <div class="flex items-center justify-between mb-5">
           <div>
@@ -65,7 +65,7 @@ const handleNewPrompt = async (prompt: string) => {
             :aria-label="directivesStore.activeDirective ? 'Directivă activă' : 'Nicio directivă activă'"
           >
             <span v-if="directivesStore.activeDirective" class="w-2 h-2 rounded-full bg-ink" aria-hidden="true"></span>
-            {{ directivesStore.activeDirective ? 'live' : 'inactiv' }}
+            {{ directivesStore.activeDirective ? 'în direct' : 'inactivă' }}
           </span>
         </div>
 
@@ -77,17 +77,17 @@ const handleNewPrompt = async (prompt: string) => {
         <blockquote
           v-else-if="directivesStore.activeDirective"
           class="card-white p-6 relative"
-          aria-label="Prompt activ"
+          aria-label="Directivă activă"
         >
-          <span class="absolute -top-3 left-6 tag-pill" style="background: var(--ink); color: var(--lime); border-color: var(--ink);" aria-hidden="true">prompt</span>
+          <span class="absolute -top-3 left-6 tag-pill" style="background: var(--ink); color: var(--lime); border-color: var(--ink);" aria-hidden="true">directivă</span>
           <p class="text-ink text-lg leading-relaxed font-medium pt-1">
             "{{ directivesStore.activeDirective.rawPrompt }}"
           </p>
         </blockquote>
 
-        <div v-else class="card-white p-6 text-ink-70 italic">
+        <div v-else class="card-white p-6 text-ink italic text-base">
           Nicio directivă AI nu este activă momentan. Sistemul rulează pe recomandări
-          standard (bazate pe categorie).
+          standard (după categorie).
         </div>
       </div>
     </div>

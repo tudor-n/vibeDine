@@ -39,7 +39,7 @@ const { theme, toggle: toggleTheme } = useTheme()
         </div>
         <div class="mt-3 flex items-center gap-2">
           <span class="live-dot" aria-hidden="true"></span>
-          <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-70">live · v1</span>
+          <span class="font-mono text-[13px] uppercase tracking-[0.06em] text-ink font-semibold">în direct · v1</span>
         </div>
       </div>
 
@@ -76,10 +76,10 @@ const { theme, toggle: toggleTheme } = useTheme()
 
       <!-- Footer chip -->
       <div class="hidden md:flex mt-auto pt-6 items-center gap-3 text-ink-70">
-        <div class="w-9 h-9 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-sm flex-shrink-0">A</div>
-        <div class="leading-tight flex-1 min-w-0">
-          <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-40">{{ theme === 'dark' ? 'Tema · noapte' : 'Tema · zi' }}</div>
-          <div class="text-sm font-semibold text-ink truncate">Manager · Andrei C.</div>
+        <div class="w-10 h-10 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-base flex-shrink-0">A</div>
+        <div class="leading-snug flex-1 min-w-0">
+          <div class="font-mono text-[12px] uppercase tracking-[0.06em] text-ink-70 font-semibold">{{ theme === 'dark' ? 'Tema · noapte' : 'Tema · zi' }}</div>
+          <div class="text-base font-semibold text-ink truncate">Manager · Andrei C.</div>
         </div>
       </div>
     </nav>
@@ -100,13 +100,13 @@ const { theme, toggle: toggleTheme } = useTheme()
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 14px;
+  padding: 14px 18px;
   min-height: var(--tap-min);
   border-radius: 999px;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
-  color: var(--ink70);
+  color: var(--ink);
   border: 1px solid transparent;
   transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
   position: relative;
@@ -116,13 +116,13 @@ const { theme, toggle: toggleTheme } = useTheme()
   color: var(--ink);
 }
 .nav-icon {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: var(--ink06);
-  font-size: 14px;
+  font-size: 16px;
   flex-shrink: 0;
   color: var(--ink);
 }

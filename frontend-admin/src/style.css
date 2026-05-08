@@ -10,8 +10,8 @@
   --ink:      #15140F;
   --ink-rgb:  21, 20, 15;
   --paper-rgb: 251, 247, 236;
-  --ink70:    rgba(21, 20, 15, 0.72);
-  --ink40:    rgba(21, 20, 15, 0.48);
+  --ink70:    rgba(21, 20, 15, 0.82);
+  --ink40:    rgba(21, 20, 15, 0.62);
   --ink12:    rgba(21, 20, 15, 0.14);
   --ink06:    rgba(21, 20, 15, 0.05);
   --accent:   #FF4A1C;
@@ -37,8 +37,8 @@
   --ink:      #F5F0E8;
   --ink-rgb:  245, 240, 232;
   --paper-rgb: 27, 24, 20;
-  --ink70:    rgba(245, 240, 232, 0.78);
-  --ink40:    rgba(245, 240, 232, 0.55);
+  --ink70:    rgba(245, 240, 232, 0.88);
+  --ink40:    rgba(245, 240, 232, 0.68);
   --ink12:    rgba(245, 240, 232, 0.14);
   --ink06:    rgba(245, 240, 232, 0.05);
   --accent:   #E8255A;
@@ -53,13 +53,14 @@
 }
 
 @layer base {
-  html { font-size: 16px; }
+  html { font-size: 17px; }
   html, body, #app {
     background: var(--paper);
     color: var(--ink);
     font-family: 'Inter Tight', -apple-system, system-ui, sans-serif;
     font-feature-settings: 'ss01', 'cv11';
     -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
     transition: background-color 0.25s ease, color 0.25s ease;
   }
 
@@ -74,11 +75,11 @@
 @layer components {
   .eyebrow {
     font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 13px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--ink70);
+    letter-spacing: 0.08em;
+    color: var(--ink);
   }
 
   .display-title {
@@ -145,28 +146,28 @@
   .bloom-accent {
     background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
     filter: blur(60px);
-    opacity: 0.32;
+    opacity: 0.20;
   }
   .bloom-lime {
     background: radial-gradient(circle, var(--lime) 0%, transparent 70%);
     filter: blur(55px);
-    opacity: 0.32;
+    opacity: 0.20;
   }
 
   .tag-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
+    padding: 7px 14px;
     border-radius: 999px;
     background: var(--ink06);
     border: 1px solid var(--ink12);
     font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--ink70);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.06em;
   }
 
   .live-dot {

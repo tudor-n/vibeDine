@@ -28,16 +28,16 @@ const onSubmit = () => {
     <div class="relative z-10">
       <div class="flex items-center justify-between mb-5">
         <div>
-          <div class="prompt-eyebrow mb-2">Directivă zilnică · prompt</div>
+          <div class="prompt-eyebrow mb-2">Directiva zilei</div>
           <h2 class="prompt-title">Ce promovăm azi?</h2>
         </div>
-        <span class="prompt-tag prompt-tag-lime" aria-label="Modul flux AI activ">
-          <span aria-hidden="true">✦</span> flux · AI
+        <span class="prompt-tag prompt-tag-lime" aria-label="AI activ pentru directiva zilei">
+          <span aria-hidden="true">✦</span> AI activ
         </span>
       </div>
       <p class="prompt-lede mb-6 leading-relaxed max-w-xl">
-        Scrieți instrucțiuni naturale. AI-ul va genera automat reguli de
-        cross-sell pentru fiecare preparat din meniu.
+        Scrieți instrucțiuni în limbaj natural. AI-ul va genera automat reguli de
+        recomandare pentru fiecare preparat din meniu.
       </p>
 
       <form @submit.prevent="onSubmit">
@@ -56,15 +56,15 @@ const onSubmit = () => {
           ></textarea>
           <div class="textarea-foot" aria-hidden="true">
             <span class="textarea-meta">
-              {{ promptText.length }} caractere
+              {{ promptText.length }} caractere scrise
             </span>
           </div>
         </div>
 
         <div class="flex items-center justify-between mt-5">
           <div class="hidden md:flex items-center gap-2">
-            <span class="prompt-tag">tone · directiv</span>
-            <span class="prompt-tag">scope · sala 1</span>
+            <span class="prompt-tag">ton · directiv</span>
+            <span class="prompt-tag">aplicabil · sala 1</span>
           </div>
           <button
             type="submit"
@@ -104,33 +104,33 @@ const onSubmit = () => {
 }
 .prompt-eyebrow {
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
   color: var(--paperHi);
-  opacity: 0.6;
+  opacity: 0.78;
 }
 .prompt-lede {
   color: var(--paperHi);
-  opacity: 0.65;
-  font-size: 16px;
+  opacity: 0.85;
+  font-size: 17px;
 }
 .prompt-tag {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.18);
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--paperHi);
-  opacity: 0.85;
+  opacity: 0.95;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.04em;
 }
 .prompt-tag-lime {
   background: var(--lime);
@@ -175,9 +175,10 @@ const onSubmit = () => {
 }
 .textarea-meta {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
+  font-size: 12.5px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--ink40);
+  letter-spacing: 0.04em;
+  color: var(--ink70);
 }
 </style>

@@ -89,13 +89,13 @@ const ruleCount = computed(
     <div class="max-w-6xl mx-auto relative">
         <!-- Status row -->
         <div class="flex items-center justify-between mb-8">
-            <div class="tag-pill" role="status" aria-label="Modul cross-sell activ">
+            <div class="tag-pill" role="status" aria-label="Modul de recomandări încrucișate este activ">
                 <span
                     class="live-dot"
                     style="background: var(--lime); box-shadow: 0 0 10px var(--lime);"
                     aria-hidden="true"
                 ></span>
-                <span>cross-sell · graf</span>
+                <span>recomandări · activ</span>
             </div>
             <div class="tag-pill" aria-label="Reguli active">{{ ruleCount }} reguli active</div>
         </div>
@@ -104,14 +104,14 @@ const ruleCount = computed(
             class="mb-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6"
         >
             <div class="max-w-2xl">
-                <div class="eyebrow mb-4">Recomandări · pebble pairing</div>
-                <h1 class="display-title text-[56px] md:text-[68px]">
+                <div class="eyebrow mb-4">Recomandări · perechi de produse</div>
+                <h1 class="display-title text-[44px] md:text-[56px]">
                     Reguli<br />
                     <span class="text-accent">recomandări.</span>
                 </h1>
-                <p class="text-ink-70 text-lg mt-5 leading-relaxed">
-                    Legăturile dintre produse care alimentează cross-sell-ul și
-                    upsell-ul în sală — fie generate de AI, fie scrise manual.
+                <p class="text-ink text-lg mt-5 leading-relaxed">
+                    Legăturile dintre produse care alimentează sugestiile și
+                    recomandările în sală — fie generate de AI, fie scrise manual.
                 </p>
             </div>
 
@@ -133,7 +133,7 @@ const ruleCount = computed(
             style="border-color: var(--accentBorder); background: var(--accentSoft);"
             role="alert"
         >
-            <span class="font-mono text-xs uppercase tracking-[0.18em] font-bold" style="color: var(--accentDk);">
+            <span class="font-mono text-sm uppercase tracking-[0.06em] font-bold" style="color: var(--accentDk);">
                 <span aria-hidden="true">⚠</span> {{ rulesStore.error || recRulesStore.error }}
             </span>
         </div>
@@ -150,7 +150,7 @@ const ruleCount = computed(
         <section class="mb-12">
             <div class="flex items-center justify-between mb-5">
                 <div>
-                    <div class="eyebrow mb-2">Reguli scrise · prompt → regulă</div>
+                    <div class="eyebrow mb-2">Reguli scrise · de la directivă la regulă</div>
                     <h2 class="display-title text-3xl">Reguli scrise de tine</h2>
                 </div>
                 <span class="tag-pill">
@@ -169,7 +169,7 @@ const ruleCount = computed(
 
             <div
                 v-else-if="recRulesStore.directives.length === 0"
-                class="card-paper p-6 text-ink-70 italic"
+                class="card-paper p-6 text-ink italic text-base"
             >
                 Nicio regulă scrisă încă. Apasă „Adaugă regulă manuală" și
                 scrie-ți prima regulă în limbaj natural.
@@ -185,7 +185,7 @@ const ruleCount = computed(
                     <div class="flex items-start justify-between gap-4 mb-4">
                         <div class="flex-1">
                             <div class="eyebrow mb-2">
-                                {{ d.isActive ? 'live · regula este activă' : 'inactiv · pauză' }}
+                                {{ d.isActive ? 'în direct · regulă activă' : 'pe pauză · inactivă' }}
                             </div>
                             <p class="text-ink text-lg leading-relaxed font-medium">
                                 "{{ d.rawPrompt }}"
@@ -219,8 +219,8 @@ const ruleCount = computed(
                             :key="idx"
                             class="card-white p-4 mb-2"
                         >
-                            <div class="text-sm text-ink-70 mb-2 font-mono uppercase tracking-wider">
-                                regulă {{ idx + 1 }} · confidence
+                            <div class="text-sm text-ink mb-2 font-mono uppercase tracking-[0.06em] font-semibold">
+                                regulă {{ idx + 1 }} · încredere
                                 {{ Math.round((rule.confidence ?? 0) * 100) }}%
                             </div>
                             <div class="text-base text-ink mb-2 flex flex-wrap items-center gap-2">
@@ -233,7 +233,7 @@ const ruleCount = computed(
                                         {{ nameFor(tid) }}<span v-if="ti < rule.trigger_product_ids.length - 1">, </span>
                                     </span>
                                 </span>
-                                <span class="text-ink-70">→</span>
+                                <span class="text-ink text-xl" aria-hidden="true">→</span>
                                 <span
                                     class="tag-pill"
                                     style="background: var(--lime); color: var(--onLime); border-color: var(--ink12);"
@@ -247,7 +247,7 @@ const ruleCount = computed(
                                     </span>
                                 </span>
                             </div>
-                            <p v-if="rule.reason" class="text-ink-70 italic">
+                            <p v-if="rule.reason" class="text-ink italic text-base">
                                 „{{ rule.reason }}"
                             </p>
                         </div>
@@ -258,21 +258,21 @@ const ruleCount = computed(
                             style="border-color: var(--accentBorder); background: var(--accentSoft);"
                             role="alert"
                         >
-                            <div class="font-mono text-xs uppercase tracking-[0.18em] font-bold mb-1" style="color: var(--accentDk);">
+                            <div class="font-mono text-sm uppercase tracking-[0.06em] font-bold mb-1" style="color: var(--accentDk);">
                                 <span aria-hidden="true">⚠</span> AI nu a putut potrivi
                             </div>
-                            <div class="text-ink text-sm">
+                            <div class="text-ink text-base">
                                 {{ parseDirective(d)?.unresolved?.join(', ') }}
                             </div>
-                            <div class="text-ink-70 text-xs mt-1">
-                                Verifică numele în meniu sau rephrase regula.
+                            <div class="text-ink text-sm mt-1">
+                                Verifică numele în meniu sau reformulează regula.
                             </div>
                         </div>
                     </div>
 
-                    <div v-else class="card-white p-4 text-ink-70 italic text-sm">
-                        AI-ul nu a parsat această regulă (poate fi indisponibil când a
-                        fost salvată). Reactivează AI-ul și recreează regula.
+                    <div v-else class="card-white p-4 text-ink italic text-base">
+                        AI-ul nu a procesat această regulă (poate să fi fost indisponibil
+                        la salvare). Reactivează AI-ul și recreează regula.
                     </div>
                 </article>
             </div>
@@ -281,9 +281,9 @@ const ruleCount = computed(
         <!-- Auto-generated similarity rules section -->
         <section>
             <div class="mb-5">
-                <div class="eyebrow mb-2">Sugestii · co-purchase</div>
-                <h2 class="display-title text-3xl">Sugestii AI auto-generate</h2>
-                <p class="text-ink-70 mt-2">
+                <div class="eyebrow mb-2">Sugestii · produse cumpărate împreună</div>
+                <h2 class="display-title text-3xl">Sugestii AI generate automat</h2>
+                <p class="text-ink mt-2 text-base">
                     Reguli derivate automat din istoricul comenzilor.
                 </p>
             </div>
