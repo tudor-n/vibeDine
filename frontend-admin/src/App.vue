@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import ToastContainer from '@/components/ToastContainer.vue'
 
 const { theme, toggle: toggleTheme } = useTheme()
 </script>
@@ -86,6 +87,8 @@ const { theme, toggle: toggleTheme } = useTheme()
     <main class="relative z-10 flex-1 p-4 md:p-10 overflow-y-auto">
       <RouterView />
     </main>
+
+    <ToastContainer />
   </div>
 </template>
 
