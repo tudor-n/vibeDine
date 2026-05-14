@@ -5,6 +5,39 @@ export interface Category {
   id: UUID;
   name: string;
   sortOrder: number | null;
+  imageUrl?: string | null;
+}
+
+export interface AdminCategory {
+  id: UUID;
+  name: string;
+  sortOrder: number | null;
+  imageUrl: string | null;
+  productCount: number;
+}
+
+export interface AdminProduct {
+  id: UUID;
+  categoryId: UUID;
+  categoryName: string;
+  name: string;
+  description: string | null;
+  price: number;
+  imageUrl: string | null;
+  isAvailable: boolean;
+  sortOrder: number;
+}
+
+export interface AdminMenuCategoryNode {
+  id: UUID;
+  name: string;
+  sortOrder: number | null;
+  imageUrl: string | null;
+  products: AdminProduct[];
+}
+
+export interface AdminMenuTree {
+  categories: AdminMenuCategoryNode[];
 }
 
 export interface Product {

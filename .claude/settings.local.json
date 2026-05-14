@@ -1,8 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet build *)",
-      "Bash(pip install *)"
+      "Bash(docker compose *)"
     ]
   }
 }

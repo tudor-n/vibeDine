@@ -31,6 +31,7 @@ public class MenuController: ControllerBase
             Products=category.Products
 
             .Where(product => product.IsAvailable==true)
+            .OrderBy(product => product.SortOrder).ThenBy(product => product.Name)
             .Select(product=>new MenuProductResponse
             {
                 Id=product.Id,
@@ -56,6 +57,7 @@ public class MenuController: ControllerBase
 
         var products = await _context.Products
         .Where(p=> p.CategoryId == categoryId && p.IsAvailable==true)
+        .OrderBy(product => product.SortOrder).ThenBy(product => product.Name)
         .Select(product => new MenuProductResponse
         {
             Id=product.Id,

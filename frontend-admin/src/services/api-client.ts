@@ -1,4 +1,42 @@
-import type { AIDirective, RecommendationDirective, SimilarityRule , DailyMetrics } from '@shared/types/models';
+import type {
+    AIDirective,
+    RecommendationDirective,
+    SimilarityRule,
+    DailyMetrics,
+    AdminCategory,
+    AdminProduct,
+    AdminMenuTree,
+} from '@shared/types/models';
+
+export interface CreateCategoryPayload {
+    name: string;
+    sortOrder?: number | null;
+    imageUrl?: string | null;
+}
+
+export interface UpdateCategoryPayload {
+    name?: string;
+    sortOrder?: number | null;
+    imageUrl?: string | null;
+}
+
+export interface CreateProductPayload {
+    categoryId: string;
+    name: string;
+    description?: string | null;
+    price: number;
+    imageUrl?: string | null;
+    isAvailable?: boolean;
+}
+
+export interface UpdateProductPayload {
+    categoryId?: string;
+    name?: string;
+    description?: string | null;
+    price?: number;
+    imageUrl?: string | null;
+    isAvailable?: boolean;
+}
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
@@ -87,4 +125,55 @@ export const apiClient = {
 
     getMenu: () =>
         fetcher<{ categories: Array<{ id: string; name: string; products: Array<{ id: string; name: string }> }> }>('/api/menu'),
+
+    getAdminMenu: () =>
+        fetcher<AdminMenuTree>('/api/admin/menu'),
+
+    getAdminCategories: () =>
+        fetcher<AdminCategory[]>('/api/admin/menu/categories'),
+
+    createCategory: (payload: CreateCategoryPayload) =>
+        fetcher<AdminCategory>('/api/admin/menu/categories', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    updateCategory: (id: string, payload: UpdateCategoryPayload) =>
+        fetcher<AdminCategory>(`/api/admin/menu/categories/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        }),
+
+    deleteCategory: (id: string) =>
+        fetcher<void>(`/api/admin/menu/categories/${id}`, {
+            method: 'DELETE',
+        }),
+
+    createProduct: (payload: CreateProductPayload) =>
+        fetcher<AdminProduct>('/api/admin/menu/products', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    updateProduct: (id: string, payload: UpdateProductPayload) =>
+        fetcher<AdminProduct>(`/api/admin/menu/products/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        }),
+
+    softDeleteProduct: (id: string) =>
+        fetcher<void>(`/api/admin/menu/products/${id}`, {
+            method: 'DELETE',
+        }),
+
+    restoreProduct: (id: string) =>
+        fetcher<AdminProduct>(`/api/admin/menu/products/${id}/restore`, {
+            method: 'POST',
+        }),
+
+    reorderProducts: (categoryId: string, productIds: string[]) =>
+        fetcher<void>(`/api/admin/menu/categories/${categoryId}/products/reorder`, {
+            method: 'POST',
+            body: JSON.stringify({ productIds }),
+        }),
 }

@@ -36,8 +36,9 @@ public class MenuManagementController : ControllerBase
                 Id = c.Id,
                 Name = c.Name,
                 SortOrder = c.SortOrder,
+                ImageUrl = c.ImageUrl,
                 Products = c.Products
-                    .OrderBy(p => p.Name)
+                    .OrderBy(p => p.SortOrder).ThenBy(p => p.Name)
                     .Select(p => new AdminProductResponse
                     {
                         Id = p.Id,
@@ -47,7 +48,8 @@ public class MenuManagementController : ControllerBase
                         Description = p.Description,
                         Price = p.Price,
                         ImageUrl = p.ImageUrl,
-                        IsAvailable = p.IsAvailable ?? false
+                        IsAvailable = p.IsAvailable ?? false,
+                        SortOrder = p.SortOrder
                     })
                     .ToList()
             })
@@ -67,6 +69,7 @@ public class MenuManagementController : ControllerBase
                 Id = c.Id,
                 Name = c.Name,
                 SortOrder = c.SortOrder,
+                ImageUrl = c.ImageUrl,
                 ProductCount = c.Products.Count
             })
             .ToListAsync();
@@ -81,11 +84,22 @@ public class MenuManagementController : ControllerBase
         if (name.Length is < 1 or > NameMaxLength)
             return BadRequest(new { message = $"Name is required and must be 1–{NameMaxLength} characters." });
 
+        string? imageUrl = null;
+        if (!string.IsNullOrWhiteSpace(request.ImageUrl))
+        {
+            if (request.ImageUrl.Length > ImageUrlMaxLength)
+                return BadRequest(new { message = $"ImageUrl must be at most {ImageUrlMaxLength} characters." });
+            if (!Uri.TryCreate(request.ImageUrl, UriKind.Absolute, out _))
+                return BadRequest(new { message = "ImageUrl must be a valid absolute URL." });
+            imageUrl = request.ImageUrl;
+        }
+
         var category = new Category
         {
             Id = Guid.NewGuid(),
             Name = name,
-            SortOrder = request.SortOrder
+            SortOrder = request.SortOrder,
+            ImageUrl = imageUrl
         };
 
         _db.Categories.Add(category);
@@ -97,6 +111,7 @@ public class MenuManagementController : ControllerBase
             Id = category.Id,
             Name = category.Name,
             SortOrder = category.SortOrder,
+            ImageUrl = category.ImageUrl,
             ProductCount = 0
         };
 
@@ -120,6 +135,22 @@ public class MenuManagementController : ControllerBase
         if (request.SortOrder.HasValue)
             category.SortOrder = request.SortOrder.Value;
 
+        if (request.ImageUrl != null)
+        {
+            if (request.ImageUrl.Length == 0)
+            {
+                category.ImageUrl = null;
+            }
+            else
+            {
+                if (request.ImageUrl.Length > ImageUrlMaxLength)
+                    return BadRequest(new { message = $"ImageUrl must be at most {ImageUrlMaxLength} characters." });
+                if (!Uri.TryCreate(request.ImageUrl, UriKind.Absolute, out _))
+                    return BadRequest(new { message = "ImageUrl must be a valid absolute URL." });
+                category.ImageUrl = request.ImageUrl;
+            }
+        }
+
         await _db.SaveChangesAsync();
         _logger.LogInformation("Updated category {Id}", category.Id);
 
@@ -130,6 +161,7 @@ public class MenuManagementController : ControllerBase
             Id = category.Id,
             Name = category.Name,
             SortOrder = category.SortOrder,
+            ImageUrl = category.ImageUrl,
             ProductCount = productCount
         });
     }
@@ -166,7 +198,7 @@ public class MenuManagementController : ControllerBase
             query = query.Where(p => p.IsAvailable == true);
 
         var products = await query
-            .OrderBy(p => p.Name)
+            .OrderBy(p => p.SortOrder).ThenBy(p => p.Name)
             .Select(p => new AdminProductResponse
             {
                 Id = p.Id,
@@ -176,7 +208,8 @@ public class MenuManagementController : ControllerBase
                 Description = p.Description,
                 Price = p.Price,
                 ImageUrl = p.ImageUrl,
-                IsAvailable = p.IsAvailable ?? false
+                IsAvailable = p.IsAvailable ?? false,
+                SortOrder = p.SortOrder
             })
             .ToListAsync();
 
@@ -220,6 +253,12 @@ public class MenuManagementController : ControllerBase
         if (category == null)
             return BadRequest(new { message = "CategoryId does not exist." });
 
+        // Place new products at the bottom of the category's order.
+        var maxSortOrder = await _db.Products
+            .Where(p => p.CategoryId == request.CategoryId)
+            .Select(p => (int?)p.SortOrder)
+            .MaxAsync() ?? -1;
+
         var product = new Product
         {
             Id = Guid.NewGuid(),
@@ -228,7 +267,8 @@ public class MenuManagementController : ControllerBase
             Description = request.Description ?? string.Empty,
             Price = request.Price,
             ImageUrl = string.IsNullOrWhiteSpace(request.ImageUrl) ? null : request.ImageUrl,
-            IsAvailable = request.IsAvailable
+            IsAvailable = request.IsAvailable,
+            SortOrder = maxSortOrder + 1
         };
 
         _db.Products.Add(product);
@@ -245,7 +285,8 @@ public class MenuManagementController : ControllerBase
             Description = product.Description,
             Price = product.Price,
             ImageUrl = product.ImageUrl,
-            IsAvailable = product.IsAvailable ?? false
+            IsAvailable = product.IsAvailable ?? false,
+            SortOrder = product.SortOrder
         };
 
         return CreatedAtAction(nameof(GetProduct), new { id = product.Id }, response);
@@ -355,6 +396,47 @@ public class MenuManagementController : ControllerBase
         Description = p.Description,
         Price = p.Price,
         ImageUrl = p.ImageUrl,
-        IsAvailable = p.IsAvailable ?? false
+        IsAvailable = p.IsAvailable ?? false,
+        SortOrder = p.SortOrder
     };
+
+    [HttpPost("categories/{categoryId:guid}/products/reorder")]
+    public async Task<IActionResult> ReorderProducts(Guid categoryId, [FromBody] ReorderProductsRequest request)
+    {
+        if (request.ProductIds == null || request.ProductIds.Count == 0)
+            return BadRequest(new { message = "productIds must not be empty." });
+
+        if (request.ProductIds.Distinct().Count() != request.ProductIds.Count)
+            return BadRequest(new { message = "productIds must not contain duplicates." });
+
+        var category = await _db.Categories.FindAsync(categoryId);
+        if (category == null) return NotFound(new { message = "Category not found." });
+
+        var products = await _db.Products
+            .Where(p => p.CategoryId == categoryId)
+            .ToListAsync();
+
+        var requested = request.ProductIds.ToHashSet();
+        var existing = products.Select(p => p.Id).ToHashSet();
+
+        if (!requested.SetEquals(existing))
+            return BadRequest(new
+            {
+                message = "productIds must contain every product in the category, exactly once."
+            });
+
+        for (var i = 0; i < request.ProductIds.Count; i++)
+        {
+            var id = request.ProductIds[i];
+            var product = products.First(p => p.Id == id);
+            product.SortOrder = i;
+        }
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation(
+            "Reordered {Count} products in category {CategoryId}",
+            request.ProductIds.Count, categoryId);
+
+        return NoContent();
+    }
 }
