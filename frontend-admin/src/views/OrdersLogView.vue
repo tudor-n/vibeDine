@@ -39,7 +39,6 @@ const STATUS_LABELS: Record<string, { label: string; bg: string; color: string; 
 
 const FILTERS: Array<{ key: string; label: string }> = [
   { key: 'all', label: 'Toate' },
-  { key: 'draft', label: 'Ciornă' },
   { key: 'submitted', label: 'Trimisă' },
   { key: 'preparing', label: 'Pregătire' },
   { key: 'ready', label: 'Gată' },

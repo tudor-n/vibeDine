@@ -254,6 +254,7 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> GetOrders([FromQuery] int limit = 100)
     {
         var orders = await _dbContext.Orders
+            .Where(o => o.Status != "draft")
             .Include(o => o.Table)
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
