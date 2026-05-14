@@ -10,5 +10,7 @@ public class Category{
 
     public int? SortOrder { get; set; }
 
+    public string? ImageUrl { get; set; } = null;
+
     public ICollection<Product> Products { get; set; } = [];
 }

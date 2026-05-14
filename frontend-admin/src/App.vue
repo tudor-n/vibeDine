@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import ToastContainer from '@/components/ToastContainer.vue'
 
 const { theme, toggle: toggleTheme } = useTheme()
 </script>
@@ -56,6 +57,12 @@ const { theme, toggle: toggleTheme } = useTheme()
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
+      <RouterLink to="/menu" class="nav-link" active-class="nav-link-active">
+        <span class="nav-icon">☰</span>
+        <span class="nav-label">Meniu</span>
+        <span class="nav-arrow">→</span>
+      </RouterLink>
+
       <RouterLink to="/ai-config" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">✦</span>
         <span class="nav-label">Configurare AI</span>
@@ -87,6 +94,8 @@ const { theme, toggle: toggleTheme } = useTheme()
     <main class="relative z-10 flex-1 p-4 md:p-10 overflow-y-auto">
       <RouterView />
     </main>
+
+    <ToastContainer />
   </div>
 </template>
 

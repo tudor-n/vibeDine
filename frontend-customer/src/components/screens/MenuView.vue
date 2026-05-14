@@ -22,6 +22,17 @@ const { tokens: T, theme } = useTheme()
 
 type FilterKey = 'all' | 'meat' | 'fish' | 'veggie' | 'chef'
 const filter = ref<FilterKey>('all')
+const searchOpen = ref(false)
+const searchQuery = ref('')
+
+function toggleSearch() {
+  searchOpen.value = !searchOpen.value
+  if (!searchOpen.value) searchQuery.value = ''
+}
+
+function normalize(s: string) {
+  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+}
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: 'all',    label: 'Toate' },
@@ -51,11 +62,18 @@ const category = computed(() =>
 const allItems = computed<Product[]>(() => productsByCategory(props.categoryId))
 
 const items = computed<Product[]>(() => {
-  if (filter.value === 'all') return allItems.value
-  const pattern = FILTER_PATTERNS[filter.value]
-  return allItems.value.filter((p) =>
-    pattern.test(`${p.name} ${p.description ?? ''}`),
-  )
+  let result = allItems.value
+  if (filter.value !== 'all') {
+    const pattern = FILTER_PATTERNS[filter.value]
+    result = result.filter((p) => pattern.test(`${p.name} ${p.description ?? ''}`))
+  }
+  const q = normalize(searchQuery.value.trim())
+  if (q) {
+    result = result.filter((p) =>
+      normalize(`${p.name} ${p.description ?? ''}`).includes(q),
+    )
+  }
+  return result
 })
 
 const cartCount = computed(() =>
@@ -105,9 +123,39 @@ function addRecommendation(rec: Recommendation) {
       </div>
       <button
         class="circle-btn"
-        :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink70 }"
-        aria-label="Caută"
-      >⌕</button>
+        type="button"
+        :style="searchOpen
+          ? { background: T.ink, border: 'none', color: T.paperHi }
+          : { background: T.card, border: `1px solid ${T.ink12}`, color: T.ink70 }"
+        :aria-label="searchOpen ? 'Închide căutarea' : 'Caută'"
+        :aria-pressed="searchOpen"
+        @click="toggleSearch"
+      >{{ searchOpen ? '×' : '⌕' }}</button>
+    </div>
+
+    <div v-if="searchOpen" class="search-row">
+      <div
+        class="search-box"
+        :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
+      >
+        <span class="search-icon" :style="{ color: T.ink70 }">⌕</span>
+        <input
+          v-model="searchQuery"
+          class="search-input"
+          type="search"
+          :placeholder="`Caută în ${category?.name ?? 'meniu'}...`"
+          :style="{ color: T.ink }"
+          autofocus
+        />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="search-clear"
+          :style="{ color: T.ink70 }"
+          aria-label="Șterge căutarea"
+          @click="searchQuery = ''"
+        >×</button>
+      </div>
     </div>
 
     <div class="scroll">
@@ -129,7 +177,7 @@ function addRecommendation(rec: Recommendation) {
       v-if="!isLoading && !error && items.length === 0"
       class="state"
       :style="{ color: T.ink70 }"
-    >Niciun preparat în acest filtru.</div>
+    >{{ searchQuery.trim() ? `Niciun rezultat pentru „${searchQuery}".` : 'Niciun preparat în acest filtru.' }}</div>
 
     <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">Se încarcă...</div>
     <div v-else-if="error" class="state" :style="{ color: T.accent }">{{ error }}</div>
@@ -299,6 +347,45 @@ function addRecommendation(rec: Recommendation) {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 110px;
+}
+.search-row {
+  position: relative;
+  z-index: 1;
+  padding: 0 20px 14px;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  border-radius: 999px;
+  padding: 0 16px;
+}
+.search-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 0;
+}
+.search-input::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 6px;
+  flex-shrink: 0;
 }
 .chips {
   display: flex;

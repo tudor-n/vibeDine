@@ -20,4 +20,6 @@ public class Product{
     public string? ImageUrl { get; set; } = null;
 
     public bool? IsAvailable { get; set; } = true;
+
+    public int SortOrder { get; set; } = 0;
 }

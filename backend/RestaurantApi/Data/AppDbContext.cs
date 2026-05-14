@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
             e.Property(c => c.Id).HasColumnName("id");
             e.Property(c => c.Name).HasColumnName("name");
             e.Property(c => c.SortOrder).HasColumnName("sort_order");
+            e.Property(c => c.ImageUrl).HasColumnName("image_url");
         });
 
         modelBuilder.Entity<Product>(e =>
@@ -37,6 +38,7 @@ public class AppDbContext : DbContext
             e.Property(p => p.Price).HasColumnName("price");
             e.Property(p => p.ImageUrl).HasColumnName("image_url");
             e.Property(p => p.IsAvailable).HasColumnName("is_available");
+            e.Property(p => p.SortOrder).HasColumnName("sort_order");
 
             e.HasOne(p => p.Category)
              .WithMany(c => c.Products)

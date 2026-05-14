@@ -2,9 +2,11 @@
 
 import { onMounted } from 'vue'
 import { useDirectivesStore } from '@/stores/useDirectivesStore'
+import { useToast } from '@/composables/useToast'
 import DailyPromptInput from '@/components/DailyPromptInput.vue'
 
 const directivesStore = useDirectivesStore();
+const toast = useToast();
 
 onMounted(() => {
     directivesStore.fetchDirectives();
@@ -13,9 +15,9 @@ onMounted(() => {
 const handleNewPrompt = async (prompt: string) => {
     try{
         await directivesStore.postDirective(prompt);
-        alert('Directiva a fost salvată și regulile au fost generate cu succes!');
+        toast.success('Directiva a fost salvată și regulile au fost generate cu succes.');
     }catch(error){
-        alert('A apărut o eroare la salvarea directivei.');
+        toast.error('A apărut o eroare la salvarea directivei.');
     }
 }
 

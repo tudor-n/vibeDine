@@ -2,6 +2,7 @@
 import { onMounted, computed, ref } from 'vue'
 import { useSimilarityRulesStore } from '@/stores/useSimilarityRulesStore'
 import { useRecommendationDirectivesStore } from '@/stores/useRecommendationDirectivesStore'
+import { useToast } from '@/composables/useToast'
 import SimilarityRuleTable from '@/components/SimilarityRuleTable.vue'
 import RecommendationRuleInput from '@/components/RecommendationRuleInput.vue'
 import { apiClient } from '@/services/api-client'
@@ -9,6 +10,7 @@ import type { ParsedRecommendationDirective, RecommendationDirective } from '@sh
 
 const rulesStore = useSimilarityRulesStore()
 const recRulesStore = useRecommendationDirectivesStore()
+const toast = useToast()
 
 const isInputOpen = ref(false)
 const productNamesById = ref<Record<string, string>>({})
@@ -48,16 +50,18 @@ const handleSubmitRule = async (prompt: string) => {
     try {
         await recRulesStore.postDirective(prompt)
         isInputOpen.value = false
+        toast.success('Regula a fost salvată cu succes.')
     } catch (err) {
-        alert('Eroare la salvarea regulii.')
+        toast.error('Eroare la salvarea regulii.')
     }
 }
 
 const handleToggleRule = async (id: string, current: boolean | null) => {
     try {
         await recRulesStore.toggleActive(id, !current)
+        toast.success(current ? 'Regula a fost pusă pe pauză.' : 'Regula a fost activată.')
     } catch (err) {
-        alert('Eroare la actualizarea regulii.')
+        toast.error('Eroare la actualizarea regulii.')
     }
 }
 
@@ -65,18 +69,19 @@ const handleDeleteRecRule = async (id: string) => {
     if (!window.confirm('Ești sigur că vrei să ștergi această regulă scrisă?')) return
     try {
         await recRulesStore.deleteDirective(id)
+        toast.success('Regula a fost ștearsă.')
     } catch (err) {
-        alert('Eroare la ștergerea regulii.')
+        toast.error('Eroare la ștergerea regulii.')
     }
 }
 
 const handleDeleteRule = async (id: string) => {
-    if (window.confirm('Ești sigur că vrei să ștergi această regulă de recomandare?')) {
-        try {
-            await rulesStore.deleteRule(id)
-        } catch (error) {
-            alert('Eroare la ștergerea regulii.')
-        }
+    if (!window.confirm('Ești sigur că vrei să ștergi această regulă de recomandare?')) return
+    try {
+        await rulesStore.deleteRule(id)
+        toast.success('Regula a fost ștearsă.')
+    } catch (error) {
+        toast.error('Eroare la ștergerea regulii.')
     }
 }
 

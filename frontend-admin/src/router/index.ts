@@ -11,6 +11,12 @@ const router = createRouter({
         },
 
         {
+            path: '/menu',
+            name: 'menu',
+            component: () => import('@/views/MenuManagementView.vue')
+        },
+
+        {
             path: '/ai-config',
             name: 'ai-config',
             component: () => import('@/views/AIConfigView.vue')
