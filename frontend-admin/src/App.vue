@@ -30,30 +30,31 @@ const { theme, toggle: toggleTheme } = useTheme()
 
     <nav
       class="relative z-10 w-full md:w-72 flex-shrink-0 p-5 md:p-6 flex md:flex-col gap-1 md:gap-1.5 md:min-h-screen md:border-r border-ink-12 nav-shell"
+      aria-label="Navigare admin"
     >
       <!-- Brand block -->
       <div class="hidden md:block mb-8">
-        <div class="eyebrow mb-2">CLARIFI · SUITE</div>
+        <div class="eyebrow mb-2">SMART RESTAURANT</div>
         <div class="display-title text-[34px] leading-[0.95]">
           Admin<br /><span class="text-accent">Curții.</span>
         </div>
         <div class="mt-3 flex items-center gap-2">
-          <span class="live-dot"></span>
-          <span class="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-70">live · v1</span>
+          <span class="live-dot" aria-hidden="true"></span>
+          <span class="font-mono text-[13px] uppercase tracking-[0.06em] text-ink font-semibold">Versiunea 1</span>
         </div>
       </div>
 
       <!-- Mobile brand (leaves room for the fixed top-right toggle) -->
       <div class="md:hidden flex items-center gap-3 pr-14 flex-1">
-        <div class="display-title text-2xl">Clarifi</div>
+        <div class="display-title text-2xl">Smart Restaurant</div>
       </div>
 
       <div class="hidden md:block eyebrow mb-2 mt-2">Navigare</div>
 
       <RouterLink to="/" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">◆</span>
+        <span class="nav-icon" aria-hidden="true">◆</span>
         <span class="nav-label">Dashboard</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink to="/menu" class="nav-link" active-class="nav-link-active">
@@ -63,29 +64,29 @@ const { theme, toggle: toggleTheme } = useTheme()
       </RouterLink>
 
       <RouterLink to="/ai-config" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">✦</span>
+        <span class="nav-icon" aria-hidden="true">✦</span>
         <span class="nav-label">Configurare AI</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink to="/rules" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">∞</span>
+        <span class="nav-icon" aria-hidden="true">∞</span>
         <span class="nav-label">Reguli</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink to="/orders" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">◐</span>
+        <span class="nav-icon" aria-hidden="true">◐</span>
         <span class="nav-label">Comenzi</span>
-        <span class="nav-arrow">→</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <!-- Footer chip -->
       <div class="hidden md:flex mt-auto pt-6 items-center gap-3 text-ink-70">
-        <div class="w-9 h-9 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-sm flex-shrink-0">A</div>
-        <div class="leading-tight flex-1 min-w-0">
-          <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-40">{{ theme === 'dark' ? 'Tema · noapte' : 'Tema · zi' }}</div>
-          <div class="text-sm font-semibold text-ink truncate">Manager · Andrei C.</div>
+        <div class="w-10 h-10 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-base flex-shrink-0">A</div>
+        <div class="leading-snug flex-1 min-w-0">
+          <div class="font-mono text-[12px] uppercase tracking-[0.06em] text-ink-70 font-semibold">{{ theme === 'dark' ? 'Tema · noapte' : 'Tema · zi' }}</div>
+          <div class="text-base font-semibold text-ink truncate">Manager · Andrei C.</div>
         </div>
       </div>
     </nav>
@@ -108,12 +109,13 @@ const { theme, toggle: toggleTheme } = useTheme()
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 14px;
+  padding: 14px 18px;
+  min-height: var(--tap-min);
   border-radius: 999px;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
-  color: var(--ink70);
+  color: var(--ink);
   border: 1px solid transparent;
   transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
   position: relative;
@@ -123,13 +125,13 @@ const { theme, toggle: toggleTheme } = useTheme()
   color: var(--ink);
 }
 .nav-icon {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: var(--ink06);
-  font-size: 14px;
+  font-size: 16px;
   flex-shrink: 0;
   color: var(--ink);
 }
@@ -166,8 +168,8 @@ const { theme, toggle: toggleTheme } = useTheme()
   position: fixed;
   top: 18px;
   right: 18px;
-  width: 42px;
-  height: 42px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   border-radius: 50%;
   background: var(--card);
   color: var(--ink);

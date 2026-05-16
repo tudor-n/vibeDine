@@ -10,9 +10,9 @@
   --ink:      #15140F;
   --ink-rgb:  21, 20, 15;
   --paper-rgb: 251, 247, 236;
-  --ink70:    rgba(21, 20, 15, 0.62);
-  --ink40:    rgba(21, 20, 15, 0.34);
-  --ink12:    rgba(21, 20, 15, 0.10);
+  --ink70:    rgba(21, 20, 15, 0.82);
+  --ink40:    rgba(21, 20, 15, 0.62);
+  --ink12:    rgba(21, 20, 15, 0.14);
   --ink06:    rgba(21, 20, 15, 0.05);
   --accent:   #FF4A1C;
   --accentDk: #C0340F;
@@ -23,6 +23,10 @@
   --onLime:   #15140F;
   --shadow-soft: 0 16px 36px -22px rgba(21, 20, 15, 0.35);
   --shadow-pop:  0 30px 60px -30px rgba(21, 20, 15, 0.50);
+
+  --tap-min:    44px;
+  --ring-width: 3px;
+  --ring-offset: 2px;
 }
 
 /* Dark direction — hot pink + warm gold over deep charcoal */
@@ -33,9 +37,9 @@
   --ink:      #F5F0E8;
   --ink-rgb:  245, 240, 232;
   --paper-rgb: 27, 24, 20;
-  --ink70:    rgba(245, 240, 232, 0.65);
-  --ink40:    rgba(245, 240, 232, 0.38);
-  --ink12:    rgba(245, 240, 232, 0.10);
+  --ink70:    rgba(245, 240, 232, 0.88);
+  --ink40:    rgba(245, 240, 232, 0.68);
+  --ink12:    rgba(245, 240, 232, 0.14);
   --ink06:    rgba(245, 240, 232, 0.05);
   --accent:   #E8255A;
   --accentDk: #B81A47;
@@ -49,24 +53,33 @@
 }
 
 @layer base {
+  html { font-size: 17px; }
   html, body, #app {
     background: var(--paper);
     color: var(--ink);
     font-family: 'Inter Tight', -apple-system, system-ui, sans-serif;
     font-feature-settings: 'ss01', 'cv11';
     -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
     transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  :focus { outline: none; }
+  :focus-visible {
+    outline: var(--ring-width) solid var(--accent);
+    outline-offset: var(--ring-offset);
+    border-radius: 4px;
   }
 }
 
 @layer components {
   .eyebrow {
     font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 13px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--ink70);
+    letter-spacing: 0.08em;
+    color: var(--ink);
   }
 
   .display-title {
@@ -83,6 +96,7 @@
     justify-content: center;
     gap: 8px;
     padding: 14px 22px;
+    min-height: var(--tap-min);
     border-radius: 999px;
     background: var(--accent);
     color: var(--onAccent);
@@ -101,6 +115,7 @@
     justify-content: center;
     gap: 8px;
     padding: 12px 20px;
+    min-height: var(--tap-min);
     border-radius: 999px;
     background: var(--ink);
     color: var(--paperHi);
@@ -131,28 +146,28 @@
   .bloom-accent {
     background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
     filter: blur(60px);
-    opacity: 0.32;
+    opacity: 0.20;
   }
   .bloom-lime {
     background: radial-gradient(circle, var(--lime) 0%, transparent 70%);
     filter: blur(55px);
-    opacity: 0.32;
+    opacity: 0.20;
   }
 
   .tag-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
+    padding: 7px 14px;
     border-radius: 999px;
     background: var(--ink06);
     border: 1px solid var(--ink12);
     font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--ink70);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.06em;
   }
 
   .live-dot {
@@ -167,3 +182,34 @@
 
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Visually hidden — present to assistive tech, removed from sighted layout */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Focus ring on dark surfaces — swap accent → lime for contrast */
+.nav-link-active:focus-visible,
+.metric-card-accent:focus-visible,
+.metric-card-accent *:focus-visible,
+.prompt-card *:focus-visible,
+.order-table:focus-visible {
+  outline-color: var(--lime);
+}
+
+/* Honor user's motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .live-dot { box-shadow: 0 0 6px var(--accent); }
+}

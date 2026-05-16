@@ -17,49 +17,49 @@ const claimRate = computed(() => {
 </script>
 
 <template>
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5" role="list" aria-label="Indicatori de performanță">
 
     <!-- Oferte afișate -->
-    <div class="metric-card">
+    <div class="metric-card" role="listitem">
       <div class="metric-eyebrow">Oferte afișate · azi</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
         {{ metrics?.flashDealsShown || 0 }}
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-ink"></span>
-        <span>impressions · table-side</span>
+        <span class="metric-dot metric-dot-ink" aria-hidden="true"></span>
+        <span>afișări la masă</span>
       </div>
     </div>
 
     <!-- Oferte revendicate -->
-    <div class="metric-card metric-card-accent">
+    <div class="metric-card metric-card-accent" role="listitem">
       <div class="metric-eyebrow">Oferte revendicate</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton metric-skeleton-on-dark"></div>
       <div v-else class="metric-value">
         {{ metrics?.flashDealsClaimed || 0 }}
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-lime"></span>
-        <span>conversii · cu confirmare</span>
+        <span class="metric-dot metric-dot-lime" aria-hidden="true"></span>
+        <span>confirmate de client</span>
       </div>
     </div>
 
     <!-- Conversie -->
-    <div class="metric-card metric-card-lime">
+    <div class="metric-card metric-card-lime" role="listitem">
       <div class="metric-eyebrow">Rata de conversie</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
         {{ claimRate }}<span class="metric-unit ml-1">%</span>
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-ink"></span>
-        <span>claim / shown</span>
+        <span class="metric-dot metric-dot-ink" aria-hidden="true"></span>
+        <span>revendicate din afișate</span>
       </div>
     </div>
 
     <!-- Venit upsell -->
-    <div class="metric-card">
+    <div class="metric-card" role="listitem">
       <div class="metric-eyebrow">Venit extra · AI upsell</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
@@ -67,13 +67,13 @@ const claimRate = computed(() => {
         <span class="metric-unit ml-1">RON</span>
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-accent"></span>
+        <span class="metric-dot metric-dot-accent" aria-hidden="true"></span>
         <span>recomandări acceptate</span>
       </div>
     </div>
 
     <!-- Venit flash -->
-    <div class="metric-card">
+    <div class="metric-card" role="listitem">
       <div class="metric-eyebrow">Venit oferte fulger</div>
       <div v-if="isLoading && !metrics" class="metric-skeleton"></div>
       <div v-else class="metric-value">
@@ -81,7 +81,7 @@ const claimRate = computed(() => {
         <span class="metric-unit ml-1">RON</span>
       </div>
       <div class="metric-foot">
-        <span class="metric-dot metric-dot-accent"></span>
+        <span class="metric-dot metric-dot-accent" aria-hidden="true"></span>
         <span>preparate cu reducere</span>
       </div>
     </div>
@@ -131,22 +131,22 @@ const claimRate = computed(() => {
 
 .metric-eyebrow {
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink70);
+  color: var(--ink);
 }
 .metric-value {
   font-family: 'Inter Tight', sans-serif;
-  font-size: 48px;
+  font-size: 52px;
   line-height: 1;
   font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--ink);
 }
 .metric-unit {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 600;
   color: var(--ink70);
 }
@@ -154,9 +154,9 @@ const claimRate = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--ink70);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 .metric-dot {
   width: 7px;
