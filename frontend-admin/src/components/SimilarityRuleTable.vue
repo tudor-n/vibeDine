@@ -49,7 +49,7 @@ const emit = defineEmits<{
           <!-- Source pebble label -->
           <div class="rule-pebble rule-pebble-source">
             <span class="rule-pebble-eyebrow">când</span>
-            <span class="rule-pebble-name">{{ rule.source_item_id }}</span>
+            <span class="rule-pebble-name">{{ rule.productAName ?? rule.productAId }}</span>
           </div>
 
           <!-- Connector arrow -->
@@ -62,7 +62,7 @@ const emit = defineEmits<{
           <!-- Target pebble label -->
           <div class="rule-pebble rule-pebble-target">
             <span class="rule-pebble-eyebrow rule-pebble-eyebrow-target">recomandăm</span>
-            <span class="rule-pebble-name">+ {{ rule.target_item_id }}</span>
+            <span class="rule-pebble-name">+ {{ rule.productBName ?? rule.productBId }}</span>
           </div>
 
           <!-- Score chip -->
@@ -82,10 +82,9 @@ const emit = defineEmits<{
           </button>
         </div>
 
-        <!-- Reason / AI explanation -->
-        <div v-if="rule.reason" class="rule-reason">
-          <span class="rule-ai-tag">✦ AI</span>
-          <p class="rule-reason-text">"{{ rule.reason }}"</p>
+        <!-- Rule type tag -->
+        <div v-if="rule.ruleType" class="rule-reason">
+          <span class="rule-ai-tag">✦ {{ rule.ruleType }}</span>
         </div>
       </article>
     </div>
