@@ -20,6 +20,7 @@ export const useCartStore = defineStore('cart', () => {
   })
 
   let syncTimeout: ReturnType<typeof setTimeout> | null = null;
+  const lastSyncPromise = ref<Promise<void> | null>(null)
 
   async function syncCartWithBackend() {
     if(!sessionStore.orderId){
@@ -36,13 +37,17 @@ export const useCartStore = defineStore('cart', () => {
 
     if (syncTimeout) clearTimeout(syncTimeout)
 
-    syncTimeout = setTimeout(async () => {
-      try {
-        await apiClient.updateCartItems(sessionStore.orderId!, payload)
-      } catch (error) {
-        console.error('Eroare la sincronizarea coșului pe backend:', error)
-      }
-    }, 500)
+    lastSyncPromise.value = new Promise<void>((resolve) => {
+      syncTimeout = setTimeout(async () => {
+        try {
+          await apiClient.updateCartItems(sessionStore.orderId!, payload)
+        } catch (error) {
+          console.error('Eroare la sincronizarea coșului pe backend:', error)
+        } finally {
+          resolve()
+        }
+      }, 500)
+    })
   }
 
   async function addItem(product: Product){
@@ -96,6 +101,7 @@ export const useCartStore = defineStore('cart', () => {
   return {
     items,
     total,
+    lastSyncPromise,
     addItem,
     addRecommendedItem,
     removeItem,

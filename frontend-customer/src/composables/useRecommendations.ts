@@ -29,6 +29,12 @@ export function useRecommendations() {
         try {
           isLoading.value = true
 
+          // Wait for any in-flight cart PATCH to finish, otherwise the backend
+          // reads a stale order and rule-driven recommendations don't match.
+          if (cartStore.lastSyncPromise) {
+            await cartStore.lastSyncPromise
+          }
+
           const itemIds = newItems.map((item) => item.id)
 
           const response = await apiClient.getRecommendations(sessionStore.orderId!, itemIds)

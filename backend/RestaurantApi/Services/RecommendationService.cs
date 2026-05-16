@@ -68,7 +68,11 @@ public class RecommendationService
                 var result = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var rawRecs = result.GetProperty("recommendations")
                     .Deserialize<List<RecommendationResponse>>(
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                            PropertyNameCaseInsensitive = true,
+                        });
 
                 if (rawRecs is { Count: > 0 })
                 {

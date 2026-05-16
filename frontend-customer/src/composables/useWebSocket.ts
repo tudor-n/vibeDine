@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import type { FlashDeal } from '@shared/types/models'
@@ -34,20 +34,25 @@ export function useWebSocket() {
         const messages = event.data.split('\x1e')
 
         for (const msg of messages) {
-          if (!msg || msg === '{}') continue
+          if (!msg) continue
+
+          // SignalR handshake ack is an empty object `{}`. Join the table group
+          // immediately on the ack — waiting for a type=6 ping created a ~15s
+          // window where flash-deal events could be missed.
+          if (msg === '{}') {
+            if (sessionStore.tableId) {
+              socket?.send(
+                JSON.stringify({
+                  type: 1,
+                  target: 'JoinTableGroup',
+                  arguments: [sessionStore.tableId]
+                }) + '\x1e'
+              )
+            }
+            continue
+          }
 
           const data = JSON.parse(msg)
-
-          // Step 2: after handshake ack (type 6), join the table group
-          if (data.type === 6 && sessionStore.tableId) {
-            socket?.send(
-              JSON.stringify({
-                type: 1,
-                target: 'JoinTableGroup',
-                arguments: [sessionStore.tableId]
-              }) + '\x1e'
-            )
-          }
 
           if (data.type === 1 && data.target) {
             if (data.target === 'FlashDealAvailable') {
