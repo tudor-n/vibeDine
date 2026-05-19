@@ -21,6 +21,20 @@ public class Order : ITenantScoped {
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    // Human-friendly sequential number per restaurant. Assigned on submit
+    // (drafts have no number yet). Shown on the kitchen kanban and customer
+    // status screen as "Comanda #N".
+    public int? OrderNumber { get; set; }
+
+    // Set when the order is dropped in the "Finalizată" column. The
+    // OrderFinalizationService uses this timestamp to soft-delete the order
+    // after a grace period; cleared when the admin drags it back.
+    public DateTime? ReadyAt { get; set; }
+
+    // Soft-delete marker. Non-null orders are excluded from the active board
+    // and surface only in the finalized log.
+    public DateTime? DeletedAt { get; set; }
+
     public ICollection<OrderItem> Items { get; set; } = [];
 
     public ICollection<FlashDealOffer> FlashDeals { get; set; } = [];

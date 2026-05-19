@@ -1,7 +1,8 @@
 import { ref, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
-import type { FlashDeal } from '@shared/types/models'
+import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
+import type { FlashDeal, OrderStatus } from '@shared/types/models'
 
 
 const rawWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5005'
@@ -11,6 +12,7 @@ const BASE_WS_URL = rawWsUrl.endsWith('/') ? rawWsUrl.slice(0, -1) : rawWsUrl
 export function useWebSocket() {
   const sessionStore = useSessionStore()
   const flashDealStore = useFlashDealStore()
+  const orderStatusStore = useOrderStatusStore()
   const isConnected = ref(false)
   let socket: WebSocket | null = null
 
@@ -83,6 +85,13 @@ export function useWebSocket() {
 
             if (data.target === 'FlashDealExpired') {
               flashDealStore.clearDeal()
+            }
+
+            if (data.target === 'OrderStatusUpdated') {
+              const payload = data.arguments[0] as { orderId: string; status: OrderStatus }
+              if (payload?.orderId && payload?.status) {
+                orderStatusStore.setStatus(payload.orderId, payload.status)
+              }
             }
           }
         }

@@ -85,6 +85,12 @@ function logout() {
         <span class="nav-arrow">→</span>
       </RouterLink>
 
+      <RouterLink to="/orders/active" class="nav-link" active-class="nav-link-active">
+        <span class="nav-icon" aria-hidden="true">▤</span>
+        <span class="nav-label">Comenzi active</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
       <RouterLink to="/ai-config" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">✦</span>
         <span class="nav-label">Configurare AI</span>
@@ -99,7 +105,7 @@ function logout() {
 
       <RouterLink to="/orders" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">◐</span>
-        <span class="nav-label">Comenzi</span>
+        <span class="nav-label">Jurnal comenzi</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 

@@ -47,6 +47,16 @@ const router = createRouter({
             component: () => import('@/views/OrdersLogView.vue')
         },
         {
+            path: '/orders/active',
+            name: 'orders-active',
+            component: () => import('@/views/ActiveOrdersView.vue')
+        },
+        {
+            path: '/orders/active/board',
+            name: 'orders-active-board',
+            component: () => import('@/views/ActiveOrdersBoardView.vue')
+        },
+        {
             path: '/tables',
             name: 'tables',
             component: () => import('@/views/TablesView.vue')

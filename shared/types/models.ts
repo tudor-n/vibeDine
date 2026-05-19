@@ -87,6 +87,9 @@ export interface Order {
   totalAmount: number;
   items: OrderItem[];
   createdAt: ISODateString;
+  orderNumber?: number | null;
+  readyAt?: ISODateString | null;
+  deletedAt?: ISODateString | null;
 }
 
 export interface CartItem {

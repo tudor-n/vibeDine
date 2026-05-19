@@ -90,7 +90,11 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.PaymentStatus).HasColumnName("payment_status");
             e.Property(o => o.TotalAmount).HasColumnName("total_amount");
             e.Property(o => o.CreatedAt).HasColumnName("created_at");
+            e.Property(o => o.OrderNumber).HasColumnName("order_number");
+            e.Property(o => o.ReadyAt).HasColumnName("ready_at");
+            e.Property(o => o.DeletedAt).HasColumnName("deleted_at");
             e.HasIndex(o => o.RestaurantId);
+            e.HasIndex(o => new { o.RestaurantId, o.OrderNumber });
 
             e.HasOne(o => o.Table)
              .WithMany(t => t.Orders)

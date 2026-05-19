@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 
@@ -12,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const sessionStore = useSessionStore()
+const orderStatusStore = useOrderStatusStore()
 const { tokens: T, theme } = useTheme()
 
 const totalCardStyle = computed(() => {
@@ -40,14 +42,11 @@ const totalHintColor = computed(() =>
 )
 
 const submittedAt = ref(new Date())
-const now = ref(new Date())
+const inPrepAt = ref<Date | null>(null)
+const servedAt = ref<Date | null>(null)
 
 onMounted(() => {
   submittedAt.value = new Date()
-  now.value = new Date()
-  setInterval(() => {
-    now.value = new Date()
-  }, 30_000)
 })
 
 function fmt(d: Date) {
@@ -61,25 +60,50 @@ const tableLabel = computed(() => {
   return `Masa ${tail}`
 })
 
+// Live status arrives via SignalR. We only stamp a timestamp on the *first*
+// transition into each stage so the displayed time matches when the kitchen
+// actually moved the order, not when the customer re-rendered.
+const currentStatus = computed(() => orderStatusStore.status)
+const isPreparing = computed(() =>
+  currentStatus.value === 'preparing' || currentStatus.value === 'ready' || currentStatus.value === 'completed',
+)
+const isServed = computed(() => currentStatus.value === 'completed')
+
+if (isPreparing.value && !inPrepAt.value) inPrepAt.value = new Date()
+if (isServed.value && !servedAt.value) servedAt.value = new Date()
+
+watch(currentStatus, (s) => {
+  if ((s === 'preparing' || s === 'ready' || s === 'completed') && !inPrepAt.value) {
+    inPrepAt.value = new Date()
+  }
+  if (s === 'completed' && !servedAt.value) {
+    servedAt.value = new Date()
+  }
+})
+
 const steps = computed(() => {
   const submitted = submittedAt.value
-  const inPrep = new Date(submitted.getTime() + 2 * 60_000)
-  const serve = new Date(submitted.getTime() + 22 * 60_000)
-  const t = now.value.getTime()
+  const inPrep = inPrepAt.value
+  const served = servedAt.value
 
   return [
-    { t: fmt(submitted), label: 'Trimisă la bucătărie', done: true, active: false },
     {
-      t: fmt(inPrep),
-      label: 'În pregătire acum',
-      done: t >= inPrep.getTime(),
-      active: t >= inPrep.getTime() && t < serve.getTime(),
+      t: fmt(submitted),
+      label: 'Trimisă la bucătărie',
+      done: true,
+      active: !isPreparing.value,
     },
     {
-      t: '~' + fmt(serve),
+      t: inPrep ? fmt(inPrep) : '—',
+      label: 'În pregătire acum',
+      done: isPreparing.value,
+      active: isPreparing.value && !isServed.value,
+    },
+    {
+      t: served ? fmt(served) : '—',
       label: 'Servire la masă',
-      done: t >= serve.getTime(),
-      active: false,
+      done: isServed.value,
+      active: isServed.value,
     },
   ]
 })

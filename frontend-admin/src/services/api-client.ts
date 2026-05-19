@@ -228,6 +228,15 @@ export const apiClient = {
     getOrders: (limit = 100) =>
         authedFetcher<any[]>(scoped(`/admin/orders?limit=${limit}`)),
 
+    getActiveOrders: () =>
+        authedFetcher<any[]>(scoped('/admin/orders/active')),
+
+    updateOrderStatus: (orderId: string, status: 'submitted' | 'preparing' | 'ready') =>
+        authedFetcher<any>(scoped(`/admin/orders/${orderId}/status`), {
+            method: 'PATCH',
+            body: JSON.stringify({ status }),
+        }),
+
     getDirectives: () =>
         authedFetcher<AIDirective[]>(scoped('/admin/directives')),
 

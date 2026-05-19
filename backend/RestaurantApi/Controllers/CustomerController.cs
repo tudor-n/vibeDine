@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
 using RestaurantApi.DTOs.Responses;
+using RestaurantApi.Hubs;
 using RestaurantApi.Models;
 using RestaurantApi.DTOs.Requests;
 using RestaurantApi.Services;
@@ -15,16 +17,22 @@ public class CustomerController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IFlashDealService _flashDealService;
     private readonly RecommendationService _recommendationService;
+    private readonly IHubContext<StaffHub> _staffHub;
 
-    public CustomerController(AppDbContext context, IFlashDealService flashDealService , RecommendationService recommendationService)
+    public CustomerController(
+        AppDbContext context,
+        IFlashDealService flashDealService,
+        RecommendationService recommendationService,
+        IHubContext<StaffHub> staffHub)
     {
         _context = context;
         _flashDealService = flashDealService;
-        _recommendationService= recommendationService;
+        _recommendationService = recommendationService;
+        _staffHub = staffHub;
     }
 
     [HttpPost("restaurants/{restaurantId:guid}/orders/{orderId:guid}/submit")]
-    public async Task<IActionResult> SubmitOrder(Guid orderId)
+    public async Task<IActionResult> SubmitOrder(Guid restaurantId, Guid orderId)
     {
         var order = await _context.Orders
             .Include(o => o.Items)
@@ -38,14 +46,37 @@ public class CustomerController : ControllerBase
 
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         order.Status = "submitted";
+
+        // Per-restaurant sequence. The (RestaurantId, OrderNumber) index isn't unique
+        // because a race between two concurrent submits could collide here; for the
+        // single-host dev setup this is fine, and a unique index would convert a
+        // collision into a 500 with no easy retry path.
+        var lastNumber = await _context.Orders
+            .IgnoreQueryFilters()
+            .Where(o => o.RestaurantId == order.RestaurantId && o.OrderNumber != null)
+            .MaxAsync(o => (int?)o.OrderNumber) ?? 0;
+        order.OrderNumber = lastNumber + 1;
+
         await _context.SaveChangesAsync();
 
         await _flashDealService.EvaluateEligibilityAsync(orderId);
+
+        // Notify the kitchen kanban that a new order has landed.
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
+            .SendAsync("OrderSubmitted", new
+            {
+                orderId = order.Id,
+                orderNumber = order.OrderNumber,
+                tableId = order.TableId,
+                status = order.Status,
+            });
 
         return Ok(new
         {
             message = "Order successfully submitted to the kitchen!",
             orderId = order.Id,
+            orderNumber = order.OrderNumber,
             status = order.Status,
             totalAmount = order.TotalAmount
         });

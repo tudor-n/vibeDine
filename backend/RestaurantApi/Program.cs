@@ -124,6 +124,7 @@ builder.Services.AddHttpClient<MenuExtractionClient>((sp, client) =>
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
 builder.Services.AddScoped<IFlashDealService, FlashDealService>();
+builder.Services.AddHostedService<OrderFinalizationService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

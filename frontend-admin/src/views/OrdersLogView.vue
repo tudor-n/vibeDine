@@ -14,10 +14,12 @@ interface OrderItem {
 
 interface Order {
   id: string
+  orderNumber: number | null
   status: string
   paymentStatus: string
   totalAmount: number
   createdAt: string
+  deletedAt: string | null
   tableNumber: string | null
   items: OrderItem[]
 }
@@ -39,11 +41,8 @@ const STATUS_LABELS: Record<string, { label: string; icon: string; bg: string; c
 
 const FILTERS: Array<{ key: string; label: string }> = [
   { key: 'all', label: 'Toate' },
-  { key: 'submitted', label: 'Trimisă' },
-  { key: 'preparing', label: 'Pregătire' },
-  { key: 'ready', label: 'Gată' },
-  { key: 'completed', label: 'Finalizată' },
-  { key: 'cancelled', label: 'Anulată' },
+  { key: 'completed', label: 'Finalizate' },
+  { key: 'cancelled', label: 'Anulate' },
 ]
 
 const filteredOrders = computed(() => {
@@ -107,11 +106,12 @@ onMounted(fetchOrders)
       <div class="eyebrow mb-4">Comenzile zilei</div>
       <h1 class="display-title text-[44px] md:text-[56px]">
         Jurnal<br />
-        <span class="text-accent">comenzi.</span>
+        <span class="text-accent">comenzi finalizate.</span>
       </h1>
       <p class="text-ink text-lg mt-5 leading-relaxed max-w-2xl">
-        Istoricul comenzilor cu detalii despre fiecare preparat și sursa acestuia —
-        recomandare AI, ofertă fulger sau alegere directă.
+        Istoricul comenzilor încheiate. Comenzile încă în lucru apar în
+        <span class="font-semibold">Comenzi active</span>; după ce sunt mutate în
+        „Finalizată” și expiră perioada de grație de 45s, ajung aici automat.
       </p>
     </header>
 
@@ -206,6 +206,9 @@ onMounted(fetchOrders)
 
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap mb-1">
+              <span v-if="order.orderNumber != null" class="font-mono text-[12px] uppercase tracking-[0.06em] text-ink-70 font-bold">
+                #{{ order.orderNumber }}
+              </span>
               <span class="font-bold text-ink text-lg">
                 {{ order.items.length }} {{ order.items.length === 1 ? 'preparat' : 'preparate' }}
               </span>

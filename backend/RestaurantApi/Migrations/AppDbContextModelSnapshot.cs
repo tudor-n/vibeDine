@@ -442,9 +442,21 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<int?>("OrderNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("order_number");
+
                     b.Property<string>("PaymentStatus")
                         .HasColumnType("text")
                         .HasColumnName("payment_status");
+
+                    b.Property<DateTime?>("ReadyAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ready_at");
 
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid")
@@ -468,6 +480,8 @@ namespace RestaurantApi.Migrations
                     b.HasIndex("RestaurantId");
 
                     b.HasIndex("TableId");
+
+                    b.HasIndex("RestaurantId", "OrderNumber");
 
                     b.ToTable("orders", (string)null);
                 });
