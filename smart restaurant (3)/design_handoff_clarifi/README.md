@@ -8,7 +8,7 @@ The design ships in **two colour directions** — each with a standard and an ac
 
 | Direction | Description | Accent | Secondary |
 |---|---|---|---|
-| **Warm** | Ospătăria Curții — warm cream ground | Terracotta `#FF4A1C` | Acid lime `#D9F54A` |
+| **Warm** | Nume Restaurant — warm cream ground | Terracotta `#FF4A1C` | Acid lime `#D9F54A` |
 | **Dark** | Supporter Sports Pub — charcoal ground | Hot pink `#E8255A` | Warm gold `#FFD166` |
 
 ---

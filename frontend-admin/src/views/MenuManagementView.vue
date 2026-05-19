@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed, reactive } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useMenuManagementStore } from '@/stores/useMenuManagementStore'
 import { useToast } from '@/composables/useToast'
 import type { AdminMenuCategoryNode, AdminProduct } from '@shared/types/models'
@@ -295,13 +296,23 @@ function formatPrice(n: number) {
                 </p>
             </div>
 
-            <button
-                class="pill-btn whitespace-nowrap"
-                @click="openCreateCategory"
-            >
-                <span>+</span>
-                <span>Adaugă categorie</span>
-            </button>
+            <div class="flex flex-wrap gap-3 items-end">
+                <RouterLink
+                    to="/menu/import"
+                    class="pill-btn pill-btn-ghost whitespace-nowrap"
+                >
+                    <span>📷</span>
+                    <span>Importă din fotografie</span>
+                </RouterLink>
+
+                <button
+                    class="pill-btn whitespace-nowrap"
+                    @click="openCreateCategory"
+                >
+                    <span>+</span>
+                    <span>Adaugă categorie</span>
+                </button>
+            </div>
         </header>
 
         <div

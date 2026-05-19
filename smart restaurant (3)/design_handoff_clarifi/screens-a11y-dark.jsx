@@ -69,7 +69,7 @@ function WelcomeScreenA11yDark() {
       <div style={{ position: 'relative', padding: '52px 24px 0' }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: TD.accent, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 14 }}>Bun venit</div>
         <h1 style={{ fontFamily: TD.display, fontWeight: 600, fontSize: 60, lineHeight: 0.92, letterSpacing: '-0.04em', margin: '0 0 24px' }}>
-          Ospătăria<br/><span style={{ color: TD.accent }}>Curții.</span>
+          Nume<br/><span style={{ color: TD.accent }}>Restaurant.</span>
         </h1>
         <p style={{ fontSize: 18, lineHeight: 1.55, color: TD.ink70, margin: '0 0 32px' }}>
           Meniuri pentru masa 7. Comandați direct din aplicație — bucătăria pregătește imediat.

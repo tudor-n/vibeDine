@@ -161,8 +161,8 @@ function WelcomeScreen() {
           fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.045em',
           margin: 0,
         }}>
-          Ospătăria<br/>
-          <span style={{ color: T.accent }}>Curții.</span>
+          Nume<br/>
+          <span style={{ color: T.accent }}>Restaurant.</span>
         </h1>
         <p style={{
           fontSize: 15, lineHeight: 1.45, color: T.ink70,

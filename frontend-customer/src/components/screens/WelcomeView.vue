@@ -82,8 +82,8 @@ const infoCells = computed<[string, string][]>(() => [
     <div class="hero">
       <div class="eyebrow" :style="{ color: T.accent }">Bun venit</div>
       <h1 class="title">
-        Ospătăria<br />
-        <span :style="{ color: T.accent }">Curții.</span>
+        Nume<br />
+        <span :style="{ color: T.accent }">Restaurant.</span>
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
         Meniuri pentru {{ tableLabel.toLowerCase() }}. Comandați direct din aplicație — bucătăria pregătește imediat.

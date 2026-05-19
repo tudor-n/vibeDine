@@ -130,7 +130,7 @@ function WelcomeScreenDark() {
           Bun venit —
         </div>
         <h1 style={{ fontFamily: TD.display, fontWeight: 500, fontSize: 68, lineHeight: 0.9, letterSpacing: '-0.045em', margin: 0, color: TD.ink }}>
-          Ospătăria<br/><span style={{ color: TD.accent }}>Curții.</span>
+          Nume<br/><span style={{ color: TD.accent }}>Restaurant.</span>
         </h1>
         <p style={{ fontSize: 15, lineHeight: 1.45, color: TD.ink70, maxWidth: 310, margin: '26px 0 34px' }}>
           Meniul de seară, live pentru masa 07. Comandați direct — bucătăria pregătește când trimiteți.

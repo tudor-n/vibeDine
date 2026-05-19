@@ -3,3 +3,7 @@ uvicorn
 pydantic
 google-genai
 python-dotenv
+pytest
+pytest-asyncio>=0.23
+anthropic>=0.40.0
+python-multipart>=0.0.9

@@ -4,6 +4,7 @@ using RestaurantApi.Data;
 using RestaurantApi.DTOs.Requests;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Models;
+using RestaurantApi.Validators;
 
 namespace RestaurantApi.Controllers;
 
@@ -11,11 +12,6 @@ namespace RestaurantApi.Controllers;
 [Route("api/admin/menu")]
 public class MenuManagementController : ControllerBase
 {
-    private const int NameMaxLength = 120;
-    private const int DescriptionMaxLength = 1000;
-    private const int ImageUrlMaxLength = 500;
-    private const decimal PriceMax = 99999999.99m;
-
     private readonly AppDbContext _db;
     private readonly ILogger<MenuManagementController> _logger;
 
@@ -80,19 +76,13 @@ public class MenuManagementController : ControllerBase
     [HttpPost("categories")]
     public async Task<IActionResult> CreateCategory([FromBody] CreateCategoryRequest request)
     {
-        var name = request.Name?.Trim() ?? string.Empty;
-        if (name.Length is < 1 or > NameMaxLength)
-            return BadRequest(new { message = $"Name is required and must be 1–{NameMaxLength} characters." });
+        var nameResult = ProductValidator.ValidateName(request.Name);
+        if (!nameResult.IsValid) return BadRequest(new { message = nameResult.Error });
+        var name = nameResult.Value!;
 
-        string? imageUrl = null;
-        if (!string.IsNullOrWhiteSpace(request.ImageUrl))
-        {
-            if (request.ImageUrl.Length > ImageUrlMaxLength)
-                return BadRequest(new { message = $"ImageUrl must be at most {ImageUrlMaxLength} characters." });
-            if (!Uri.TryCreate(request.ImageUrl, UriKind.Absolute, out _))
-                return BadRequest(new { message = "ImageUrl must be a valid absolute URL." });
-            imageUrl = request.ImageUrl;
-        }
+        var imageUrlResult = ProductValidator.ValidateImageUrl(request.ImageUrl);
+        if (!imageUrlResult.IsValid) return BadRequest(new { message = imageUrlResult.Error });
+        string? imageUrl = imageUrlResult.Value;
 
         var category = new Category
         {
@@ -126,10 +116,10 @@ public class MenuManagementController : ControllerBase
 
         if (request.Name != null)
         {
-            var name = request.Name.Trim();
-            if (name.Length is < 1 or > NameMaxLength)
-                return BadRequest(new { message = $"Name must be 1–{NameMaxLength} characters." });
-            category.Name = name;
+            var nameResult = ProductValidator.ValidateName(request.Name);
+            if (!nameResult.IsValid)
+                return BadRequest(new { message = $"Name must be 1–{ProductValidator.NameMaxLength} characters." });
+            category.Name = nameResult.Value!;
         }
 
         if (request.SortOrder.HasValue)
@@ -143,11 +133,9 @@ public class MenuManagementController : ControllerBase
             }
             else
             {
-                if (request.ImageUrl.Length > ImageUrlMaxLength)
-                    return BadRequest(new { message = $"ImageUrl must be at most {ImageUrlMaxLength} characters." });
-                if (!Uri.TryCreate(request.ImageUrl, UriKind.Absolute, out _))
-                    return BadRequest(new { message = "ImageUrl must be a valid absolute URL." });
-                category.ImageUrl = request.ImageUrl;
+                var imageUrlResult = ProductValidator.ValidateImageUrl(request.ImageUrl);
+                if (!imageUrlResult.IsValid) return BadRequest(new { message = imageUrlResult.Error });
+                category.ImageUrl = imageUrlResult.Value;
             }
         }
 
@@ -231,23 +219,18 @@ public class MenuManagementController : ControllerBase
     [HttpPost("products")]
     public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest request)
     {
-        var name = request.Name?.Trim() ?? string.Empty;
-        if (name.Length is < 1 or > NameMaxLength)
-            return BadRequest(new { message = $"Name is required and must be 1–{NameMaxLength} characters." });
+        var nameResult = ProductValidator.ValidateName(request.Name);
+        if (!nameResult.IsValid) return BadRequest(new { message = nameResult.Error });
+        var name = nameResult.Value!;
 
-        if (request.Price <= 0 || request.Price > PriceMax)
-            return BadRequest(new { message = $"Price must be greater than 0 and at most {PriceMax}." });
+        var priceResult = ProductValidator.ValidatePrice(request.Price);
+        if (!priceResult.IsValid) return BadRequest(new { message = priceResult.Error });
 
-        if (request.Description != null && request.Description.Length > DescriptionMaxLength)
-            return BadRequest(new { message = $"Description must be at most {DescriptionMaxLength} characters." });
+        var descriptionResult = ProductValidator.ValidateDescription(request.Description);
+        if (!descriptionResult.IsValid) return BadRequest(new { message = descriptionResult.Error });
 
-        if (!string.IsNullOrWhiteSpace(request.ImageUrl))
-        {
-            if (request.ImageUrl.Length > ImageUrlMaxLength)
-                return BadRequest(new { message = $"ImageUrl must be at most {ImageUrlMaxLength} characters." });
-            if (!Uri.TryCreate(request.ImageUrl, UriKind.Absolute, out _))
-                return BadRequest(new { message = "ImageUrl must be a valid absolute URL." });
-        }
+        var imageUrlResult = ProductValidator.ValidateImageUrl(request.ImageUrl);
+        if (!imageUrlResult.IsValid) return BadRequest(new { message = imageUrlResult.Error });
 
         var category = await _db.Categories.FindAsync(request.CategoryId);
         if (category == null)
@@ -266,7 +249,7 @@ public class MenuManagementController : ControllerBase
             Name = name,
             Description = request.Description ?? string.Empty,
             Price = request.Price,
-            ImageUrl = string.IsNullOrWhiteSpace(request.ImageUrl) ? null : request.ImageUrl,
+            ImageUrl = imageUrlResult.Value,
             IsAvailable = request.IsAvailable,
             SortOrder = maxSortOrder + 1
         };
@@ -303,24 +286,24 @@ public class MenuManagementController : ControllerBase
 
         if (request.Name != null)
         {
-            var name = request.Name.Trim();
-            if (name.Length is < 1 or > NameMaxLength)
-                return BadRequest(new { message = $"Name must be 1–{NameMaxLength} characters." });
-            product.Name = name;
+            var nameResult = ProductValidator.ValidateName(request.Name);
+            if (!nameResult.IsValid)
+                return BadRequest(new { message = $"Name must be 1–{ProductValidator.NameMaxLength} characters." });
+            product.Name = nameResult.Value!;
         }
 
         if (request.Description != null)
         {
-            if (request.Description.Length > DescriptionMaxLength)
-                return BadRequest(new { message = $"Description must be at most {DescriptionMaxLength} characters." });
+            var descriptionResult = ProductValidator.ValidateDescription(request.Description);
+            if (!descriptionResult.IsValid) return BadRequest(new { message = descriptionResult.Error });
             product.Description = request.Description;
         }
 
         if (request.Price.HasValue)
         {
-            if (request.Price.Value <= 0 || request.Price.Value > PriceMax)
-                return BadRequest(new { message = $"Price must be greater than 0 and at most {PriceMax}." });
-            product.Price = request.Price.Value;
+            var priceResult = ProductValidator.ValidatePrice(request.Price.Value);
+            if (!priceResult.IsValid) return BadRequest(new { message = priceResult.Error });
+            product.Price = priceResult.Value;
         }
 
         if (request.ImageUrl != null)
@@ -331,11 +314,9 @@ public class MenuManagementController : ControllerBase
             }
             else
             {
-                if (request.ImageUrl.Length > ImageUrlMaxLength)
-                    return BadRequest(new { message = $"ImageUrl must be at most {ImageUrlMaxLength} characters." });
-                if (!Uri.TryCreate(request.ImageUrl, UriKind.Absolute, out _))
-                    return BadRequest(new { message = "ImageUrl must be a valid absolute URL." });
-                product.ImageUrl = request.ImageUrl;
+                var imageUrlResult = ProductValidator.ValidateImageUrl(request.ImageUrl);
+                if (!imageUrlResult.IsValid) return BadRequest(new { message = imageUrlResult.Error });
+                product.ImageUrl = imageUrlResult.Value;
             }
         }
 
@@ -399,6 +380,153 @@ public class MenuManagementController : ControllerBase
         IsAvailable = p.IsAvailable ?? false,
         SortOrder = p.SortOrder
     };
+
+    [HttpPost("products/bulk")]
+    public async Task<IActionResult> BulkCreate(
+        [FromBody] BulkCreateProductsRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Items.Count == 0)
+            return BadRequest(new { message = "At least one item is required." });
+
+        // Validate every item upfront so a roll-back happens before any DB writes.
+        var errors = new List<object>();
+        for (var i = 0; i < request.Items.Count; i++)
+        {
+            var item = request.Items[i];
+            var nameResult = ProductValidator.ValidateName(item.Name);
+            if (!nameResult.IsValid) errors.Add(new { index = i, field = "name", message = nameResult.Error });
+            var priceResult = ProductValidator.ValidatePrice(item.Price);
+            if (!priceResult.IsValid) errors.Add(new { index = i, field = "price", message = priceResult.Error });
+            var descResult = ProductValidator.ValidateDescription(item.Description);
+            if (!descResult.IsValid) errors.Add(new { index = i, field = "description", message = descResult.Error });
+        }
+        if (errors.Count > 0) return BadRequest(new { errors });
+
+        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+        // 1. Create/merge new categories, building tempId → realId map.
+        // Match on normalized name (lowercase + diacritics stripped) on both sides — ILike on its own
+        // would miss "Băuturi" vs "BAUTURI" because PostgreSQL ILIKE folds case but not diacritics.
+        var allCategories = await _db.Categories.ToListAsync(cancellationToken);
+        var categoriesByNormalizedName = allCategories
+            .GroupBy(c => NormalizeCategoryName(c.Name))
+            .ToDictionary(g => g.Key, g => g.First());
+        var tempIdToRealId = new Dictionary<Guid, Guid>();
+        foreach (var nc in request.NewCategories)
+        {
+            var normalized = NormalizeCategoryName(nc.Name);
+            if (categoriesByNormalizedName.TryGetValue(normalized, out var existing))
+            {
+                tempIdToRealId[nc.TempId] = existing.Id;
+                continue;
+            }
+            var nameResult = ProductValidator.ValidateName(nc.Name);
+            if (!nameResult.IsValid) return BadRequest(new { errors = new[] { new { field = "newCategories.name", message = nameResult.Error } } });
+            var newCat = new Category
+            {
+                Id = Guid.NewGuid(),
+                Name = nameResult.Value!,
+                SortOrder = nc.SortOrder,
+            };
+            _db.Categories.Add(newCat);
+            tempIdToRealId[nc.TempId] = newCat.Id;
+            categoriesByNormalizedName[normalized] = newCat;
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 2. Resolve each item's CategoryId.
+        var resolvedItems = new List<(BulkCreateProductItem Item, Guid RealCategoryId)>();
+        var missing = new List<Guid>();
+        foreach (var item in request.Items)
+        {
+            Guid realId;
+            if (tempIdToRealId.TryGetValue(item.CategoryId, out var mapped))
+            {
+                realId = mapped;
+            }
+            else
+            {
+                realId = item.CategoryId;
+                var exists = await _db.Categories.AnyAsync(c => c.Id == realId, cancellationToken);
+                if (!exists) missing.Add(realId);
+            }
+            resolvedItems.Add((item, realId));
+        }
+        if (missing.Count > 0)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return Conflict(new { missingCategoryIds = missing.Distinct().ToList() });
+        }
+
+        // 3. Insert products. SortOrder = bottom of the target category.
+        var created = new List<AdminProductResponse>();
+        var maxSortByCategory = new Dictionary<Guid, int>();
+        foreach (var (item, categoryId) in resolvedItems)
+        {
+            if (!maxSortByCategory.TryGetValue(categoryId, out var max))
+            {
+                max = await _db.Products
+                    .Where(p => p.CategoryId == categoryId)
+                    .Select(p => (int?)p.SortOrder)
+                    .MaxAsync(cancellationToken) ?? -1;
+                maxSortByCategory[categoryId] = max;
+            }
+            max += 1;
+            maxSortByCategory[categoryId] = max;
+
+            var product = new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = categoryId,
+                Name = item.Name.Trim(),
+                Description = item.Description ?? string.Empty,
+                Price = item.Price,
+                ImageUrl = null,
+                IsAvailable = item.IsAvailable,
+                SortOrder = max,
+            };
+            _db.Products.Add(product);
+            created.Add(new AdminProductResponse
+            {
+                Id = product.Id,
+                CategoryId = product.CategoryId,
+                CategoryName = "", // populated after the SaveChanges + reload below
+                Name = product.Name,
+                Description = product.Description,
+                Price = product.Price,
+                ImageUrl = product.ImageUrl,
+                IsAvailable = product.IsAvailable ?? false,
+                SortOrder = product.SortOrder,
+            });
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 4. Backfill category names for the response.
+        var categoryNames = await _db.Categories
+            .Where(c => created.Select(r => r.CategoryId).Distinct().Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
+        foreach (var r in created)
+        {
+            if (categoryNames.TryGetValue(r.CategoryId, out var name)) r.CategoryName = name;
+        }
+
+        await tx.CommitAsync(cancellationToken);
+        _logger.LogInformation("Bulk-created {Products} products across {Categories} categories",
+            created.Count, created.Select(r => r.CategoryId).Distinct().Count());
+        return Ok(created);
+    }
+
+    private static string NormalizeCategoryName(string raw)
+    {
+        return new string((raw ?? string.Empty)
+            .Trim()
+            .Normalize(System.Text.NormalizationForm.FormD)
+            .Where(ch => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch)
+                != System.Globalization.UnicodeCategory.NonSpacingMark)
+            .ToArray())
+            .ToLowerInvariant();
+    }
 
     [HttpPost("categories/{categoryId:guid}/products/reorder")]
     public async Task<IActionResult> ReorderProducts(Guid categoryId, [FromBody] ReorderProductsRequest request)

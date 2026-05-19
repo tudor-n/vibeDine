@@ -89,8 +89,8 @@ function WelcomeScreenA11y() {
           fontSize: 60, lineHeight: 0.92, letterSpacing: '-0.04em',
           margin: '0 0 24px',
         }}>
-          Ospătăria<br/>
-          <span style={{ color: T.accent }}>Curții.</span>
+          Nume<br/>
+          <span style={{ color: T.accent }}>Restaurant.</span>
         </h1>
         <p style={{
           fontSize: 18, lineHeight: 1.55, color: T.ink70,
