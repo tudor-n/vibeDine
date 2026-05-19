@@ -139,6 +139,8 @@ class ClaudeExtractor:
 
 
 def _sniff_media_type(image_bytes: bytes) -> str:
+    if image_bytes.startswith(b"%PDF-"):
+        return "application/pdf"
     if image_bytes.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
     if image_bytes.startswith(b"\x89PNG\r\n"):

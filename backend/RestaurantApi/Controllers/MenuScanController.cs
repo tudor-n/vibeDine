@@ -13,7 +13,7 @@ public class MenuScanController : ControllerBase
     private const long MaxFileBytes = 5L * 1024 * 1024;
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "image/jpeg", "image/png", "image/webp", "image/heic",
+        "image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf",
     };
 
     private readonly MenuExtractionClient _extractor;

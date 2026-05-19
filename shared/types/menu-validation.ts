@@ -9,7 +9,7 @@ export const MENU_VALIDATION = {
   PRICE_MAX: 99999999.99,
   IMPORT_MAX_FILES: 10,
   IMPORT_MAX_FILE_BYTES: 5 * 1024 * 1024,
-  IMPORT_ALLOWED_MIME: ['image/jpeg', 'image/png', 'image/webp', 'image/heic'] as const,
+  IMPORT_ALLOWED_MIME: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'] as const,
 } as const
 
 export type AllowedImportMime = (typeof MENU_VALIDATION.IMPORT_ALLOWED_MIME)[number]

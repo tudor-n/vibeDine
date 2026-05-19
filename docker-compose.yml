@@ -59,6 +59,7 @@ services:
       VITE_API_URL: "http://localhost:5005/"
     volumes:
       - ./frontend-admin:/app
+      - ./shared:/shared:ro
       - /app/node_modules
 
 volumes:

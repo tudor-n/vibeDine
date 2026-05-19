@@ -20,11 +20,15 @@ function makeError(message: string, status: number, body?: unknown): MenuImportA
   return err
 }
 
+function resolveBaseUrl(): string {
+  const raw = import.meta.env.VITE_API_URL ?? ''
+  return raw.endsWith('/') ? raw.slice(0, -1) : raw
+}
+
 async function scan(files: File[]): Promise<MenuScanResponse> {
-  const BASE_URL = import.meta.env.VITE_API_URL ?? ''
   const form = new FormData()
   for (const file of files) form.append('photos', file, file.name)
-  const res = await fetch(`${BASE_URL}/api/admin/menu/scan`, { method: 'POST', body: form })
+  const res = await fetch(`${resolveBaseUrl()}/api/admin/menu/scan`, { method: 'POST', body: form })
   if (!res.ok) {
     const body = await res.json().catch(() => undefined)
     throw makeError(`scan failed: HTTP ${res.status}`, res.status, body)
@@ -33,8 +37,7 @@ async function scan(files: File[]): Promise<MenuScanResponse> {
 }
 
 async function bulkCreate(payload: BulkCreateProductsRequest): Promise<AdminProduct[]> {
-  const BASE_URL = import.meta.env.VITE_API_URL ?? ''
-  const res = await fetch(`${BASE_URL}/api/admin/menu/products/bulk`, {
+  const res = await fetch(`${resolveBaseUrl()}/api/admin/menu/products/bulk`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -42,7 +42,7 @@ function reportRejected(rejected: { reason: string }[]) {
       ? `Limită ${MENU_VALIDATION.IMPORT_MAX_FILES} fotografii.`
       : reason === 'too_large'
         ? `Maxim ${MENU_VALIDATION.IMPORT_MAX_FILE_BYTES / 1024 / 1024} MB / fotografie.`
-        : 'Tipul de fișier nu este suportat (jpeg/png/webp/heic).'
+        : 'Tipul de fișier nu este suportat (jpeg/png/webp/heic/pdf).'
 }
 
 async function startScan() {
@@ -72,7 +72,7 @@ function thumbUrl(file: File): string {
       <p class="text-ink-70 text-sm mb-4">
         Maxim {{ MENU_VALIDATION.IMPORT_MAX_FILES }} pagini ·
         {{ MENU_VALIDATION.IMPORT_MAX_FILE_BYTES / 1024 / 1024 }} MB pe fotografie ·
-        jpeg / png / webp / heic
+        jpeg / png / webp / heic / pdf
       </p>
       <button class="pill-btn pill-btn-ghost" type="button" @click="onPickClick">
         Alege fișiere
