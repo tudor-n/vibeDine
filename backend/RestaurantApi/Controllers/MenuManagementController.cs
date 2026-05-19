@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
@@ -9,7 +10,8 @@ using RestaurantApi.Validators;
 namespace RestaurantApi.Controllers;
 
 [ApiController]
-[Route("api/admin/menu")]
+[Authorize]
+[Route("api/restaurants/{restaurantId:guid}/admin/menu")]
 public class MenuManagementController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -105,7 +107,7 @@ public class MenuManagementController : ControllerBase
             ProductCount = 0
         };
 
-        return CreatedAtAction(nameof(GetCategories), new { }, response);
+        return Created((string?)null, response);
     }
 
     [HttpPatch("categories/{id:guid}")]
@@ -272,7 +274,7 @@ public class MenuManagementController : ControllerBase
             SortOrder = product.SortOrder
         };
 
-        return CreatedAtAction(nameof(GetProduct), new { id = product.Id }, response);
+        return Created((string?)null, response);
     }
 
     [HttpPatch("products/{id:guid}")]

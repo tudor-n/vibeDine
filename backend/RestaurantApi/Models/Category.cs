@@ -2,8 +2,10 @@ using System.ComponentModel.DataAnnotations;
 
 namespace RestaurantApi.Models;
 
-public class Category{
+public class Category : ITenantScoped {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid RestaurantId { get; set; }
 
     [Required]
     public string Name { get; set; } = string.Empty;

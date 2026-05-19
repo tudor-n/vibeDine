@@ -2,8 +2,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace RestaurantApi.Models;
 
-public class AIDirective{
+public class AIDirective : ITenantScoped {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid RestaurantId { get; set; }
 
     public string? RawPrompt { get; set; }
 

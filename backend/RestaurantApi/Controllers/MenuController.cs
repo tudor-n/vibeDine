@@ -6,7 +6,7 @@ using RestaurantApi.DTOs.Responses;
 namespace RestaurantApi.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/restaurants/{restaurantId:guid}/menu")]
 
 public class MenuController: ControllerBase
 {

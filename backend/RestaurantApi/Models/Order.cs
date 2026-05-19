@@ -3,8 +3,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace RestaurantApi.Models;
 
-public class Order{
+public class Order : ITenantScoped {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid RestaurantId { get; set; }
 
     public Guid TableId { get; set; }
     public RestaurantTable Table { get; set; } = null!;

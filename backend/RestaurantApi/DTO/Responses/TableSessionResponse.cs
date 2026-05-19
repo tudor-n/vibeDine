@@ -3,6 +3,10 @@ namespace RestaurantApi.DTOs.Responses;
 
 public class TableSessionResponse
 {
+    public Guid RestaurantId {get;set;}
+    public string RestaurantName {get;set;}=string.Empty;
+    public string? RestaurantAddress {get;set;}
+    public string OrganizationName {get;set;}=string.Empty;
     public Guid TableId {get;set;}
     public string TableNumber{get;set;}=string.Empty;
     public OrderResponse? ActiveOrder {get;set;}

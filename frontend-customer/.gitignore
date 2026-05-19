@@ -1,3 +1,10 @@
+# tsc/vue-tsc emit must never be committed: Vite resolves .js before .ts, so a
+# stale compiled sibling silently shadows the real source (caused the /api/menu 404).
+src/**/*.js
+src/**/*.vue.js
+src/**/*.d.ts
+!src/vite-env.d.ts
+
 # Logs
 logs
 *.log

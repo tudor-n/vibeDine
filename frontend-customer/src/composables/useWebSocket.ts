@@ -40,12 +40,12 @@ export function useWebSocket() {
           // immediately on the ack — waiting for a type=6 ping created a ~15s
           // window where flash-deal events could be missed.
           if (msg === '{}') {
-            if (sessionStore.tableId) {
+            if (sessionStore.tableId && sessionStore.restaurantId) {
               socket?.send(
                 JSON.stringify({
                   type: 1,
                   target: 'JoinTableGroup',
-                  arguments: [sessionStore.tableId]
+                  arguments: [sessionStore.restaurantId, sessionStore.tableId]
                 }) + '\x1e'
               )
             }

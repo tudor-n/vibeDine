@@ -2,10 +2,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace RestaurantApi.Models;
 
-public class SimilarityRule
+public class SimilarityRule : ITenantScoped
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    
+
+    public Guid RestaurantId { get; set; }
+
     public Guid ProductAId { get; set; }
     public Product? ProductA { get; set; }
 

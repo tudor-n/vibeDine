@@ -2,8 +2,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace RestaurantApi.Models;
 
-public class FlashDealOffer{
+public class FlashDealOffer : ITenantScoped {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid RestaurantId { get; set; }
 
     public Guid? OrderId { get; set; }
     public Order? Order { get; set; }

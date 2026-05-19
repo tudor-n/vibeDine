@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Services;
@@ -6,7 +7,8 @@ using RestaurantApi.Services;
 namespace RestaurantApi.Controllers;
 
 [ApiController]
-[Route("api/admin/menu/scan")]
+[Authorize]
+[Route("api/restaurants/{restaurantId:guid}/admin/menu/scan")]
 public class MenuScanController : ControllerBase
 {
     private const int MaxFiles = 10;

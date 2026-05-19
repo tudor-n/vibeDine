@@ -7,6 +7,7 @@ import type {
     AdminProduct,
     AdminMenuTree,
 } from '@shared/types/models';
+import { useAuthStore, type UserProfile } from '@/stores/useAuthStore';
 
 export interface CreateCategoryPayload {
     name: string;
@@ -38,141 +39,301 @@ export interface UpdateProductPayload {
     isAvailable?: boolean;
 }
 
+export interface AuthResult {
+    accessToken: string;
+    expiresAt: string;
+    refreshToken: string;
+    user: UserProfile;
+}
+
+export interface OrganizationSummary {
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+    createdAt: string;
+}
+
+export interface RestaurantSummary {
+    id: string;
+    organizationId: string;
+    name: string;
+    slug: string;
+    address: string | null;
+    timezone: string;
+    currency: string;
+    isActive: boolean;
+}
+
+export interface InvitationSummary {
+    id: string;
+    email: string;
+    restaurantId: string | null;
+    role: string;
+    status: string;
+    token: string;
+    expiresAt: string;
+    acceptPath: string;
+}
+
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
+async function parseOrThrow<T>(response: Response): Promise<T> {
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `API Error: ${response.status}`);
+    }
+    if (response.status === 204) return {} as T;
+    return response.json();
+}
+
+/** Unauthenticated request — used for login / register / refresh. */
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
+    const response = await fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+    });
+    return parseOrThrow<T>(response);
+}
 
-  if(!response.ok){
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || errorData.error || `API Error: ${response.status}`);
-  }
+/** Authenticated request. Attaches the bearer token and refreshes once on 401. */
+async function authedFetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    const auth = useAuthStore();
 
-  if (response.status === 204){
-    return {} as T;
-  }
+    const doFetch = () =>
+        fetch(`${BASE_URL}${endpoint}`, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {}),
+                ...options?.headers,
+            },
+        });
 
-  return response.json();
-} 
+    let response = await doFetch();
+    if (response.status === 401 && (await auth.tryRefresh())) {
+        response = await doFetch();
+    }
+    return parseOrThrow<T>(response);
+}
 
+/** Builds a restaurant-scoped path from the active restaurant in the auth store. */
+function scoped(suffix: string): string {
+    const auth = useAuthStore();
+    const rid = auth.activeRestaurantId;
+    if (!rid) throw new Error('No active restaurant selected.');
+    return `/api/restaurants/${rid}${suffix}`;
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+export const authApi = {
+    login: (email: string, password: string) =>
+        fetcher<AuthResult>('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password }),
+        }),
+
+    register: (email: string, password: string, fullName: string) =>
+        fetcher<AuthResult>('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({ email, password, fullName }),
+        }),
+
+    refresh: (refreshToken: string) =>
+        fetcher<AuthResult>('/api/auth/refresh', {
+            method: 'POST',
+            body: JSON.stringify({ refreshToken }),
+        }),
+
+    me: () => authedFetcher<UserProfile>('/api/auth/me'),
+
+    acceptInvite: (token: string) =>
+        authedFetcher<UserProfile>('/api/auth/accept-invite', {
+            method: 'POST',
+            body: JSON.stringify({ token }),
+        }),
+};
+
+// ── Organizations & restaurants ──────────────────────────────────────────────
+export const orgApi = {
+    listOrganizations: () =>
+        authedFetcher<OrganizationSummary[]>('/api/organizations'),
+
+    createOrganization: (name: string) =>
+        authedFetcher<OrganizationSummary>('/api/organizations', {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+        }),
+
+    listRestaurants: (orgId: string) =>
+        authedFetcher<RestaurantSummary[]>(`/api/organizations/${orgId}/restaurants`),
+
+    createRestaurant: (
+        orgId: string,
+        payload: { name: string; address?: string; timezone?: string; currency?: string },
+    ) =>
+        authedFetcher<RestaurantSummary>(`/api/organizations/${orgId}/restaurants`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    listInvitations: (orgId: string) =>
+        authedFetcher<InvitationSummary[]>(`/api/organizations/${orgId}/invitations`),
+
+    inviteCoOwner: (orgId: string, email: string, restaurantId: string) =>
+        authedFetcher<InvitationSummary>(`/api/organizations/${orgId}/invitations`, {
+            method: 'POST',
+            body: JSON.stringify({ email, restaurantId }),
+        }),
+
+    revokeInvitation: (orgId: string, inviteId: string) =>
+        authedFetcher<void>(`/api/organizations/${orgId}/invitations/${inviteId}`, {
+            method: 'DELETE',
+        }),
+};
+
+// ── Tables & QR (per active location) ────────────────────────────────────────
+export interface TableSummary {
+    id: string;
+    tableNumber: string | null;
+    qrToken: string;
+}
+
+export const tablesApi = {
+    list: () => authedFetcher<TableSummary[]>(scoped('/admin/tables')),
+
+    create: (tableNumber: string) =>
+        authedFetcher<TableSummary>(scoped('/admin/tables'), {
+            method: 'POST',
+            body: JSON.stringify({ tableNumber }),
+        }),
+
+    regenerate: (id: string) =>
+        authedFetcher<TableSummary>(scoped(`/admin/tables/${id}/regenerate`), {
+            method: 'POST',
+        }),
+
+    remove: (id: string) =>
+        authedFetcher<void>(scoped(`/admin/tables/${id}`), {
+            method: 'DELETE',
+        }),
+};
+
+// ── Restaurant-scoped dashboard API ──────────────────────────────────────────
 export const apiClient = {
-    getMetrics: () => 
-        fetcher<DailyMetrics>('/api/admin/metrics'),
+    getMetrics: () =>
+        authedFetcher<DailyMetrics>(scoped('/admin/metrics')),
 
     getOrders: (limit = 100) =>
-        fetcher<any[]>(`/api/admin/orders?limit=${limit}`),
+        authedFetcher<any[]>(scoped(`/admin/orders?limit=${limit}`)),
 
-    getDirectives: () => 
-        fetcher<AIDirective[]>('/api/admin/directives'),
+    getDirectives: () =>
+        authedFetcher<AIDirective[]>(scoped('/admin/directives')),
 
-    postDirective: (prompt: string) => 
-        fetcher<AIDirective>('/api/admin/directives', {
-      method: 'POST',
-      body: JSON.stringify({ rawPrompt: prompt }),
-    }),
+    postDirective: (prompt: string) =>
+        authedFetcher<AIDirective>(scoped('/admin/directives'), {
+            method: 'POST',
+            body: JSON.stringify({ rawPrompt: prompt }),
+        }),
 
     toggleActiveDirective: (id: string, isActive: boolean) =>
-        fetcher<void>(`/api/admin/directives/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(isActive)
-    }),
+        authedFetcher<void>(scoped(`/admin/directives/${id}`), {
+            method: 'PATCH',
+            body: JSON.stringify(isActive),
+        }),
 
     getRecommendationDirectives: () =>
-        fetcher<RecommendationDirective[]>('/api/admin/recommendation-directives'),
+        authedFetcher<RecommendationDirective[]>(scoped('/admin/recommendation-directives')),
 
     postRecommendationDirective: (prompt: string) =>
-        fetcher<RecommendationDirective>('/api/admin/recommendation-directives', {
+        authedFetcher<RecommendationDirective>(scoped('/admin/recommendation-directives'), {
             method: 'POST',
             body: JSON.stringify({ rawPrompt: prompt }),
         }),
 
     toggleRecommendationDirective: (id: string, isActive: boolean) =>
-        fetcher<void>(`/api/admin/recommendation-directives/${id}`, {
+        authedFetcher<void>(scoped(`/admin/recommendation-directives/${id}`), {
             method: 'PATCH',
             body: JSON.stringify(isActive),
         }),
 
     deleteRecommendationDirective: (id: string) =>
-        fetcher<void>(`/api/admin/recommendation-directives/${id}`, {
+        authedFetcher<void>(scoped(`/admin/recommendation-directives/${id}`), {
             method: 'DELETE',
         }),
 
     getSimilarityRules: () =>
-        fetcher<SimilarityRule[]>('/api/admin/similarity-rules'),
+        authedFetcher<SimilarityRule[]>(scoped('/admin/similarity-rules')),
 
-    postSimilarityRule: (rulePayload: any) => 
-        fetcher<SimilarityRule>('/api/admin/similarity-rules', {
-          method: 'POST',
-          body: JSON.stringify(rulePayload)
+    postSimilarityRule: (rulePayload: any) =>
+        authedFetcher<SimilarityRule>(scoped('/admin/similarity-rules'), {
+            method: 'POST',
+            body: JSON.stringify(rulePayload),
         }),
 
     deleteSimilarityRule: (id: string) =>
-        fetcher<void>(`/api/admin/similarity-rules/${id}`, {
-            method: 'DELETE'
+        authedFetcher<void>(scoped(`/admin/similarity-rules/${id}`), {
+            method: 'DELETE',
         }),
 
     autoGenerateRules: () =>
-        fetcher<SimilarityRule[]>('/api/admin/similarity-rules/auto-generate', {
-            method: 'POST'
+        authedFetcher<SimilarityRule[]>(scoped('/admin/similarity-rules/auto-generate'), {
+            method: 'POST',
         }),
 
     getMenu: () =>
-        fetcher<{ categories: Array<{ id: string; name: string; products: Array<{ id: string; name: string }> }> }>('/api/menu'),
+        authedFetcher<{ categories: Array<{ id: string; name: string; products: Array<{ id: string; name: string }> }> }>(
+            scoped('/menu'),
+        ),
 
     getAdminMenu: () =>
-        fetcher<AdminMenuTree>('/api/admin/menu'),
+        authedFetcher<AdminMenuTree>(scoped('/admin/menu')),
 
     getAdminCategories: () =>
-        fetcher<AdminCategory[]>('/api/admin/menu/categories'),
+        authedFetcher<AdminCategory[]>(scoped('/admin/menu/categories')),
 
     createCategory: (payload: CreateCategoryPayload) =>
-        fetcher<AdminCategory>('/api/admin/menu/categories', {
+        authedFetcher<AdminCategory>(scoped('/admin/menu/categories'), {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
 
     updateCategory: (id: string, payload: UpdateCategoryPayload) =>
-        fetcher<AdminCategory>(`/api/admin/menu/categories/${id}`, {
+        authedFetcher<AdminCategory>(scoped(`/admin/menu/categories/${id}`), {
             method: 'PATCH',
             body: JSON.stringify(payload),
         }),
 
     deleteCategory: (id: string) =>
-        fetcher<void>(`/api/admin/menu/categories/${id}`, {
+        authedFetcher<void>(scoped(`/admin/menu/categories/${id}`), {
             method: 'DELETE',
         }),
 
     createProduct: (payload: CreateProductPayload) =>
-        fetcher<AdminProduct>('/api/admin/menu/products', {
+        authedFetcher<AdminProduct>(scoped('/admin/menu/products'), {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
 
     updateProduct: (id: string, payload: UpdateProductPayload) =>
-        fetcher<AdminProduct>(`/api/admin/menu/products/${id}`, {
+        authedFetcher<AdminProduct>(scoped(`/admin/menu/products/${id}`), {
             method: 'PATCH',
             body: JSON.stringify(payload),
         }),
 
     softDeleteProduct: (id: string) =>
-        fetcher<void>(`/api/admin/menu/products/${id}`, {
+        authedFetcher<void>(scoped(`/admin/menu/products/${id}`), {
             method: 'DELETE',
         }),
 
     restoreProduct: (id: string) =>
-        fetcher<AdminProduct>(`/api/admin/menu/products/${id}/restore`, {
+        authedFetcher<AdminProduct>(scoped(`/admin/menu/products/${id}/restore`), {
             method: 'POST',
         }),
 
     reorderProducts: (categoryId: string, productIds: string[]) =>
-        fetcher<void>(`/api/admin/menu/categories/${categoryId}/products/reorder`, {
+        authedFetcher<void>(scoped(`/admin/menu/categories/${categoryId}/products/reorder`), {
             method: 'POST',
             body: JSON.stringify({ productIds }),
         }),

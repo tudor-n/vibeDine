@@ -31,11 +31,13 @@ const chefMetaColor = computed(() =>
 )
 
 const tableLabel = computed(() => {
-  const id = sessionStore.tableId
-  if (!id) return 'Masa'
-  const tail = id.slice(-2).replace(/^0+/, '') || id.slice(-2)
-  return `Masa ${tail}`
+  const n = sessionStore.tableNumber
+  return n ? `Masa ${n}` : 'Masa'
 })
+
+const orgEyebrow = computed(() => sessionStore.organizationName || 'Bun venit')
+
+const locationName = computed(() => sessionStore.restaurantName || 'Restaurant')
 
 const clockLabel = computed(() => {
   const d = new Date()
@@ -49,9 +51,9 @@ const orderShortId = computed(() => {
 })
 
 const infoCells = computed<[string, string][]>(() => [
-  ['Masă', tableLabel.value.replace('Masa ', '') + ' · Terasă'],
-  ['Oaspeți', '2 persoane'],
-  ['Chef', 'Andrei C.'],
+  ['Masă', sessionStore.tableNumber || '—'],
+  ['Locație', locationName.value],
+  ['Adresă', sessionStore.restaurantAddress || sessionStore.organizationName || '—'],
   ['Comanda', orderShortId.value],
 ])
 </script>
@@ -80,10 +82,10 @@ const infoCells = computed<[string, string][]>(() => [
 
     <div class="scroll">
     <div class="hero">
-      <div class="eyebrow" :style="{ color: T.accent }">Bun venit</div>
+      <div class="eyebrow" :style="{ color: T.accent }">{{ orgEyebrow }}</div>
       <h1 class="title">
-        Nume<br />
-        <span :style="{ color: T.accent }">Restaurant.</span>
+        Bun venit la<br />
+        <span :style="{ color: T.accent }">{{ locationName }}.</span>
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
         Meniuri pentru {{ tableLabel.toLowerCase() }}. Comandați direct din aplicație — bucătăria pregătește imediat.

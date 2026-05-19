@@ -1,7 +1,9 @@
 namespace RestaurantApi.Models;
 
-public class RestaurantTable{
+public class RestaurantTable : ITenantScoped {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid RestaurantId { get; set; }
 
     public string? TableNumber { get; set; }
 

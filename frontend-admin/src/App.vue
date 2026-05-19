@@ -1,13 +1,35 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import ToastContainer from '@/components/ToastContainer.vue'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 const { theme, toggle: toggleTheme } = useTheme()
+const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+
+// Login / onboarding / accept-invite render full-screen without the admin shell.
+const bareLayout = computed(() =>
+  ['login', 'onboarding', 'accept-invite'].includes(route.name as string),
+)
+const showShell = computed(() => auth.isAuthenticated && !bareLayout.value)
+
+function onSwitchRestaurant(e: Event) {
+  auth.setActiveRestaurant((e.target as HTMLSelectElement).value)
+  router.go(0)
+}
+
+function logout() {
+  auth.logout()
+  router.replace('/login')
+}
 </script>
 
 <template>
-  <div class="min-h-screen bg-paper text-ink flex flex-col md:flex-row relative overflow-hidden">
+  <RouterView v-if="!showShell" />
+  <div v-else class="min-h-screen bg-paper text-ink flex flex-col md:flex-row relative overflow-hidden">
     <!-- Background blooms -->
     <div class="bloom bloom-accent" style="top: -120px; right: -140px; width: 420px; height: 420px;" />
     <div class="bloom bloom-lime" style="bottom: -120px; left: 12%; width: 360px; height: 360px;" />
@@ -81,14 +103,54 @@ const { theme, toggle: toggleTheme } = useTheme()
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
+      <RouterLink to="/tables" class="nav-link" active-class="nav-link-active">
+        <span class="nav-icon" aria-hidden="true">▦</span>
+        <span class="nav-label">Mese &amp; QR</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
+      <RouterLink
+        v-if="auth.isOrgOwnerOfActive"
+        to="/organization"
+        class="nav-link"
+        active-class="nav-link-active"
+      >
+        <span class="nav-icon" aria-hidden="true">⬢</span>
+        <span class="nav-label">Organizație</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
       <!-- Footer chip -->
       <div class="hidden md:flex mt-auto pt-6 items-center gap-3 text-ink-70">
-        <div class="w-10 h-10 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-base flex-shrink-0">A</div>
+        <div class="w-10 h-10 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-base flex-shrink-0">
+          {{ (auth.user?.fullName || 'A').charAt(0).toUpperCase() }}
+        </div>
         <div class="leading-snug flex-1 min-w-0">
-          <div class="font-mono text-[12px] uppercase tracking-[0.06em] text-ink-70 font-semibold">{{ theme === 'dark' ? 'Tema · noapte' : 'Tema · zi' }}</div>
-          <div class="text-base font-semibold text-ink truncate">Manager · Andrei C.</div>
+          <select
+            v-if="auth.accessibleRestaurants.length"
+            class="rest-switch"
+            :value="auth.activeRestaurantId ?? ''"
+            aria-label="Schimbă locația"
+            @change="onSwitchRestaurant"
+          >
+            <option v-for="r in auth.accessibleRestaurants" :key="r.id" :value="r.id">
+              {{ r.name }}
+            </option>
+          </select>
+          <div class="text-base font-semibold text-ink truncate">{{ auth.user?.fullName || 'Manager' }}</div>
         </div>
       </div>
+
+      <button
+        type="button"
+        class="nav-link nav-link-logout hidden md:flex mt-2"
+        aria-label="Deconectare"
+        @click="logout"
+      >
+        <span class="nav-icon" aria-hidden="true">⏻</span>
+        <span class="nav-label">Deconectare</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </button>
     </nav>
 
     <main class="relative z-10 flex-1 p-4 md:p-10 overflow-y-auto">
@@ -187,4 +249,40 @@ const { theme, toggle: toggleTheme } = useTheme()
   transform: translateY(-1px);
 }
 .theme-toggle:active { transform: scale(0.92); }
+
+/* Restaurant switcher — styled to read like the existing mono eyebrow label */
+.rest-switch {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0 0 1px;
+  max-width: 100%;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--ink70, var(--ink));
+  cursor: pointer;
+}
+.rest-switch:focus-visible {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 2px;
+}
+/* Logout reuses the sidebar nav-link language; reset the native <button> chrome */
+button.nav-link {
+  width: 100%;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.nav-link-logout:hover {
+  background: var(--ink06);
+}
+.nav-link-logout:hover .nav-icon {
+  background: var(--ink);
+  color: var(--paperHi);
+}
 </style>

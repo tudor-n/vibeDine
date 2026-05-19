@@ -81,7 +81,7 @@ public class FlashDealService : IFlashDealService
 
         var productName = deal.Product?.Name ?? "Special Item";
 
-        await _staffhub.Clients.Group("WaitStaff")
+        await _staffhub.Clients.Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
             .SendAsync("FlashDealClaimed", new { OrderId = order.Id, DealName = productName });
 
         return true;
@@ -241,7 +241,7 @@ public class FlashDealService : IFlashDealService
         await _context.SaveChangesAsync();
 
         // Send ProductId and OrderId so the frontend can claim correctly
-        await _customerhub.Clients.Group(order.TableId.ToString())
+        await _customerhub.Clients.Group(TenantGroups.Table(order.RestaurantId, order.TableId))
             .SendAsync("FlashDealAvailable", new
             {
                 DealId= deal.Id,
@@ -255,9 +255,9 @@ public class FlashDealService : IFlashDealService
             });
 
 
-        var tableId = order.TableId.ToString();        
+        var restaurantId = order.RestaurantId;
+        var tableId = order.TableId;
         var dealId = deal.Id;
-
 
         _ = Task.Run(async () =>
 {
@@ -267,13 +267,18 @@ public class FlashDealService : IFlashDealService
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var hub = scope.ServiceProvider.GetRequiredService<IHubContext<CustomerHub>>();
 
+    // The background scope has no ambient request, so set the tenant explicitly
+    // for the query filter to find the deal.
+    scope.ServiceProvider.GetRequiredService<RestaurantApi.Tenancy.ICurrentTenant>()
+        .SetRestaurant(restaurantId);
+
     var dealToExpire = await db.FlashDealOffers.FindAsync(dealId);
     if (dealToExpire == null || dealToExpire.Status != "pending") return;
 
     dealToExpire.Status = "expired";
     await db.SaveChangesAsync();
 
-    await hub.Clients.Group(tableId)
+    await hub.Clients.Group(TenantGroups.Table(restaurantId, tableId))
         .SendAsync("FlashDealExpired", new { DealId = dealId });
 });
     }

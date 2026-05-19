@@ -23,7 +23,7 @@ public class CustomerController : ControllerBase
         _recommendationService= recommendationService;
     }
 
-    [HttpPost("orders/{orderId:guid}/submit")]
+    [HttpPost("restaurants/{restaurantId:guid}/orders/{orderId:guid}/submit")]
     public async Task<IActionResult> SubmitOrder(Guid orderId)
     {
         var order = await _context.Orders
@@ -51,7 +51,7 @@ public class CustomerController : ControllerBase
         });
     }
 
-    [HttpPost("orders")]
+    [HttpPost("restaurants/{restaurantId:guid}/orders")]
     public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
     {
         var table = await _context.Tables.FindAsync(request.TableId);
@@ -109,7 +109,7 @@ public class CustomerController : ControllerBase
         });
     }
 
-    [HttpPatch("orders/{orderId:guid}/items")]
+    [HttpPatch("restaurants/{restaurantId:guid}/orders/{orderId:guid}/items")]
     public async Task<IActionResult> AddItemsOrder(Guid orderId, [FromBody] PatchOrderItemsRequest request)
     {
         var order = await _context.Orders
@@ -211,8 +211,16 @@ public class CustomerController : ControllerBase
             await _context.SaveChangesAsync();
         }
 
+        var restaurant = await _context.Restaurants
+            .Include(r => r.Organization)
+            .FirstOrDefaultAsync(r => r.Id == table.RestaurantId);
+
         var response = new TableSessionResponse
         {
+            RestaurantId = table.RestaurantId,
+            RestaurantName = restaurant?.Name ?? "Restaurant",
+            RestaurantAddress = restaurant?.Address,
+            OrganizationName = restaurant?.Organization?.Name ?? string.Empty,
             TableId = table.Id,
             TableNumber = table.TableNumber ?? "Unknown Table",
             ActiveOrder = new OrderResponse
@@ -234,7 +242,7 @@ public class CustomerController : ControllerBase
         return Ok(response);
     }
 
-    [HttpPost("orders/{orderId:guid}/claim-deal/{dealId:guid}")]
+    [HttpPost("restaurants/{restaurantId:guid}/orders/{orderId:guid}/claim-deal/{dealId:guid}")]
     public async Task <IActionResult> ClaimFlashDeal (Guid orderId, Guid dealId)
     {
         try
@@ -254,7 +262,7 @@ public class CustomerController : ControllerBase
         }
     }
    
-    [HttpGet("orders/{id:guid}/recommendations")]
+    [HttpGet("restaurants/{restaurantId:guid}/orders/{id:guid}/recommendations")]
     public async Task<IActionResult> GetRecommendation(Guid id)
     {
         var order = await _context.Orders.FindAsync(id);

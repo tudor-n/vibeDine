@@ -25,6 +25,13 @@ services:
       AllowedOrigins__0: "http://localhost:3000"
       AllowedOrigins__1: "http://localhost:3001"
       ASPNETCORE_ENVIRONMENT: "Development"
+      # appsettings.Development.json is excluded by .dockerignore, so JWT config
+      # must come from the environment (same pattern as the connection string).
+      Jwt__Key: "dev-only-super-secret-signing-key-change-me-32+chars"
+      Jwt__Issuer: "smart-restaurant"
+      Jwt__Audience: "smart-restaurant"
+      Jwt__AccessTokenMinutes: "60"
+      Jwt__RefreshTokenDays: "30"
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +64,8 @@ services:
       - "3001:3001"
     environment:
       VITE_API_URL: "http://localhost:5005/"
+      # Base URL the generated table QR codes / links point at (customer app).
+      VITE_CUSTOMER_URL: "http://localhost:3000"
     volumes:
       - ./frontend-admin:/app
       - ./shared:/shared:ro

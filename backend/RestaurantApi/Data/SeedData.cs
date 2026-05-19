@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Models;
 
@@ -5,17 +6,67 @@ namespace RestaurantApi.Data;
 
 public static class SeedData
 {
-    public static async Task InitializeAsync(AppDbContext db)
+    // Stable IDs so the demo restaurant's QR tokens / seed data survive reseeds.
+    private static readonly Guid DemoOrgId        = Guid.Parse("00000000-0000-0000-0000-0000000000a1");
+    private static readonly Guid DemoRestaurantId = Guid.Parse("00000000-0000-0000-0000-0000000000b1");
+    private const string DemoOwnerEmail    = "owner@demo.local";
+    private const string DemoOwnerPassword = "Demo1234!";
+
+    public static async Task InitializeAsync(IServiceProvider services)
     {
-        // Only seed if the database is empty
-        if (await db.Categories.AnyAsync()) return;
+        var db = services.GetRequiredService<AppDbContext>();
+        var users = services.GetRequiredService<UserManager<AppUser>>();
+
+        // Organizations isn't tenant-filtered, so this check is safe without a tenant.
+        if (await db.Organizations.AnyAsync()) return;
+
+        // ── Master owner ─────────────────────────────────────────────────────────
+        var owner = await users.FindByEmailAsync(DemoOwnerEmail);
+        if (owner == null)
+        {
+            owner = new AppUser
+            {
+                UserName = DemoOwnerEmail,
+                Email = DemoOwnerEmail,
+                FullName = "Demo Owner",
+            };
+            await users.CreateAsync(owner, DemoOwnerPassword);
+        }
+
+        // ── Organization + Restaurant + ownership ────────────────────────────────
+        var org = new Organization
+        {
+            Id = DemoOrgId,
+            Name = "Demo Chain",
+            Slug = "demo-chain",
+            CreatedByUserId = owner.Id,
+        };
+        var restaurant = new Restaurant
+        {
+            Id = DemoRestaurantId,
+            OrganizationId = org.Id,
+            Name = "Demo Restaurant",
+            Slug = "demo-restaurant",
+            Address = "Str. Exemplu 1, București",
+        };
+        await db.Organizations.AddAsync(org);
+        await db.Restaurants.AddAsync(restaurant);
+        await db.Memberships.AddAsync(new Membership
+        {
+            UserId = owner.Id,
+            OrganizationId = org.Id,
+            RestaurantId = null,
+            Role = MembershipRole.OrgOwner,
+        });
+
+        var rid = restaurant.Id;
 
         // ── Categories ───────────────────────────────────────────────────────────
-        var feluri     = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000001"), Name = "Feluri principale",  SortOrder = 1 };
-        var supe       = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000002"), Name = "Supe & Ciorbe",      SortOrder = 2 };
-        var salate     = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000003"), Name = "Salate",             SortOrder = 3 };
-        var deserturi  = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000004"), Name = "Deserturi",          SortOrder = 4 };
-        var bauturi    = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000005"), Name = "Băuturi",            SortOrder = 5 };
+        var feluri     = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000001"), RestaurantId = rid, Name = "Feluri principale",  SortOrder = 1 };
+        var supe       = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000002"), RestaurantId = rid, Name = "Supe & Ciorbe",      SortOrder = 2 };
+        var salate     = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000003"), RestaurantId = rid, Name = "Salate",             SortOrder = 3 };
+        var deserturi  = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000004"), RestaurantId = rid, Name = "Deserturi",          SortOrder = 4 };
+        var bauturi    = new Category { Id = Guid.Parse("11111111-0000-0000-0000-000000000005"), RestaurantId = rid, Name = "Băuturi",            SortOrder = 5 };
 
         await db.Categories.AddRangeAsync(feluri, supe, salate, deserturi, bauturi);
 
@@ -211,13 +262,16 @@ public static class SeedData
             IsAvailable = true
         };
 
-        await db.Products.AddRangeAsync(
+        var allProducts = new[]
+        {
             prod01, prod02, prod03, prod04, prod05,
             prod06, prod07, prod08,
             prod09, prod10, prod11,
             prod12, prod13, prod14,
             prod15, prod16, prod17, prod18
-        );
+        };
+        foreach (var p in allProducts) p.RestaurantId = rid;
+        await db.Products.AddRangeAsync(allProducts);
 
         // ── Tables ───────────────────────────────────────────────────────────────
         var tables = new[]
@@ -248,6 +302,7 @@ public static class SeedData
             }
         };
 
+        foreach (var t in tables) t.RestaurantId = rid;
         await db.Tables.AddRangeAsync(tables);
 
         await db.SaveChangesAsync();

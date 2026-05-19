@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
@@ -10,7 +11,8 @@ using RestaurantApi.Services;
 namespace RestaurantApi.Controllers;
 
 [ApiController]
-[Route("api/admin")]
+[Authorize]
+[Route("api/restaurants/{restaurantId:guid}/admin")]
 public class AdminController : ControllerBase
 {
     private readonly AppDbContext _dbContext;

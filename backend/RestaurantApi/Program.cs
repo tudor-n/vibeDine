@@ -1,13 +1,84 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using RestaurantApi.Auth;
 using RestaurantApi.Data;
 using RestaurantApi.Hubs;
+using RestaurantApi.Models;
 using RestaurantApi.Services;
+using RestaurantApi.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Tenancy ──────────────────────────────────────────────────────────────────
+builder.Services.AddScoped<ICurrentTenant, CurrentTenant>();
+builder.Services.AddScoped<ITenantAccess, TenantAccess>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
+// ── Auth (ASP.NET Identity + JWT) ────────────────────────────────────────────
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+builder.Services.AddSingleton<JwtTokenService>();
+
+builder.Services
+    .AddIdentityCore<AppUser>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+        options.Password.RequiredLength = 8;
+        options.Password.RequireNonAlphanumeric = false;
+    })
+    .AddRoles<IdentityRole<Guid>>()
+    .AddEntityFrameworkStores<AppDbContext>()
+    .AddDefaultTokenProviders();
+
+var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+
+// HMAC-SHA256 needs a >= 256-bit (32-byte) key. Fail fast at startup with a clear
+// message instead of a confusing per-request 500 from the auth middleware.
+if (System.Text.Encoding.UTF8.GetByteCount(jwt.Key) < 32)
+{
+    throw new InvalidOperationException(
+        "Jwt:Key is missing or shorter than 32 bytes. Set it via the Jwt__Key environment " +
+        "variable (appsettings.Development.json is excluded from the Docker image by .dockerignore).");
+}
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwt.Issuer,
+            ValidAudience = jwt.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            ClockSkew = TimeSpan.FromMinutes(1),
+        };
+
+        // Allow SignalR clients to authenticate via the access_token query string.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    context.Token = accessToken;
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+// ── AI microservice clients ──────────────────────────────────────────────────
 builder.Services.AddHttpClient("AiService", (sp, client) =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
@@ -95,7 +166,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseRouting();
 app.UseCors();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Resolves the active restaurant (route restaurantId / qrToken) and enforces
+// membership before any tenant-scoped endpoint runs.
+app.UseMiddleware<TenantResolutionMiddleware>();
 
 app.MapControllers();
 
@@ -110,7 +189,7 @@ if (app.Environment.IsDevelopment())
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
-    await SeedData.InitializeAsync(db);
+    await SeedData.InitializeAsync(scope.ServiceProvider);
 }
 
 app.Run();

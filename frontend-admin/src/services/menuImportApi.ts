@@ -3,6 +3,7 @@ import type {
   MenuScanResponse,
 } from '@shared/types/menu-import'
 import type { AdminProduct } from '@shared/types/models'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 export interface MenuImportApiError extends Error {
   status: number
@@ -25,10 +26,21 @@ function resolveBaseUrl(): string {
   return raw.endsWith('/') ? raw.slice(0, -1) : raw
 }
 
+/** Restaurant-scoped admin URL + bearer header from the active session. */
+function scopedAdmin(suffix: string): { url: string; authHeader: Record<string, string> } {
+  const auth = useAuthStore()
+  if (!auth.activeRestaurantId) throw makeError('No active restaurant selected.', 400)
+  return {
+    url: `${resolveBaseUrl()}/api/restaurants/${auth.activeRestaurantId}${suffix}`,
+    authHeader: auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {},
+  }
+}
+
 async function scan(files: File[]): Promise<MenuScanResponse> {
   const form = new FormData()
   for (const file of files) form.append('photos', file, file.name)
-  const res = await fetch(`${resolveBaseUrl()}/api/admin/menu/scan`, { method: 'POST', body: form })
+  const { url, authHeader } = scopedAdmin('/admin/menu/scan')
+  const res = await fetch(url, { method: 'POST', body: form, headers: authHeader })
   if (!res.ok) {
     const body = await res.json().catch(() => undefined)
     throw makeError(`scan failed: HTTP ${res.status}`, res.status, body)
@@ -37,9 +49,10 @@ async function scan(files: File[]): Promise<MenuScanResponse> {
 }
 
 async function bulkCreate(payload: BulkCreateProductsRequest): Promise<AdminProduct[]> {
-  const res = await fetch(`${resolveBaseUrl()}/api/admin/menu/products/bulk`, {
+  const { url, authHeader } = scopedAdmin('/admin/menu/products/bulk')
+  const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader },
     body: JSON.stringify(payload),
   })
   if (!res.ok) {

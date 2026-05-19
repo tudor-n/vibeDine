@@ -27,13 +27,20 @@ useWebSocket()
 const screen = ref<Screen>('welcome')
 const activeCategoryId = ref<string | null>(null)
 const lastTotal = ref(0)
+const sessionError = ref<null | 'missing' | 'invalid'>(null)
 
 onMounted(async () => {
-  const tokenFromUrl = (route.params.qrToken as string) || 'aaaaaaaa-0000-0000-0000-000000000001'
+  const tokenFromUrl = (route.params.qrToken as string) || ''
+  if (!tokenFromUrl) {
+    sessionError.value = 'missing'
+    return
+  }
   try {
     await sessionStore.initializeSession(tokenFromUrl)
+    if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
   } catch (e) {
     console.error('Nu am putut inițializa sesiunea', e)
+    sessionError.value = 'invalid'
   }
 })
 
@@ -67,7 +74,23 @@ const flashOverlayActive = computed(() => Boolean(flashDealStore.activeDeal))
 <template>
   <div class="stage" :style="{ background: T.paper }">
     <div class="phone-frame">
-      <Transition name="fade" mode="out-in">
+      <div
+        v-if="sessionError"
+        class="session-error"
+        :style="{ background: T.paper, color: T.ink }"
+      >
+        <div class="session-error-card" :style="{ background: T.card, border: `1px solid ${T.ink12}` }">
+          <div class="session-error-mark" :style="{ color: T.accent }">⚠</div>
+          <h1 class="session-error-title">Cod QR invalid</h1>
+          <p class="session-error-text" :style="{ color: T.ink70 }">
+            {{ sessionError === 'missing'
+              ? 'Scanează codul QR de pe masă pentru a deschide meniul.'
+              : 'Acest cod QR nu mai este valid. Întreabă personalul pentru ajutor.' }}
+          </p>
+        </div>
+      </div>
+
+      <Transition v-if="!sessionError" name="fade" mode="out-in">
         <WelcomeView
           v-if="screen === 'welcome'"
           key="welcome"
@@ -225,5 +248,36 @@ const flashOverlayActive = computed(() => Boolean(flashDealStore.activeDeal))
 .overlay-leave-to {
   opacity: 0;
   transform: translateY(20px);
+}
+
+.session-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  z-index: 40;
+}
+.session-error-card {
+  width: 100%;
+  max-width: 320px;
+  border-radius: 28px;
+  padding: 32px 26px;
+  text-align: center;
+  box-shadow: 0 20px 40px -22px rgba(21, 20, 15, 0.25);
+}
+.session-error-mark {
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 14px;
+}
+.session-error-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.session-error-text {
+  font-size: 15px;
+  line-height: 1.5;
 }
 </style>
