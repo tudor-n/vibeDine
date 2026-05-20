@@ -2,6 +2,10 @@ import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 
 import { menuImportApi } from '@/services/menuImportApi'
+import { createStaffHubClient } from '@/services/signalRClient'
+import type { StaffHubClient } from '@/services/signalRClient'
+import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { MENU_VALIDATION } from '@shared/types/menu-validation'
 import type {
   BulkCreateCategoryItem,
@@ -10,6 +14,21 @@ import type {
   ExtractedMenuItem,
   FailedPage,
 } from '@shared/types/menu-import'
+
+export type ImportMode = 'photos' | 'pdf'
+
+export interface PdfJobUiState {
+  id: string
+  status: 'pending' | 'extracting' | 'complete' | 'failed' | 'cancelled'
+  phase: 'parsing' | 'classifying' | 'extracting' | 'finalizing'
+  fileName: string
+  fileSizeBytes: number
+  processedPages: number
+  totalPages: number
+  failedPages: number
+  etaSeconds?: number
+  errorMessage?: string
+}
 
 export type MappedCategory =
   | { kind: 'existing'; categoryId: string }
@@ -34,6 +53,8 @@ function makeId(): string {
 }
 
 export const useMenuImportStore = defineStore('menuImport', () => {
+  const toast = useToast()
+
   const step = ref<1 | 2 | 3>(1)
   const files = ref<File[]>([])
   const isScanning = ref(false)
@@ -47,6 +68,11 @@ export const useMenuImportStore = defineStore('menuImport', () => {
   const categoryMapping = reactive<Record<string, MappedCategory>>({})
   const unassignedMapping = ref<MappedCategory | null>(null)
   const reviewItems = ref<ReviewItem[]>([])
+
+  // ── PDF mode state ─────────────────────────────────────────────────────────
+  const mode = ref<ImportMode>('photos')
+  const pdfJob = ref<PdfJobUiState | null>(null)
+  const pdfHub = ref<StaffHubClient | null>(null)
 
   const canAdvanceFromStep1 = computed(() => files.value.length > 0 && !isScanning.value)
   const unassignedCount = computed(
@@ -221,6 +247,157 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     }
   }
 
+  // ── PDF actions ────────────────────────────────────────────────────────────
+
+  async function startPdfImport(file: File) {
+    mode.value = 'pdf'
+    importError.value = null
+    try {
+      const { jobId } = await menuImportApi.startPdfImport(file)
+      pdfJob.value = {
+        id: jobId,
+        status: 'pending',
+        phase: 'parsing',
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        processedPages: 0,
+        totalPages: 0,
+        failedPages: 0,
+        etaSeconds: undefined,
+        errorMessage: undefined,
+      }
+      const auth = useAuthStore()
+      const restaurantId = auth.activeRestaurantId ?? ''
+      await _connectAndSubscribe(jobId, restaurantId)
+    } catch (err) {
+      importError.value = err instanceof Error ? err.message : 'Eroare la pornirea importului PDF.'
+      throw err
+    }
+  }
+
+  async function cancelPdfImport() {
+    if (!pdfJob.value) return
+    try {
+      await menuImportApi.cancelImportJob(pdfJob.value.id)
+    } catch {
+      // best-effort cancel
+    }
+    pdfJob.value.status = 'cancelled'
+    await _disconnect()
+    toast.info('Import PDF anulat.')
+  }
+
+  async function _connectAndSubscribe(jobId: string, restaurantId: string) {
+    const hub = createStaffHubClient()
+    pdfHub.value = hub
+
+    hub.on<Record<string, unknown>>('MenuImportProgress', (payload) => {
+      if (!pdfJob.value || payload['jobId'] !== jobId) return
+      if (payload['processedPages'] !== undefined)
+        pdfJob.value.processedPages = payload['processedPages'] as number
+      if (payload['totalPages'] !== undefined)
+        pdfJob.value.totalPages = payload['totalPages'] as number
+      if (payload['failedPages'] !== undefined)
+        pdfJob.value.failedPages = payload['failedPages'] as number
+      if (payload['phase'] !== undefined)
+        pdfJob.value.phase = payload['phase'] as PdfJobUiState['phase']
+      if (payload['etaSeconds'] !== undefined)
+        pdfJob.value.etaSeconds = (payload['etaSeconds'] as number | null) ?? undefined
+      pdfJob.value.status = 'extracting'
+    })
+
+    hub.on<Record<string, unknown>>('MenuImportCompleted', async (payload) => {
+      if (payload['jobId'] !== jobId) return
+      try {
+        const job = await menuImportApi.getImportJob(jobId)
+        if (pdfJob.value) {
+          pdfJob.value.status = 'complete'
+          pdfJob.value.processedPages = job.processedPages
+          pdfJob.value.totalPages = job.totalPages
+          pdfJob.value.failedPages = job.failedPages
+          pdfJob.value.phase = job.phase
+        }
+        if (job.result) {
+          extractedItems.value = job.result.items
+          failedPages.value = job.result.failedPages
+
+          // Mirror the scan() logic: seed detectedHints & categoryMapping
+          const hints = Array.from(
+            new Set(
+              job.result.items
+                .map((it) => it.categoryHint)
+                .filter((h): h is string => !!h),
+            ),
+          )
+          detectedHints.value = hints
+          for (const k of Object.keys(categoryMapping)) delete categoryMapping[k]
+          for (const hint of hints) {
+            categoryMapping[hint] = { kind: 'new', tempId: makeId(), name: hint }
+          }
+          unassignedMapping.value = null
+
+          // Mirror scan(): if hints exist → step 2 (map categories); else → step 3 (review)
+          if (hints.length > 0) {
+            step.value = 2
+          } else {
+            // No hints — build reviewItems directly and go to step 3
+            reviewItems.value = extractedItems.value
+              .slice()
+              .sort((a, b) => a.sourcePage - b.sourcePage || a.sourceIndex - b.sourceIndex)
+              .map((it) => ({
+                clientId: makeId(),
+                name: it.name,
+                price: it.price,
+                sourcePage: it.sourcePage,
+                categoryHint: it.categoryHint ?? null,
+                resolvedCategory: resolveCategoryForItem(it),
+                skipped: false,
+              }))
+            step.value = 3
+          }
+        }
+        toast.success('Import PDF finalizat!')
+      } catch (err) {
+        importError.value = err instanceof Error ? err.message : 'Eroare la finalizarea importului.'
+        toast.error(importError.value)
+      }
+      await _disconnect()
+    })
+
+    hub.on<Record<string, unknown>>('MenuImportFailed', async (payload) => {
+      if (payload['jobId'] !== jobId) return
+      if (pdfJob.value) {
+        pdfJob.value.status = 'failed'
+        pdfJob.value.errorMessage = (payload['errorMessage'] as string | null) ?? 'Import eșuat.'
+      }
+      importError.value = (payload['errorMessage'] as string | null) ?? 'Import PDF eșuat.'
+      toast.error(importError.value)
+      await _disconnect()
+    })
+
+    await hub.start()
+    await hub.joinAdminGroup(restaurantId)
+  }
+
+  async function _disconnect() {
+    if (!pdfHub.value) return
+    try {
+      // activeRestaurantId may already be gone if store was reset
+      const auth = useAuthStore()
+      if (auth.activeRestaurantId) {
+        await pdfHub.value.leaveAdminGroup(auth.activeRestaurantId)
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      await pdfHub.value.stop()
+    } catch {
+      // ignore
+    }
+    pdfHub.value = null
+  }
+
   function $reset() {
     step.value = 1
     files.value = []
@@ -234,6 +411,9 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     for (const k of Object.keys(categoryMapping)) delete categoryMapping[k]
     unassignedMapping.value = null
     reviewItems.value = []
+    mode.value = 'photos'
+    pdfJob.value = null
+    void _disconnect()
   }
 
   return {
@@ -250,6 +430,9 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     categoryMapping,
     unassignedMapping,
     reviewItems,
+    // PDF state
+    mode,
+    pdfJob,
     // getters
     canAdvanceFromStep1,
     unassignedCount,
@@ -268,6 +451,9 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     validateRow,
     buildBulkPayload,
     importAll,
+    // PDF actions
+    startPdfImport,
+    cancelPdfImport,
     $reset,
   }
 })

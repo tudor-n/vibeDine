@@ -431,6 +431,87 @@ namespace RestaurantApi.Migrations
                     b.ToTable("memberships", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.MenuImportJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("error_message");
+
+                    b.Property<int>("FailedPages")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_pages");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size_bytes");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("original_file_name");
+
+                    b.Property<string>("Phase")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("phase");
+
+                    b.Property<int>("ProcessedPages")
+                        .HasColumnType("integer")
+                        .HasColumnName("processed_pages");
+
+                    b.Property<string>("ProviderUsed")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("provider_used");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<string>("ResultJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("result_json");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("storage_key");
+
+                    b.Property<int>("TotalPages")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_pages");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("menu_import_jobs", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.Order", b =>
                 {
                     b.Property<Guid>("Id")

@@ -15,20 +15,49 @@ function onPickClick() {
   fileInput.value?.click()
 }
 
-function onFilesSelected(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (!input.files) return
-  const { rejected } = store.addFiles(Array.from(input.files))
-  reportRejected(rejected)
-  input.value = ''
+function isSinglePdf(files: File[]): File | null {
+  if (files.length !== 1) return null
+  const file = files[0]
+  if (file.type === 'application/pdf') return file
+  if (file.name.toLowerCase().endsWith('.pdf')) return file
+  return null
 }
 
-function onDrop(event: DragEvent) {
+async function onFilesSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files) return
+  const fileList = Array.from(input.files)
+  input.value = ''
+  const pdf = isSinglePdf(fileList)
+  if (pdf) {
+    await routeToPdfFlow(pdf)
+    return
+  }
+  const { rejected } = store.addFiles(fileList)
+  reportRejected(rejected)
+}
+
+async function onDrop(event: DragEvent) {
   event.preventDefault()
   dragOver.value = false
   if (!event.dataTransfer) return
-  const { rejected } = store.addFiles(Array.from(event.dataTransfer.files))
+  const fileList = Array.from(event.dataTransfer.files)
+  const pdf = isSinglePdf(fileList)
+  if (pdf) {
+    await routeToPdfFlow(pdf)
+    return
+  }
+  const { rejected } = store.addFiles(fileList)
   reportRejected(rejected)
+}
+
+async function routeToPdfFlow(file: File) {
+  lastRejection.value = null
+  try {
+    await store.startPdfImport(file)
+  } catch {
+    // store.importError is already set by the action
+  }
 }
 
 function reportRejected(rejected: { reason: string }[]) {

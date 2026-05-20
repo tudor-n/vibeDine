@@ -6,6 +6,7 @@ import ImportStepIndicator from '@/components/menu-import/ImportStepIndicator.vu
 import StepUploadPhotos from '@/components/menu-import/StepUploadPhotos.vue'
 import StepMapCategories from '@/components/menu-import/StepMapCategories.vue'
 import StepReviewItems from '@/components/menu-import/StepReviewItems.vue'
+import PdfImportProgress from '@/components/menu-import/PdfImportProgress.vue'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useMenuManagementStore } from '@/stores/useMenuManagementStore'
 import { useToast } from '@/composables/useToast'
@@ -49,7 +50,12 @@ onBeforeUnmount(() => {
 
     <ImportStepIndicator :current="importStore.step" />
 
-    <StepUploadPhotos v-if="importStore.step === 1" />
+    <PdfImportProgress
+      v-if="importStore.mode === 'pdf' && importStore.pdfJob && importStore.step !== 3"
+      :job="importStore.pdfJob"
+      @cancel="importStore.cancelPdfImport()"
+    />
+    <StepUploadPhotos v-else-if="importStore.step === 1" />
     <StepMapCategories v-else-if="importStore.step === 2" />
     <StepReviewItems v-else />
   </div>

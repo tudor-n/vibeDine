@@ -1,9 +1,37 @@
 import type {
   BulkCreateProductsRequest,
+  ExtractedMenuItem,
+  FailedPage,
   MenuScanResponse,
 } from '@shared/types/menu-import'
 import type { AdminProduct } from '@shared/types/models'
 import { useAuthStore } from '@/stores/useAuthStore'
+
+export interface StartPdfImportResponse {
+  jobId: string
+}
+
+export interface MenuImportJobResponse {
+  id: string
+  status: 'pending' | 'extracting' | 'complete' | 'failed' | 'cancelled'
+  phase: 'parsing' | 'classifying' | 'extracting' | 'finalizing'
+  totalPages: number
+  processedPages: number
+  failedPages: number
+  originalFileName: string
+  fileSizeBytes: number
+  providerUsed: string
+  result?: {
+    items: ExtractedMenuItem[]
+    failedPages: FailedPage[]
+    model: string
+    schemaVersion: number
+  }
+  errorMessage?: string
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+}
 
 export interface MenuImportApiError extends Error {
   status: number
@@ -62,4 +90,35 @@ async function bulkCreate(payload: BulkCreateProductsRequest): Promise<AdminProd
   return (await res.json()) as AdminProduct[]
 }
 
-export const menuImportApi = { scan, bulkCreate }
+async function startPdfImport(file: File): Promise<StartPdfImportResponse> {
+  const form = new FormData()
+  form.append('pdf', file, file.name)
+  const { url, authHeader } = scopedAdmin('/admin/menu/imports/pdf')
+  const res = await fetch(url, { method: 'POST', body: form, headers: authHeader })
+  if (!res.ok) {
+    const body = await res.json().catch(() => undefined)
+    throw makeError(`pdf import upload failed: HTTP ${res.status}`, res.status, body)
+  }
+  return (await res.json()) as StartPdfImportResponse
+}
+
+async function getImportJob(jobId: string): Promise<MenuImportJobResponse> {
+  const { url, authHeader } = scopedAdmin(`/admin/menu/imports/${jobId}`)
+  const res = await fetch(url, { method: 'GET', headers: authHeader })
+  if (!res.ok) {
+    const body = await res.json().catch(() => undefined)
+    throw makeError(`getImportJob failed: HTTP ${res.status}`, res.status, body)
+  }
+  return (await res.json()) as MenuImportJobResponse
+}
+
+async function cancelImportJob(jobId: string): Promise<void> {
+  const { url, authHeader } = scopedAdmin(`/admin/menu/imports/${jobId}`)
+  const res = await fetch(url, { method: 'DELETE', headers: authHeader })
+  if (!res.ok) {
+    const body = await res.json().catch(() => undefined)
+    throw makeError(`cancelImportJob failed: HTTP ${res.status}`, res.status, body)
+  }
+}
+
+export const menuImportApi = { scan, bulkCreate, startPdfImport, getImportJob, cancelImportJob }
