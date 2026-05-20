@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useTheme } from '@/composables/useTheme'
+import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useSessionStore } from '@/stores/useSessionStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const sessionStore = useSessionStore()
 const { tokens: T, theme } = useTheme()
+const { t } = useLocale()
 
 const active = ref<string | null>(null)
 const warp = ref<{ x: number; y: number } | null>(null)
@@ -28,9 +30,9 @@ onMounted(() => {
 
 const tableLabel = computed(() => {
   const id = sessionStore.tableId
-  if (!id) return 'Masa'
+  if (!id) return t('common.table')
   const tail = id.slice(-2).replace(/^0+/, '') || id.slice(-2)
-  return `Masa ${tail}`
+  return `${t('common.table')} ${tail}`
 })
 
 // Pick an Unsplash photo for each category by keyword. Falls back to a
@@ -154,7 +156,7 @@ onBeforeUnmount(() => {
         class="circle-btn"
         type="button"
         :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink }"
-        aria-label="Înapoi"
+        :aria-label="t('common.back')"
         @click="emit('back')"
       >←</button>
       <div class="status-table" :style="{ color: T.ink70 }">{{ tableLabel }}</div>
@@ -162,15 +164,15 @@ onBeforeUnmount(() => {
 
     <div class="heading">
       <h2 class="title">
-        Ce doriți <span :style="{ color: T.accent }">să mâncați?</span>
+        {{ t('pebbles.title1') }} <span :style="{ color: T.accent }">{{ t('pebbles.title2') }}</span>
       </h2>
       <p class="lede" :style="{ color: T.ink70 }">
-        Atingeți o categorie pentru a vedea meniul
+        {{ t('pebbles.subtitle') }}
       </p>
     </div>
 
     <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">
-      Se încarcă meniul...
+      {{ t('pebbles.loading') }}
     </div>
     <div v-else-if="error" class="state" :style="{ color: T.accent }">
       {{ error }}
@@ -199,7 +201,7 @@ onBeforeUnmount(() => {
               v-for="pb in group"
               :key="pb.id"
               :label="pb.label"
-              :sublabel="`${pb.count} preparate`"
+              :sublabel="t('pebbles.dishesCount', { count: pb.count })"
               :path-index="pb.pathIndex"
               :image="pb.image"
               :active="pb.id === active"
@@ -227,19 +229,19 @@ onBeforeUnmount(() => {
       >
         <FoodTile
           tone="terra"
-          label="AZI"
+          :label="t('welcome.today')"
           :radius="12"
           class="daily-tile"
         />
         <div class="daily-body">
           <div class="daily-eyebrow" :style="{ color: T.lime }">
-            Recomandarea zilei
+            {{ t('pebbles.dailyRecommendation') }}
           </div>
-          <div class="daily-name">Mușchi de vită Oltenia</div>
+          <div class="daily-name">{{ t('welcome.featuredName') }}</div>
           <div
             class="daily-meta"
             :style="{ color: theme === 'dark' ? T.ink70 : 'rgba(251,247,236,0.55)' }"
-          >Maturat 28 zile · 128 RON</div>
+          >{{ t('welcome.featuredMeta') }}</div>
         </div>
         <span
           class="daily-arrow"

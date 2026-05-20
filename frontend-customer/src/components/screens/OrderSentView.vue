@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue'
 import { useTheme } from '@/composables/useTheme'
+import { useLocale } from '@/composables/useLocale'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 const sessionStore = useSessionStore()
 const orderStatusStore = useOrderStatusStore()
 const { tokens: T, theme } = useTheme()
+const { t } = useLocale()
 
 const totalCardStyle = computed(() => {
   if (theme.value === 'dark') {
@@ -55,9 +57,9 @@ function fmt(d: Date) {
 
 const tableLabel = computed(() => {
   const id = sessionStore.tableId
-  if (!id) return 'Masa'
+  if (!id) return t('common.table')
   const tail = id.slice(-2).replace(/^0+/, '') || id.slice(-2)
-  return `Masa ${tail}`
+  return `${t('common.table')} ${tail}`
 })
 
 // Live status arrives via SignalR. We only stamp a timestamp on the *first*
@@ -89,19 +91,19 @@ const steps = computed(() => {
   return [
     {
       t: fmt(submitted),
-      label: 'Trimisă la bucătărie',
+      label: t('sent.stepSubmitted'),
       done: true,
       active: !isPreparing.value,
     },
     {
       t: inPrep ? fmt(inPrep) : '—',
-      label: 'În pregătire acum',
+      label: t('sent.stepPreparing'),
       done: isPreparing.value,
       active: isPreparing.value && !isServed.value,
     },
     {
       t: served ? fmt(served) : '—',
-      label: 'Servire la masă',
+      label: t('sent.stepServed'),
       done: isServed.value,
       active: isServed.value,
     },
@@ -126,17 +128,17 @@ const steps = computed(() => {
         class="confirm-pill"
         :style="{ background: T.lime, color: '#000' }"
       >
-        Confirmat ✓
+        {{ t('sent.confirmed') }}
       </div>
     </div>
 
     <div class="scroll">
     <div class="hero">
       <h1 class="title">
-        Comanda<br /><span :style="{ color: T.accent }">a plecat</span><br />la bucătărie!
+        {{ t('sent.title1') }}<br /><span :style="{ color: T.accent }">{{ t('sent.title2') }}</span><br />{{ t('sent.title3') }}
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
-        Chef Andrei a primit comanda dumneavoastră. Urmăriți statusul mai jos.
+        {{ t('sent.lede') }}
       </p>
 
       <div
@@ -174,17 +176,17 @@ const steps = computed(() => {
               color: T.accent,
               background: `${T.accent}1A`,
             }"
-          >ACUM</div>
+          >{{ t('sent.now') }}</div>
         </div>
       </div>
 
       <div class="total" :style="totalCardStyle">
-        <div class="total-label" :style="{ color: totalSubtleColor }">Total comandă</div>
+        <div class="total-label" :style="{ color: totalSubtleColor }">{{ t('sent.totalLabel') }}</div>
         <div class="total-value">
           {{ props.total }}
-          <span class="total-unit" :style="{ color: totalUnitColor }">RON</span>
+          <span class="total-unit" :style="{ color: totalUnitColor }">{{ t('common.ron') }}</span>
         </div>
-        <div class="total-hint" :style="{ color: totalHintColor }">Plata la final · cash sau card</div>
+        <div class="total-hint" :style="{ color: totalHintColor }">{{ t('sent.payHint') }}</div>
       </div>
     </div>
     </div>
@@ -194,8 +196,8 @@ const steps = computed(() => {
         class="secondary"
         :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink }"
         @click="emit('call-waiter')"
-      >Chemați chelnerul</button>
-      <BigButton :theme="theme" :font-size="16" @click="emit('order-again')">Mai comand</BigButton>
+      >{{ t('sent.callWaiter') }}</button>
+      <BigButton :theme="theme" :font-size="16" @click="emit('order-again')">{{ t('sent.orderAgain') }}</BigButton>
     </div>
   </PhoneScreen>
 </template>
