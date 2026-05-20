@@ -12,6 +12,12 @@ const router = createRouter({
             meta: { public: true },
         },
         {
+            path: '/confirm-email',
+            name: 'confirm-email',
+            component: () => import('@/views/ConfirmEmailView.vue'),
+            meta: { public: true },
+        },
+        {
             path: '/onboarding',
             name: 'onboarding',
             component: () => import('@/views/OnboardingView.vue'),
