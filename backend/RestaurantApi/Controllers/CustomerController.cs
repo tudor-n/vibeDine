@@ -45,7 +45,11 @@ public class CustomerController : ControllerBase
             return BadRequest(new { message = "Cannot submit an empty order. Please add items to your cart first." });
 
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
-        order.Status = "submitted";
+        // Hold the order in pending_dispatch until the 2-minute flash deal window
+        // elapses (or the customer claims the deal). The active-orders kanban
+        // filter only includes submitted/preparing/ready, so the kitchen won't
+        // see the order yet. DispatchToKitchenAsync transitions it to "submitted".
+        order.Status = "pending_dispatch";
 
         // Per-restaurant sequence. The (RestaurantId, OrderNumber) index isn't unique
         // because a race between two concurrent submits could collide here; for the
@@ -59,18 +63,15 @@ public class CustomerController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        await _flashDealService.EvaluateEligibilityAsync(orderId);
+        var dealCreated = await _flashDealService.EvaluateEligibilityAsync(orderId);
 
-        // Notify the kitchen kanban that a new order has landed.
-        await _staffHub.Clients
-            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderSubmitted", new
-            {
-                orderId = order.Id,
-                orderNumber = order.OrderNumber,
-                tableId = order.TableId,
-                status = order.Status,
-            });
+        if (!dealCreated)
+        {
+            // No deal means nothing to wait on — release the order to the kitchen
+            // immediately. When a deal is created, ClaimDealAsync or the 2-minute
+            // expiry task in FlashDealService is responsible for the dispatch.
+            await _flashDealService.DispatchToKitchenAsync(orderId);
+        }
 
         return Ok(new
         {

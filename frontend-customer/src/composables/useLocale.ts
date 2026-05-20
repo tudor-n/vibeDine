@@ -110,6 +110,7 @@ const ro: Dict = {
   'flash.noThanks': 'Nu mulțumesc',
   'flash.errorInvalidSession': 'Sesiune invalidă. Reîncărcați pagina.',
   'flash.errorClaim': 'Eroare la revendicare.',
+  'flash.iconLabel': 'Vezi oferta specială',
 }
 
 const en: Dict = {
@@ -216,6 +217,7 @@ const en: Dict = {
   'flash.noThanks': 'No thanks',
   'flash.errorInvalidSession': 'Invalid session. Reload the page.',
   'flash.errorClaim': 'Error claiming offer.',
+  'flash.iconLabel': 'View special offer',
 }
 
 const dict: Record<Locale, Dict> = { ro, en }

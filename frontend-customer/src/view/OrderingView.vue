@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
@@ -14,6 +14,7 @@ import MenuView from '@/components/screens/MenuView.vue'
 import CartView from '@/components/screens/CartView.vue'
 import FlashDealView from '@/components/screens/FlashDealView.vue'
 import OrderSentView from '@/components/screens/OrderSentView.vue'
+import FlashDealIcon from '@/components/FlashDealIcon.vue'
 
 type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent'
 
@@ -30,6 +31,10 @@ const screen = ref<Screen>('language')
 const activeCategoryId = ref<string | null>(null)
 const lastTotal = ref(0)
 const sessionError = ref<null | 'missing' | 'invalid'>(null)
+// First time a deal arrives we pop the full-screen offer; once the user
+// dismisses it the icon takes over and stays visible for the remaining 2 min.
+const showFlashDealModal = ref(false)
+let autoOpenedDealId: string | null = null
 
 onMounted(async () => {
   const tokenFromUrl = (route.params.qrToken as string) || ''
@@ -72,7 +77,35 @@ function orderAgain() {
   screen.value = 'pebbles'
 }
 
-const flashOverlayActive = computed(() => Boolean(flashDealStore.activeDeal))
+const flashIconVisible = computed(() => Boolean(flashDealStore.activeDeal))
+const flashOverlayActive = computed(
+  () => Boolean(flashDealStore.activeDeal) && showFlashDealModal.value,
+)
+
+function openFlashDeal() {
+  showFlashDealModal.value = true
+}
+function closeFlashDeal() {
+  showFlashDealModal.value = false
+}
+
+watch(
+  () => flashDealStore.activeDeal,
+  (deal) => {
+    if (!deal) {
+      showFlashDealModal.value = false
+      autoOpenedDealId = null
+      return
+    }
+    // Auto-open once per deal so a fresh offer pops up; later dismissals just
+    // collapse to the icon without re-opening.
+    if (deal.id !== autoOpenedDealId) {
+      autoOpenedDealId = deal.id
+      showFlashDealModal.value = true
+    }
+  },
+  { immediate: true },
+)
 
 // Language picker takes priority over the session-error overlay so the user
 // can localize before seeing the error message.
@@ -134,9 +167,14 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
 
       <Transition name="overlay">
         <div v-if="flashOverlayActive" class="overlay">
-          <FlashDealView />
+          <FlashDealView @close="closeFlashDeal" />
         </div>
       </Transition>
+
+      <FlashDealIcon
+        v-if="flashIconVisible && !flashOverlayActive"
+        @open="openFlashDeal"
+      />
 
       <button
         class="theme-toggle"
