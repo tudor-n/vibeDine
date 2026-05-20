@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { apiClient } from '@/services/api-client'
 
 type ActiveStatus = 'submitted' | 'preparing' | 'ready'
@@ -24,7 +24,6 @@ interface ActiveOrder {
 }
 
 const route = useRoute()
-const router = useRouter()
 const orders = ref<ActiveOrder[]>([])
 const isLoading = ref(false)
 const error = ref<string | null>(null)
@@ -137,19 +136,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="max-w-7xl mx-auto relative">
     <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-      <button type="button" class="pill-btn-ink" @click="router.push({ name: 'orders-active' })">
-        <span aria-hidden="true">←</span> Înapoi la panou
-      </button>
-      <div class="flex items-center gap-3">
-        <div class="tag-pill" role="status">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span>Live · auto-arhivare {{ GRACE_SECONDS }}s</span>
-        </div>
-        <button class="pill-btn-ink" :disabled="isLoading" @click="fetchActive">
-          <span :class="{ 'animate-spin': isLoading }" aria-hidden="true">↻</span>
-          Reîncarcă
-        </button>
+      <div class="tag-pill" role="status">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>Live · auto-arhivare {{ GRACE_SECONDS }}s</span>
       </div>
+      <button class="pill-btn-ink" :disabled="isLoading" @click="fetchActive">
+        <span :class="{ 'animate-spin': isLoading }" aria-hidden="true">↻</span>
+        Reîncarcă
+      </button>
     </div>
 
     <div
@@ -315,6 +309,14 @@ onBeforeUnmount(() => {
   background: var(--lime);
   color: var(--onLime);
   border-color: transparent;
+}
+
+/* Dark-mode header overrides: white text for "În pregătire", pink for "Finalizată". */
+[data-theme="dark"] .column--preparing .column-head { color: #FFFFFF; }
+[data-theme="dark"] .column--ready .column-head { color: var(--accent); }
+[data-theme="dark"] .column--ready .count-pill {
+  background: var(--accent);
+  color: #FFFFFF;
 }
 .column-body {
   flex: 1;
