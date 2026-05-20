@@ -74,7 +74,7 @@ export function useWebSocket() {
                 trigger: 'post_order',
                 countdownSeconds: 120,
                 expiresAt: raw.expiresAt,
-                reason: 'Ofertă specială pentru comanda ta!',
+                reason: '',
                 isActive: true,
                 createdAt: new Date().toISOString()
               }
