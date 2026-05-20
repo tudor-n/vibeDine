@@ -46,6 +46,21 @@ export interface AuthResult {
     user: UserProfile;
 }
 
+export interface RegisterResult {
+    status: 'confirmation_sent';
+    email: string;
+    message: string;
+}
+
+export class EmailNotConfirmedError extends Error {
+    email: string;
+    constructor(email: string, message: string) {
+        super(message);
+        this.name = 'EmailNotConfirmedError';
+        this.email = email;
+    }
+}
+
 export interface OrganizationSummary {
     id: string;
     name: string;
@@ -82,6 +97,12 @@ const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl
 async function parseOrThrow<T>(response: Response): Promise<T> {
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        if (errorData?.code === 'email_not_confirmed') {
+            throw new EmailNotConfirmedError(
+                errorData.email ?? '',
+                errorData.message ?? 'Email neconfirmat.',
+            );
+        }
         throw new Error(errorData.message || errorData.error || `API Error: ${response.status}`);
     }
     if (response.status === 204) return {} as T;
@@ -135,9 +156,21 @@ export const authApi = {
         }),
 
     register: (email: string, password: string, fullName: string) =>
-        fetcher<AuthResult>('/api/auth/register', {
+        fetcher<RegisterResult>('/api/auth/register', {
             method: 'POST',
             body: JSON.stringify({ email, password, fullName }),
+        }),
+
+    confirmEmail: (userId: string, token: string) =>
+        fetcher<AuthResult>('/api/auth/confirm-email', {
+            method: 'POST',
+            body: JSON.stringify({ userId, token }),
+        }),
+
+    resendConfirmation: (email: string) =>
+        fetcher<{ message: string }>('/api/auth/resend-confirmation', {
+            method: 'POST',
+            body: JSON.stringify({ email }),
         }),
 
     refresh: (refreshToken: string) =>

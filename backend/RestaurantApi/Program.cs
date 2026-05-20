@@ -8,6 +8,7 @@ using RestaurantApi.Data;
 using RestaurantApi.Hubs;
 using RestaurantApi.Models;
 using RestaurantApi.Services;
+using RestaurantApi.Services.Email;
 using RestaurantApi.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -77,6 +78,11 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+
+// ── Email ────────────────────────────────────────────────────────────────────
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.Configure<AppUrlOptions>(builder.Configuration.GetSection(AppUrlOptions.SectionName));
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
 // ── AI microservice clients ──────────────────────────────────────────────────
 builder.Services.AddHttpClient("AiService", (sp, client) =>

@@ -86,9 +86,22 @@ export const useAuthStore = defineStore('auth', () => {
     await loadAccessibleRestaurants()
   }
 
+  /**
+   * Creates the account and triggers the confirmation email.
+   * Does NOT log the user in — they must click the email link first.
+   */
   async function register(email: string, password: string, fullName: string) {
-    setSession(await authApi.register(email, password, fullName))
+    return await authApi.register(email, password, fullName)
+  }
+
+  /** Called by ConfirmEmailView once the user clicks the link in their inbox. */
+  async function confirmEmail(userId: string, token: string) {
+    setSession(await authApi.confirmEmail(userId, token))
     await loadAccessibleRestaurants()
+  }
+
+  async function resendConfirmation(email: string) {
+    await authApi.resendConfirmation(email)
   }
 
   /** Returns true if the session was renewed. Used by the api-client on 401. */
@@ -157,6 +170,8 @@ export const useAuthStore = defineStore('auth', () => {
     isOrgOwnerOfActive,
     login,
     register,
+    confirmEmail,
+    resendConfirmation,
     tryRefresh,
     fetchMe,
     loadAccessibleRestaurants,

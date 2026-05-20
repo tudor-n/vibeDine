@@ -34,3 +34,18 @@ public class AcceptInviteRequest
     [Required]
     public Guid Token { get; set; }
 }
+
+public class ConfirmEmailRequest
+{
+    [Required]
+    public Guid UserId { get; set; }
+
+    [Required]
+    public string Token { get; set; } = string.Empty;
+}
+
+public class ResendConfirmationRequest
+{
+    [Required, EmailAddress]
+    public string Email { get; set; } = string.Empty;
+}

@@ -24,3 +24,10 @@ public class AuthResponse
     public string RefreshToken { get; set; } = string.Empty;
     public UserProfileResponse User { get; set; } = new();
 }
+
+public class RegisterResponse
+{
+    public string Status { get; set; } = "confirmation_sent";
+    public string Email { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+}
