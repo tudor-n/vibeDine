@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { toneFromKey } from '@/design/tokens'
 import { useTheme } from '@/composables/useTheme'
+import { useLocale } from '@/composables/useLocale'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { apiClient } from '@/services/api-client'
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 const cartStore = useCartStore()
 const sessionStore = useSessionStore()
 const { tokens: T, theme } = useTheme()
+const { t } = useLocale()
 
 // Defensive against HMR: the store may not yet expose `wasRecommended`
 // after a hot reload until Pinia re-evaluates the setup. Wrap the call so
@@ -31,9 +33,9 @@ const submitError = ref<string | null>(null)
 
 const tableLabel = computed(() => {
   const id = sessionStore.tableId
-  if (!id) return 'Masa'
+  if (!id) return t('common.table')
   const tail = id.slice(-2).replace(/^0+/, '') || id.slice(-2)
-  return `Masa ${tail}`
+  return `${t('common.table')} ${tail}`
 })
 
 const itemCount = computed(() =>
@@ -47,11 +49,11 @@ const prepEstimate = computed(() => {
 
 async function submit() {
   if (!sessionStore.orderId) {
-    submitError.value = 'Sesiunea nu este validă.'
+    submitError.value = t('cart.errorInvalidSession')
     return
   }
   if (cartStore.items.length === 0) {
-    submitError.value = 'Coșul este gol.'
+    submitError.value = t('cart.errorEmpty')
     return
   }
   try {
@@ -60,7 +62,7 @@ async function submit() {
     await apiClient.submitOrder(sessionStore.orderId)
     emit('submitted')
   } catch (e) {
-    submitError.value = e instanceof Error ? e.message : 'Eroare la trimitere.'
+    submitError.value = e instanceof Error ? e.message : t('cart.errorSubmit')
   } finally {
     isSubmitting.value = false
   }
@@ -80,11 +82,11 @@ async function submit() {
 
     <div class="header">
       <div class="status-table" :style="{ color: T.ink70 }">{{ tableLabel }}</div>
-      <div class="title">Comanda mea</div>
+      <div class="title">{{ t('cart.title') }}</div>
       <button
         class="close-btn"
         :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink }"
-        aria-label="Închide"
+        :aria-label="t('common.close')"
         @click="emit('close')"
       >✕</button>
     </div>
@@ -92,11 +94,10 @@ async function submit() {
     <div class="scroll">
     <p class="lede" :style="{ color: T.ink70 }">
       <template v-if="cartStore.items.length > 0">
-        {{ itemCount }} {{ itemCount === 1 ? 'preparat selectat' : 'preparate selectate' }}
-        · pregătire aproximativ {{ prepEstimate }} de minute
+        {{ itemCount === 1 ? t('cart.selectedOne', { count: itemCount }) : t('cart.selectedMany', { count: itemCount }) }}{{ t('cart.prepEstimate', { minutes: prepEstimate }) }}
       </template>
       <template v-else>
-        Coșul este gol. Adăugați preparate din meniu.
+        {{ t('cart.empty') }}
       </template>
     </p>
 
@@ -119,11 +120,11 @@ async function submit() {
             v-if="isRecommended(it.id)"
             class="ai-pill"
             :style="{ background: T.lime, color: T.ink }"
-          >Sugerat de AI</div>
+          >{{ t('cart.aiSuggested') }}</div>
           <div class="item-row">
             <div class="item-price">
               {{ it.price * it.quantity }}
-              <span class="item-price-unit" :style="{ color: T.ink70 }">RON</span>
+              <span class="item-price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </div>
             <div
               class="stepper"
@@ -132,14 +133,14 @@ async function submit() {
               <button
                 class="stepper-btn"
                 :style="{ color: T.ink70 }"
-                aria-label="Scade cantitatea"
+                :aria-label="t('cart.decreaseQty')"
                 @click="cartStore.removeItem(it.id)"
               >−</button>
               <span class="qty">{{ it.quantity }}</span>
               <button
                 class="stepper-btn"
                 :style="{ color: T.accent }"
-                aria-label="Crește cantitatea"
+                :aria-label="t('cart.increaseQty')"
                 @click="cartStore.addItem(it)"
               >+</button>
             </div>
@@ -151,16 +152,16 @@ async function submit() {
     <div v-if="cartStore.items.length > 0" class="summary-wrap">
       <div class="summary" :style="{ background: T.card, border: `1px solid ${T.ink12}` }">
         <div class="row" :style="{ color: T.ink70 }">
-          <span>Subtotal</span><span>{{ cartStore.total }} RON</span>
+          <span>{{ t('cart.subtotal') }}</span><span>{{ cartStore.total }} {{ t('common.ron') }}</span>
         </div>
         <div class="row" :style="{ color: T.ink70 }">
-          <span>Serviciu</span><span>inclus</span>
+          <span>{{ t('cart.service') }}</span><span>{{ t('cart.serviceIncluded') }}</span>
         </div>
         <div class="total" :style="{ borderTop: `1px solid ${T.ink12}` }">
-          <span class="total-label">Total</span>
+          <span class="total-label">{{ t('cart.total') }}</span>
           <span class="total-value">
             {{ cartStore.total }}
-            <span class="total-unit" :style="{ color: T.ink70 }">RON</span>
+            <span class="total-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
           </span>
         </div>
       </div>
@@ -175,7 +176,7 @@ async function submit() {
 
     <div v-if="cartStore.items.length > 0" class="cta">
       <BigButton :theme="theme" :disabled="isSubmitting" @click="submit">
-        <span>{{ isSubmitting ? 'Se trimite...' : 'Trimite la bucătărie' }}</span>
+        <span>{{ isSubmitting ? t('cart.submitting') : t('cart.submit') }}</span>
       </BigButton>
     </div>
   </PhoneScreen>

@@ -6,25 +6,27 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useTheme } from '@/composables/useTheme'
+import { useLocale } from '@/composables/useLocale'
 
-import WelcomeView from '@/components/screens/WelcomeView.vue'
+import LanguageSelectView from '@/components/screens/LanguageSelectView.vue'
 import PebblesView from '@/components/screens/PebblesView.vue'
 import MenuView from '@/components/screens/MenuView.vue'
 import CartView from '@/components/screens/CartView.vue'
 import FlashDealView from '@/components/screens/FlashDealView.vue'
 import OrderSentView from '@/components/screens/OrderSentView.vue'
 
-type Screen = 'welcome' | 'pebbles' | 'menu' | 'cart' | 'sent'
+type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent'
 
 const route = useRoute()
 const cartStore = useCartStore()
 const sessionStore = useSessionStore()
 const flashDealStore = useFlashDealStore()
 const { theme, tokens: T, toggle: toggleTheme } = useTheme()
+const { t } = useLocale()
 
 useWebSocket()
 
-const screen = ref<Screen>('welcome')
+const screen = ref<Screen>('language')
 const activeCategoryId = ref<string | null>(null)
 const lastTotal = ref(0)
 const sessionError = ref<null | 'missing' | 'invalid'>(null)
@@ -39,12 +41,14 @@ onMounted(async () => {
     await sessionStore.initializeSession(tokenFromUrl)
     if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
   } catch (e) {
-    console.error('Nu am putut inițializa sesiunea', e)
+    console.error('Could not initialize session', e)
     sessionError.value = 'invalid'
   }
 })
 
-function openMenu() { screen.value = 'pebbles' }
+function onLanguageSelected() {
+  screen.value = 'pebbles'
+}
 function openCategory(id: string) {
   activeCategoryId.value = id
   screen.value = 'menu'
@@ -69,38 +73,42 @@ function orderAgain() {
 }
 
 const flashOverlayActive = computed(() => Boolean(flashDealStore.activeDeal))
+
+// Language picker takes priority over the session-error overlay so the user
+// can localize before seeing the error message.
+const showSessionError = computed(() => sessionError.value !== null && screen.value !== 'language')
 </script>
 
 <template>
   <div class="stage" :style="{ background: T.paper }">
     <div class="phone-frame">
       <div
-        v-if="sessionError"
+        v-if="showSessionError"
         class="session-error"
         :style="{ background: T.paper, color: T.ink }"
       >
         <div class="session-error-card" :style="{ background: T.card, border: `1px solid ${T.ink12}` }">
           <div class="session-error-mark" :style="{ color: T.accent }">⚠</div>
-          <h1 class="session-error-title">Cod QR invalid</h1>
+          <h1 class="session-error-title">{{ t('session.invalidTitle') }}</h1>
           <p class="session-error-text" :style="{ color: T.ink70 }">
             {{ sessionError === 'missing'
-              ? 'Scanează codul QR de pe masă pentru a deschide meniul.'
-              : 'Acest cod QR nu mai este valid. Întreabă personalul pentru ajutor.' }}
+              ? t('session.missingMessage')
+              : t('session.invalidMessage') }}
           </p>
         </div>
       </div>
 
-      <Transition v-if="!sessionError" name="fade" mode="out-in">
-        <WelcomeView
-          v-if="screen === 'welcome'"
-          key="welcome"
-          @open-menu="openMenu"
+      <Transition v-if="!showSessionError" name="fade" mode="out-in">
+        <LanguageSelectView
+          v-if="screen === 'language'"
+          key="language"
+          @select="onLanguageSelected"
         />
         <PebblesView
           v-else-if="screen === 'pebbles'"
           key="pebbles"
           @open-category="openCategory"
-          @back="screen = 'welcome'"
+          @back="screen = 'language'"
         />
         <MenuView
           v-else-if="screen === 'menu' && activeCategoryId"
@@ -137,7 +145,7 @@ const flashOverlayActive = computed(() => Boolean(flashDealStore.activeDeal))
           color: T.ink,
           border: `1px solid ${T.ink12}`,
         }"
-        :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
+        :aria-label="theme === 'dark' ? t('theme.toLight') : t('theme.toDark')"
         :aria-pressed="theme === 'dark'"
         @click="toggleTheme"
       >

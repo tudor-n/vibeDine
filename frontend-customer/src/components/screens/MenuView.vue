@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { toneFromKey } from '@/design/tokens'
 import { useTheme } from '@/composables/useTheme'
+import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useCartStore } from '@/stores/useCartStore'
 import { useRecommendations } from '@/composables/useRecommendations'
@@ -19,6 +20,7 @@ const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const cartStore = useCartStore()
 const { pairings, upsells } = useRecommendations()
 const { tokens: T, theme } = useTheme()
+const { t } = useLocale()
 
 type FilterKey = 'all' | 'meat' | 'fish' | 'veggie' | 'chef'
 const filter = ref<FilterKey>('all')
@@ -34,13 +36,13 @@ function normalize(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
 }
 
-const FILTERS: Array<{ key: FilterKey; label: string }> = [
-  { key: 'all',    label: 'Toate' },
-  { key: 'meat',   label: 'Carne' },
-  { key: 'fish',   label: 'Pește' },
-  { key: 'veggie', label: 'Vegetarian' },
-  { key: 'chef',   label: 'Chef' },
-]
+const FILTERS = computed<Array<{ key: FilterKey; label: string }>>(() => [
+  { key: 'all',    label: t('menu.filter.all') },
+  { key: 'meat',   label: t('menu.filter.meat') },
+  { key: 'fish',   label: t('menu.filter.fish') },
+  { key: 'veggie', label: t('menu.filter.veggie') },
+  { key: 'chef',   label: t('menu.filter.chef') },
+])
 
 // Lightweight client-side filter — backend doesn't tag dishes by diet, so we
 // heuristically match against name + description.
@@ -114,12 +116,12 @@ function addRecommendation(rec: Recommendation) {
       <button
         class="circle-btn"
         :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink }"
-        aria-label="Înapoi"
+        :aria-label="t('common.back')"
         @click="emit('back')"
       >←</button>
       <div class="title">
-        <div class="title-name">{{ category?.name ?? 'Meniu' }}</div>
-        <div class="title-meta" :style="{ color: T.ink70 }">{{ items.length }} preparate</div>
+        <div class="title-name">{{ category?.name ?? t('menu.fallbackTitle') }}</div>
+        <div class="title-meta" :style="{ color: T.ink70 }">{{ t('menu.dishesCount', { count: items.length }) }}</div>
       </div>
       <button
         class="circle-btn"
@@ -127,7 +129,7 @@ function addRecommendation(rec: Recommendation) {
         :style="searchOpen
           ? { background: T.ink, border: 'none', color: T.paperHi }
           : { background: T.card, border: `1px solid ${T.ink12}`, color: T.ink70 }"
-        :aria-label="searchOpen ? 'Închide căutarea' : 'Caută'"
+        :aria-label="searchOpen ? t('menu.closeSearch') : t('menu.openSearch')"
         :aria-pressed="searchOpen"
         @click="toggleSearch"
       >{{ searchOpen ? '×' : '⌕' }}</button>
@@ -143,7 +145,7 @@ function addRecommendation(rec: Recommendation) {
           v-model="searchQuery"
           class="search-input"
           type="search"
-          :placeholder="`Caută în ${category?.name ?? 'meniu'}...`"
+          :placeholder="t('menu.searchPlaceholder', { category: category?.name ?? t('menu.fallbackTitle').toLowerCase() })"
           :style="{ color: T.ink }"
           autofocus
         />
@@ -152,7 +154,7 @@ function addRecommendation(rec: Recommendation) {
           type="button"
           class="search-clear"
           :style="{ color: T.ink70 }"
-          aria-label="Șterge căutarea"
+          :aria-label="t('menu.clearSearch')"
           @click="searchQuery = ''"
         >×</button>
       </div>
@@ -177,9 +179,9 @@ function addRecommendation(rec: Recommendation) {
       v-if="!isLoading && !error && items.length === 0"
       class="state"
       :style="{ color: T.ink70 }"
-    >{{ searchQuery.trim() ? `Niciun rezultat pentru „${searchQuery}".` : 'Niciun preparat în acest filtru.' }}</div>
+    >{{ searchQuery.trim() ? t('menu.noResultsFor', { query: searchQuery }) : t('menu.noResults') }}</div>
 
-    <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">Se încarcă...</div>
+    <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">{{ t('menu.loading') }}</div>
     <div v-else-if="error" class="state" :style="{ color: T.accent }">{{ error }}</div>
 
     <div v-else class="dishes">
@@ -204,7 +206,7 @@ function addRecommendation(rec: Recommendation) {
         <div class="dish-foot" :style="{ borderTop: `1px solid ${T.ink06}` }">
           <div class="price">
             {{ m.price }}
-            <span class="price-unit" :style="{ color: T.ink70 }">RON</span>
+            <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
           </div>
           <button
             class="add-btn"
@@ -212,7 +214,7 @@ function addRecommendation(rec: Recommendation) {
             :disabled="!m.isAvailable"
             @click="cartStore.addItem(m)"
           >
-            <span class="plus">+</span> {{ m.isAvailable ? 'Adaugă' : 'Epuizat' }}
+            <span class="plus">+</span> {{ m.isAvailable ? t('menu.add') : t('menu.outOfStock') }}
           </button>
         </div>
       </article>
@@ -224,7 +226,7 @@ function addRecommendation(rec: Recommendation) {
       :style="{ background: T.paperHi, borderTop: `1px solid ${T.ink12}` }"
     >
       <div class="recs-pill" :style="{ background: T.lime, color: T.ink }">
-        Recomandate pentru dumneavoastră
+        {{ t('menu.recommendedForYou') }}
       </div>
       <div class="recs-strip">
         <div
@@ -244,12 +246,12 @@ function addRecommendation(rec: Recommendation) {
           <div class="rec-row">
             <span class="rec-price">
               {{ r.menuItem.price }}
-              <span class="rec-price-unit" :style="{ color: T.ink70 }">RON</span>
+              <span class="rec-price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </span>
             <button
               class="rec-add"
               :style="{ background: T.accent, color: T.onAccent }"
-              aria-label="Adaugă recomandarea"
+              :aria-label="t('menu.addRecommendation')"
               @click="addRecommendation(r)"
             >+</button>
           </div>
@@ -263,10 +265,10 @@ function addRecommendation(rec: Recommendation) {
         <div
           class="cart-eyebrow"
           :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
-        >Coșul meu</div>
+        >{{ t('menu.cartLabel') }}</div>
         <div class="cart-summary">
-          {{ cartStore.total }} RON · {{ cartCount }}
-          {{ cartCount === 1 ? 'preparat' : 'preparate' }}
+          {{ cartStore.total }} {{ t('common.ron') }} ·
+          {{ cartCount === 1 ? t('menu.cartCountOne', { count: cartCount }) : t('menu.cartCountMany', { count: cartCount }) }}
         </div>
       </div>
       <button
@@ -274,7 +276,7 @@ function addRecommendation(rec: Recommendation) {
         type="button"
         :style="{ background: T.accent, color: T.onAccent }"
         @click="emit('open-cart')"
-      >Coș →</button>
+      >{{ t('menu.cartGo') }}</button>
     </div>
   </PhoneScreen>
 </template>

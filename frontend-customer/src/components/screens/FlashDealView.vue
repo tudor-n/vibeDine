@@ -2,6 +2,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { toneFromKey } from '@/design/tokens'
 import { useTheme } from '@/composables/useTheme'
+import { useLocale } from '@/composables/useLocale'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { apiClient } from '@/services/api-client'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
@@ -10,6 +11,7 @@ import FoodTile from '@/components/ui/FoodTile.vue'
 
 const store = useFlashDealStore()
 const { tokens: T, theme } = useTheme()
+const { t } = useLocale()
 
 const remaining = ref(0)
 const totalSeconds = ref(0)
@@ -80,7 +82,7 @@ async function claim() {
   const deal = store.activeDeal
   const orderId = store.activeDealOrderId
   if (!deal || !orderId) {
-    claimError.value = 'Sesiune invalidă. Reîncărcați pagina.'
+    claimError.value = t('flash.errorInvalidSession')
     return
   }
   try {
@@ -90,7 +92,7 @@ async function claim() {
     claimSuccess.value = true
     setTimeout(() => store.clearDeal(), 1200)
   } catch (e) {
-    claimError.value = e instanceof Error ? e.message : 'Eroare la revendicare.'
+    claimError.value = e instanceof Error ? e.message : t('flash.errorClaim')
   } finally {
     isClaiming.value = false
   }
@@ -120,13 +122,13 @@ function dismiss() {
         :style="{ background: T.lime, color: '#000' }"
       >
         <span class="dot" :style="{ background: '#000' }" />
-        Ofertă specială
+        {{ t('flash.badge') }}
       </div>
       <button
         class="dismiss"
         type="button"
         :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink70 }"
-        aria-label="Închide oferta"
+        :aria-label="t('flash.dismiss')"
         @click="dismiss"
       >✕</button>
     </div>
@@ -134,13 +136,13 @@ function dismiss() {
     <div class="scroll">
     <div class="hero">
       <h1 class="title">
-        Ofertă<br /><span
+        {{ t('flash.title1') }}<br /><span
           class="hero-mark"
           :style="{ background: T.lime, color: '#000' }"
-        >limitată</span><br />de chef.
+        >{{ t('flash.titleMark') }}</span><br />{{ t('flash.title3') }}
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
-        {{ store.activeDeal.reason || 'O porție specială la preț redus, doar câteva minute.' }}
+        {{ store.activeDeal.reason || t('flash.defaultReason') }}
       </p>
 
       <div
@@ -158,9 +160,9 @@ function dismiss() {
             v-if="discountPercent"
             class="discount"
             :style="{ background: T.lime, color: T.ink }"
-          >−{{ discountPercent }}% reducere</div>
+          >{{ t('flash.discount', { percent: discountPercent }) }}</div>
           <div class="deal-name">{{ store.activeDeal.menuItem.name }}</div>
-          <div class="deal-meta" :style="{ color: T.ink70 }">Chef's cut · porție limitată</div>
+          <div class="deal-meta" :style="{ color: T.ink70 }">{{ t('flash.meta') }}</div>
           <div class="prices">
             <!-- Dark green per the handoff (#3E7B10) on warm; on dark theme
                  we keep the brand lime for contrast. -->
@@ -169,24 +171,24 @@ function dismiss() {
               :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }"
             >
               {{ store.activeDeal.discountedPrice }}
-              <span class="price-unit" :style="{ color: T.ink70 }">RON</span>
+              <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </span>
             <span
               v-if="store.activeDeal.menuItem.price !== store.activeDeal.discountedPrice"
               class="price-was"
               :style="{ color: T.ink40 }"
-            >{{ store.activeDeal.menuItem.price }} RON</span>
+            >{{ store.activeDeal.menuItem.price }} {{ t('common.ron') }}</span>
           </div>
         </div>
       </div>
 
       <div class="countdown" :style="{ background: T.card, border: `1px solid ${T.ink12}` }">
-        <div class="countdown-label" :style="{ color: T.ink70 }">Timp rămas</div>
+        <div class="countdown-label" :style="{ color: T.ink70 }">{{ t('flash.timeLeft') }}</div>
         <div class="countdown-row">
           <span class="num">{{ minutes }}</span>
           <span class="colon" :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }">:</span>
           <span class="num">{{ seconds }}</span>
-          <span class="unit" :style="{ color: T.ink70 }">minute</span>
+          <span class="unit" :style="{ color: T.ink70 }">{{ t('flash.minutes') }}</span>
         </div>
         <div class="bar" :style="{ background: T.paper, border: `1px solid ${T.ink12}` }">
           <div
@@ -214,10 +216,10 @@ function dismiss() {
       >
         <span>{{
           claimSuccess
-            ? 'Adăugat ✓'
+            ? t('flash.added')
             : isClaiming
-              ? 'Se adaugă...'
-              : 'Adaugă în comandă'
+              ? t('flash.adding')
+              : t('flash.addToOrder')
         }}</span>
       </BigButton>
       <button
@@ -225,7 +227,7 @@ function dismiss() {
         type="button"
         :style="{ color: T.ink70 }"
         @click="dismiss"
-      >Nu mulțumesc</button>
+      >{{ t('flash.noThanks') }}</button>
       <p v-if="claimError" class="claim-error" :style="{ color: T.accentDk }">{{ claimError }}</p>
     </div>
   </PhoneScreen>

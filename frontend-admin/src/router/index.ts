@@ -12,6 +12,12 @@ const router = createRouter({
             meta: { public: true },
         },
         {
+            path: '/confirm-email',
+            name: 'confirm-email',
+            component: () => import('@/views/ConfirmEmailView.vue'),
+            meta: { public: true },
+        },
+        {
             path: '/onboarding',
             name: 'onboarding',
             component: () => import('@/views/OnboardingView.vue'),
@@ -49,12 +55,11 @@ const router = createRouter({
         {
             path: '/orders/active',
             name: 'orders-active',
-            component: () => import('@/views/ActiveOrdersView.vue')
+            component: () => import('@/views/ActiveOrdersBoardView.vue')
         },
         {
             path: '/orders/active/board',
-            name: 'orders-active-board',
-            component: () => import('@/views/ActiveOrdersBoardView.vue')
+            redirect: { name: 'orders-active' },
         },
         {
             path: '/tables',
