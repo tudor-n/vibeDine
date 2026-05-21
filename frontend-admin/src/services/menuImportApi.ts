@@ -49,6 +49,64 @@ function makeError(message: string, status: number, body?: unknown): MenuImportA
   return err
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return null
+}
+
+function asOptionalString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function asOptionalNumber(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
+}
+
+function normalizeExtractedItem(value: unknown): ExtractedMenuItem {
+  const raw = asRecord(value) ?? {}
+  const item: ExtractedMenuItem = {
+    name: typeof raw.name === 'string' ? raw.name : '',
+    price: typeof raw.price === 'number' ? raw.price : Number(raw.price ?? 0),
+    sourcePage: Number(raw.sourcePage ?? raw.source_page ?? 0),
+    sourceIndex: Number(raw.sourceIndex ?? raw.source_index ?? 0),
+    categoryHint: asOptionalString(raw.categoryHint ?? raw.category_hint),
+  }
+  if ('description' in raw) item.description = asOptionalString(raw.description)
+  if ('confidence' in raw) item.confidence = asOptionalNumber(raw.confidence)
+  return item
+}
+
+function normalizeFailedPage(value: unknown): FailedPage {
+  const raw = asRecord(value) ?? {}
+  return {
+    sourcePage: Number(raw.sourcePage ?? raw.source_page ?? 0),
+    reason: raw.reason as FailedPage['reason'],
+  }
+}
+
+function normalizeScanResponse(value: unknown): MenuScanResponse | undefined {
+  const raw = asRecord(value)
+  if (!raw) return undefined
+  const items = Array.isArray(raw.items) ? raw.items : []
+  const failedPagesRaw = raw.failedPages ?? raw.failed_pages
+  const failedPages = Array.isArray(failedPagesRaw) ? failedPagesRaw : []
+  return {
+    items: items.map(normalizeExtractedItem),
+    failedPages: failedPages.map(normalizeFailedPage),
+    model: typeof raw.model === 'string' ? raw.model : '',
+    schemaVersion: Number(raw.schemaVersion ?? raw.schema_version ?? 1),
+  }
+}
+
+function normalizeImportJob(value: MenuImportJobResponse): MenuImportJobResponse {
+  return {
+    ...value,
+    result: normalizeScanResponse(value.result),
+  }
+}
+
 function resolveBaseUrl(): string {
   const raw = import.meta.env.VITE_API_URL ?? ''
   return raw.endsWith('/') ? raw.slice(0, -1) : raw
@@ -109,7 +167,7 @@ async function getImportJob(jobId: string): Promise<MenuImportJobResponse> {
     const body = await res.json().catch(() => undefined)
     throw makeError(`getImportJob failed: HTTP ${res.status}`, res.status, body)
   }
-  return (await res.json()) as MenuImportJobResponse
+  return normalizeImportJob((await res.json()) as MenuImportJobResponse)
 }
 
 async function cancelImportJob(jobId: string): Promise<void> {

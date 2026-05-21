@@ -92,3 +92,56 @@ describe('menuImportApi.bulkCreate', () => {
     ).rejects.toMatchObject({ status: 409, missingCategoryIds: ['c-gone'] })
   })
 })
+
+describe('menuImportApi.getImportJob', () => {
+  it('normalizes the completed PDF result from backend snake_case to frontend camelCase', async () => {
+    server.use(
+      http.get(`${baseUrl}/api/restaurants/${restaurantId}/admin/menu/imports/job-1`, () =>
+        HttpResponse.json({
+          id: 'job-1',
+          status: 'complete',
+          phase: 'finalizing',
+          totalPages: 2,
+          processedPages: 2,
+          failedPages: 1,
+          originalFileName: 'menu.pdf',
+          fileSizeBytes: 4096,
+          providerUsed: 'gemini',
+          result: {
+            items: [
+              {
+                name: 'Ciorbă',
+                price: 18,
+                source_page: 0,
+                source_index: 3,
+                category_hint: 'Supe',
+              },
+            ],
+            failed_pages: [{ source_page: 1, reason: 'no_items_detected' }],
+            model: 'gemini-flash',
+            schema_version: 1,
+          },
+          createdAt: '2026-05-21T10:00:00Z',
+          updatedAt: '2026-05-21T10:01:00Z',
+          completedAt: '2026-05-21T10:01:00Z',
+        }),
+      ),
+    )
+
+    const job = await menuImportApi.getImportJob('job-1')
+
+    expect(job.result?.items).toEqual([
+      {
+        name: 'Ciorbă',
+        price: 18,
+        sourcePage: 0,
+        sourceIndex: 3,
+        categoryHint: 'Supe',
+      },
+    ])
+    expect(job.result?.failedPages).toEqual([
+      { sourcePage: 1, reason: 'no_items_detected' },
+    ])
+    expect(job.result?.schemaVersion).toBe(1)
+  })
+})
