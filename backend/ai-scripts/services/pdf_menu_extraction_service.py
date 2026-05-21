@@ -75,6 +75,8 @@ class PdfExtractionTimings:
     render_seconds: float = 0.0
     text_provider_seconds: float = 0.0
     vision_provider_seconds: float = 0.0
+    rendered_pages: int = 0
+    rendered_bytes: int = 0
 
     def total_measured_seconds(self) -> float:
         return (
@@ -85,11 +87,23 @@ class PdfExtractionTimings:
             + self.vision_provider_seconds
         )
 
+    def avg_rendered_bytes(self) -> int:
+        if self.rendered_pages == 0:
+            return 0
+        return self.rendered_bytes // self.rendered_pages
+
 
 def _record_elapsed(metrics: PdfExtractionTimings | None, field_name: str, started_at: float) -> None:
     if metrics is None:
         return
     setattr(metrics, field_name, getattr(metrics, field_name) + time.perf_counter() - started_at)
+
+
+def _record_rendered_bytes(metrics: PdfExtractionTimings | None, image_bytes: bytes) -> None:
+    if metrics is None:
+        return
+    metrics.rendered_pages += 1
+    metrics.rendered_bytes += len(image_bytes)
 
 
 class PdfMenuExtractionService:
@@ -517,7 +531,9 @@ class _LazyPageRenderer:
                     quality=self._quality,
                 )
                 self._renderer.__enter__()
-            return self._renderer.render_page(page_number)
+            image_bytes = self._renderer.render_page(page_number)
+            _record_rendered_bytes(self._metrics, image_bytes)
+            return image_bytes
         finally:
             _record_elapsed(self._metrics, "render_seconds", render_started_at)
 

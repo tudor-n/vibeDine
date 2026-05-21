@@ -317,6 +317,9 @@ async def test_optional_timings_record_scanned_pdf_parse_render_and_provider_wor
     assert metrics.parse_seconds > 0
     assert metrics.classify_seconds > 0
     assert metrics.render_seconds > 0
+    assert metrics.rendered_pages == 3
+    assert metrics.rendered_bytes > 0
+    assert metrics.avg_rendered_bytes() > 0
     assert metrics.vision_provider_seconds > 0
     assert metrics.text_provider_seconds == 0
     assert metrics.total_measured_seconds() >= metrics.render_seconds
@@ -340,6 +343,9 @@ async def test_optional_timings_record_text_provider_work_without_rendering():
 
     assert len(result.items) == 6
     assert metrics.text_provider_seconds > 0
+    assert metrics.rendered_pages == 0
+    assert metrics.rendered_bytes == 0
+    assert metrics.avg_rendered_bytes() == 0
     assert metrics.render_seconds == 0
     assert metrics.vision_provider_seconds == 0
 

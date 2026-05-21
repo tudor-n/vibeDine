@@ -119,11 +119,15 @@ python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
   --fake-provider `
   --extract-concurrency 8 `
   --provider-concurrency 4 `
+  --render-scale 1.5 `
+  --render-quality 85 `
   --fake-latency-ms 25 `
   --repeat 3
 ```
 
-The output reports one line per run with page count, item count, failed pages, peak provider concurrency, parse/classify/render/provider timings, measured timing total, and wall time. Provider timings are cumulative across concurrent provider calls, so they can exceed wall time when concurrency is greater than one. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
+The output reports one line per run with page count, item count, failed pages, peak provider concurrency, render scale/quality, rendered JPEG bytes, average rendered bytes per page, parse/classify/render/provider timings, measured timing total, and wall time. Provider timings are cumulative across concurrent provider calls, so they can exceed wall time when concurrency is greater than one. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
+
+For scanned PDFs, compare `--render-scale` and `--render-quality` values before changing production defaults. Lower values reduce rendered payload size and provider upload time, but they can also reduce OCR quality.
 
 To benchmark real providers, set the provider API key and opt in explicitly:
 
@@ -135,6 +139,8 @@ python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
   --provider gemini `
   --extract-concurrency 8 `
   --provider-concurrency 2 `
+  --render-scale 1.5 `
+  --render-quality 85 `
   --repeat 1
 ```
 

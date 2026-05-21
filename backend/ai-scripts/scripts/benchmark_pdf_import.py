@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
+import math
 import os
 import sys
 import time
@@ -127,6 +128,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provider", choices=("gemini", "claude"), default="gemini")
     parser.add_argument("--extract-concurrency", type=int, default=8)
     parser.add_argument("--provider-concurrency", type=int, default=4)
+    parser.add_argument("--render-scale", type=float, default=1.5)
+    parser.add_argument("--render-quality", type=int, default=85)
     parser.add_argument("--fake-latency-ms", type=int, default=25)
     parser.add_argument("--repeat", type=int, default=1)
     args = parser.parse_args()
@@ -135,6 +138,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("--extract-concurrency must be >= 1.")
     if args.provider_concurrency < 1:
         parser.error("--provider-concurrency must be >= 1.")
+    if not math.isfinite(args.render_scale):
+        parser.error("--render-scale must be finite.")
+    if args.render_scale <= 0:
+        parser.error("--render-scale must be > 0.")
+    if args.render_quality < 1 or args.render_quality > 100:
+        parser.error("--render-quality must be between 1 and 100.")
     if args.fake_latency_ms < 0:
         parser.error("--fake-latency-ms must be >= 0.")
     if args.repeat < 1:
@@ -176,6 +185,8 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             progress=reporter,
             concurrency=args.extract_concurrency,
             provider_concurrency=args.provider_concurrency,
+            render_scale=args.render_scale,
+            render_quality=args.render_quality,
             metrics=metrics,
         )
         request = PdfJobRequest(
@@ -200,6 +211,10 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             f"failed_pages={len(response.failed_pages)} "
             f"vision_calls={vision_stats.calls} "
             f"peak_provider_concurrency={vision_stats.peak} "
+            f"render_scale={args.render_scale:g} "
+            f"render_quality={args.render_quality} "
+            f"rendered_bytes={metrics.rendered_bytes} "
+            f"avg_rendered_bytes={metrics.avg_rendered_bytes()} "
             f"parse_seconds={metrics.parse_seconds:.3f} "
             f"classify_seconds={metrics.classify_seconds:.3f} "
             f"render_seconds={metrics.render_seconds:.3f} "

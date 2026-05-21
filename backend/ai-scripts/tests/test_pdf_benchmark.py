@@ -33,6 +33,10 @@ def test_benchmark_pdf_import_fake_provider_smoke():
     assert "parse_seconds=" in result.stdout
     assert "classify_seconds=" in result.stdout
     assert "render_seconds=" in result.stdout
+    assert "render_scale=1.5" in result.stdout
+    assert "render_quality=85" in result.stdout
+    assert "rendered_bytes=" in result.stdout
+    assert "avg_rendered_bytes=" in result.stdout
     assert "text_provider_seconds=" in result.stdout
     assert "vision_provider_seconds=" in result.stdout
     assert "total_seconds=" in result.stdout
@@ -62,6 +66,58 @@ def test_benchmark_pdf_import_repeat_prefixes_run_number():
     lines = result.stdout.splitlines()
     assert lines[0].startswith("run=1 pages=3")
     assert lines[1].startswith("run=2 pages=3")
+
+
+def test_benchmark_pdf_import_accepts_render_tuning_args():
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_pdf_import.py"
+    fixture = Path(__file__).parent / "fixtures" / "sample_menus" / "scanned_3page.pdf"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(fixture),
+            "--fake-provider",
+            "--render-scale",
+            "1.0",
+            "--render-quality",
+            "70",
+            "--fake-latency-ms",
+            "1",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "render_scale=1" in result.stdout
+    assert "render_quality=70" in result.stdout
+    assert "rendered_bytes=" in result.stdout
+    assert "avg_rendered_bytes=" in result.stdout
+
+
+def test_benchmark_pdf_import_rejects_non_finite_render_scale():
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_pdf_import.py"
+    fixture = Path(__file__).parent / "fixtures" / "sample_menus" / "scanned_3page.pdf"
+
+    for value in ("nan", "inf", "-inf"):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                str(fixture),
+                "--fake-provider",
+                "--render-scale",
+                value,
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        assert result.returncode == 2, result.stderr
+        assert "--render-scale must be finite." in result.stderr
 
 
 def test_benchmark_pdf_import_real_provider_without_key_exits_cleanly():
