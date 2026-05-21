@@ -79,6 +79,8 @@ class PdfExtractionTimings:
     vision_provider_seconds: float = 0.0
     rendered_pages: int = 0
     rendered_bytes: int = 0
+    embedded_image_pages: int = 0
+    embedded_image_bytes: int = 0
 
     def total_measured_seconds(self) -> float:
         return (
@@ -106,6 +108,13 @@ def _record_rendered_bytes(metrics: PdfExtractionTimings | None, image_bytes: by
         return
     metrics.rendered_pages += 1
     metrics.rendered_bytes += len(image_bytes)
+
+
+def _record_embedded_image_bytes(metrics: PdfExtractionTimings | None, image_bytes: bytes) -> None:
+    if metrics is None:
+        return
+    metrics.embedded_image_pages += 1
+    metrics.embedded_image_bytes += len(image_bytes)
 
 
 class PdfMenuExtractionService:
@@ -416,6 +425,11 @@ class PdfMenuExtractionService:
         vision_extractor: "_LazyVisionExtractor",
     ) -> None:
         pnum = unit.page_numbers[0]
+        embedded_image_bytes = (
+            unit.page_contents[0].embedded_image_bytes
+            if unit.page_contents
+            else None
+        )
         await self._run_vision_for_page(
             pnum,
             request,
@@ -424,6 +438,7 @@ class PdfMenuExtractionService:
             payload_semaphore,
             page_renderer,
             vision_extractor,
+            embedded_image_bytes=embedded_image_bytes,
             is_reclassified=False,
         )
         state.processed_pages += 1
@@ -438,10 +453,13 @@ class PdfMenuExtractionService:
         page_renderer: "_LazyPageRenderer",
         vision_extractor: "_LazyVisionExtractor",
         *,
+        embedded_image_bytes: Optional[bytes] = None,
         is_reclassified: bool,
     ) -> None:
         last_exc: Optional[Exception] = None
-        image_bytes: Optional[bytes] = None
+        image_bytes: Optional[bytes] = embedded_image_bytes
+        if image_bytes is not None:
+            _record_embedded_image_bytes(self._metrics, image_bytes)
 
         for attempt in range(_MAX_RETRIES):
             if attempt > 0:
@@ -634,6 +652,7 @@ def _build_work_units(
                 units.append(_WorkUnit(
                     kind="image_page",
                     page_numbers=[page_content.page_number],
+                    page_contents=[page_content],
                 ))
             else:  # skip
                 units.append(_WorkUnit(

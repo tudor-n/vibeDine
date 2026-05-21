@@ -54,6 +54,14 @@ class _FakePdf:
         self.closed = True
 
 
+class _FakeImageStream:
+    def __init__(self, raw_data: bytes):
+        self._raw_data = raw_data
+
+    def get_rawdata(self) -> bytes:
+        return self._raw_data
+
+
 class TestDigitalPdf:
     def test_returns_three_pages(self):
         pages = extract(DIGITAL_3PAGE)
@@ -116,6 +124,33 @@ class TestScannedPdf:
         assert pages[0].has_images is True
         assert pages[0].width_pts == 100.0
         assert pages[0].height_pts == 100.0
+        assert page.extract_text_calls == 0
+        assert fake_pdf.closed is True
+
+    def test_image_dominant_page_preserves_embedded_jpeg_bytes(self, monkeypatch):
+        embedded_jpeg = b"\xff\xd8\xffembedded-jpeg"
+        page = _FakePage(
+            text="This text would be expensive to ask pdfplumber for",
+            images=[
+                {
+                    "width": 95.0,
+                    "height": 95.0,
+                    "stream": _FakeImageStream(embedded_jpeg),
+                }
+            ],
+        )
+        fake_pdf = _FakePdf([page])
+        monkeypatch.setattr(
+            pdf_text_extractor.pdfplumber,
+            "open",
+            lambda path: fake_pdf,
+        )
+
+        pages = extract("fake-scanned.pdf")
+
+        assert len(pages) == 1
+        assert pages[0].text == ""
+        assert pages[0].embedded_image_bytes == embedded_jpeg
         assert page.extract_text_calls == 0
         assert fake_pdf.closed is True
 

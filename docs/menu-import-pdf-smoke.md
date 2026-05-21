@@ -125,13 +125,13 @@ python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
   --repeat 3
 ```
 
-The output reports one line per run with page count, item count, failed pages, peak provider concurrency, render scale/quality, rendered JPEG bytes, average rendered bytes per page, parse/classify/render/provider timings, measured timing total, and wall time. Provider timings are cumulative across concurrent provider calls, so they can exceed wall time when concurrency is greater than one. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
+The output reports one line per run with page count, item count, failed pages, peak provider concurrency, render scale/quality, rendered JPEG page/byte counts, embedded image page/byte counts, average rendered bytes per page, parse/classify/render/provider timings, measured timing total, and wall time. Provider timings are cumulative across concurrent provider calls, so they can exceed wall time when concurrency is greater than one. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
 
 For scanned PDFs, compare `--render-scale` and `--render-quality` values before changing production defaults. Lower values reduce rendered payload size and provider upload time, but they can also reduce OCR quality.
 
 Large PDF parsing and page rendering are offloaded from the Python event loop. Rendering still uses one PDFium worker per job, so page rasterization stays serial while progress callbacks and other requests can keep moving.
 
-Image-dominant pages skip pdfplumber text extraction and route straight to the vision path. This removes wasted parse work for photo/scanned PDFs while preserving text extraction for digital pages with small embedded images.
+Image-dominant pages skip pdfplumber text extraction and route straight to the vision path. When the PDF exposes the full-page image as provider-supported raw JPEG/PNG/WebP bytes, the importer sends those bytes directly and skips PDFium rendering for that page. Otherwise, it falls back to the normal render path.
 
 Production uses the matching `PDF_RENDER_SCALE` and `PDF_RENDER_JPEG_QUALITY` environment variables. Keep `PDF_EXTRACT_CONCURRENCY`, `PDF_PROVIDER_MAX_CONCURRENCY`, `PDF_TEXT_BATCH_SIZE`, `PDF_RENDER_SCALE`, and `PDF_RENDER_JPEG_QUALITY` positive and finite; invalid values fail fast instead of letting a large import hang.
 

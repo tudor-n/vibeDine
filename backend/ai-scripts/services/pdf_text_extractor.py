@@ -5,6 +5,7 @@ Produces one PageContent per page with text, density, and image-presence info.
 import logging
 import re
 from dataclasses import dataclass
+from typing import Optional
 
 import pdfplumber
 
@@ -21,6 +22,7 @@ class PageContent:
     has_images: bool      # True if pdfplumber reports embedded images on the page
     width_pts: float
     height_pts: float
+    embedded_image_bytes: Optional[bytes] = None
 
 
 def _normalize_text(raw_text: str) -> str:
@@ -47,15 +49,48 @@ def _image_area_pts(image: dict) -> float:
     return max(0.0, x1 - x0) * max(0.0, bottom - top)
 
 
-def _has_image_dominant_page(width: float, height: float, images: list[dict]) -> bool:
+def _dominant_image(width: float, height: float, images: list[dict]) -> Optional[dict]:
     page_area = width * height
     if page_area <= 0:
-        return False
+        return None
 
-    return any(
-        _image_area_pts(image) / page_area >= _IMAGE_DOMINANT_AREA_RATIO
-        for image in images
+    for image in images:
+        if _image_area_pts(image) / page_area >= _IMAGE_DOMINANT_AREA_RATIO:
+            return image
+    return None
+
+
+def _stream_raw_bytes(stream) -> Optional[bytes]:
+    get_rawdata = getattr(stream, "get_rawdata", None)
+    if not callable(get_rawdata):
+        return None
+    try:
+        raw_data = get_rawdata()
+    except Exception:
+        logger.debug("Could not read raw embedded image bytes", exc_info=True)
+        return None
+    if isinstance(raw_data, bytes):
+        return raw_data
+    if isinstance(raw_data, bytearray):
+        return bytes(raw_data)
+    return None
+
+
+def _is_provider_supported_image_bytes(image_bytes: bytes) -> bool:
+    return (
+        image_bytes.startswith(b"\xff\xd8\xff")
+        or image_bytes.startswith(b"\x89PNG\r\n")
+        or (image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP")
     )
+
+
+def _embedded_image_bytes(image: dict) -> Optional[bytes]:
+    image_bytes = _stream_raw_bytes(image.get("stream"))
+    if image_bytes is None:
+        return None
+    if not _is_provider_supported_image_bytes(image_bytes):
+        return None
+    return image_bytes
 
 
 def extract(path: str) -> list[PageContent]:
@@ -77,8 +112,11 @@ def extract(path: str) -> list[PageContent]:
                 area = width * height
                 images = page.images or []
                 has_images = bool(images)
-                if has_images and _has_image_dominant_page(width, height, images):
+                embedded_image_bytes = None
+                dominant_image = _dominant_image(width, height, images) if has_images else None
+                if dominant_image is not None:
                     normalized = ""
+                    embedded_image_bytes = _embedded_image_bytes(dominant_image)
                 else:
                     raw_text = page.extract_text() or ""
                     normalized = _normalize_text(raw_text)
@@ -91,6 +129,7 @@ def extract(path: str) -> list[PageContent]:
                         has_images=has_images,
                         width_pts=width,
                         height_pts=height,
+                        embedded_image_bytes=embedded_image_bytes,
                     )
                 )
             except Exception:

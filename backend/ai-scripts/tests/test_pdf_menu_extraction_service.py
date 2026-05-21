@@ -328,6 +328,68 @@ async def test_optional_timings_record_scanned_pdf_parse_render_and_provider_wor
 
 
 @pytest.mark.asyncio
+async def test_embedded_image_pages_bypass_pdf_renderer(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    embedded_image_bytes = b"\xff\xd8\xffembedded-jpeg"
+    seen_payloads: list[bytes] = []
+
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path: [
+            PageContent(
+                page_number=0,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+                embedded_image_bytes=embedded_image_bytes,
+            )
+        ],
+    )
+
+    class _RendererShouldNotBeCreated:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("embedded image pages should not invoke PDF rendering")
+
+    class _PayloadVisionExtractor:
+        model_name = "payload-vision"
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            seen_payloads.append(image_bytes)
+            return {"items": [
+                {"name": "Embedded Image Item", "price": 10.0, "source_index": 0},
+            ]}
+
+    monkeypatch.setattr(
+        service_module.pdf_renderer,
+        "PdfPageRenderer",
+        _RendererShouldNotBeCreated,
+        raising=False,
+    )
+    metrics = PdfExtractionTimings()
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: _PayloadVisionExtractor(),
+        progress=StubProgressReporter(),
+        metrics=metrics,
+    )
+
+    result = await service.run(_make_request("fake-embedded-scan.pdf"))
+
+    assert [item.name for item in result.items] == ["Embedded Image Item"]
+    assert seen_payloads == [embedded_image_bytes]
+    assert metrics.embedded_image_pages == 1
+    assert metrics.embedded_image_bytes == len(embedded_image_bytes)
+    assert metrics.rendered_pages == 0
+    assert metrics.rendered_bytes == 0
+    assert metrics.render_seconds == 0
+
+
+@pytest.mark.asyncio
 async def test_optional_timings_record_text_provider_work_without_rendering():
     metrics = PdfExtractionTimings()
     items = []

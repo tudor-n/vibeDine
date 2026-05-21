@@ -35,8 +35,11 @@ def test_benchmark_pdf_import_fake_provider_smoke():
     assert "render_seconds=" in result.stdout
     assert "render_scale=1.5" in result.stdout
     assert "render_quality=85" in result.stdout
+    assert "rendered_pages=" in result.stdout
     assert "rendered_bytes=" in result.stdout
     assert "avg_rendered_bytes=" in result.stdout
+    assert "embedded_image_pages=" in result.stdout
+    assert "embedded_image_bytes=" in result.stdout
     assert "text_provider_seconds=" in result.stdout
     assert "vision_provider_seconds=" in result.stdout
     assert "total_seconds=" in result.stdout
@@ -93,8 +96,11 @@ def test_benchmark_pdf_import_accepts_render_tuning_args():
     assert result.returncode == 0, result.stderr
     assert "render_scale=1" in result.stdout
     assert "render_quality=70" in result.stdout
+    assert "rendered_pages=" in result.stdout
     assert "rendered_bytes=" in result.stdout
     assert "avg_rendered_bytes=" in result.stdout
+    assert "embedded_image_pages=" in result.stdout
+    assert "embedded_image_bytes=" in result.stdout
 
 
 def test_benchmark_pdf_import_rejects_non_finite_render_scale():
