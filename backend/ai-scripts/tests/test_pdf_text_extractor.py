@@ -154,6 +154,34 @@ class TestScannedPdf:
         assert page.extract_text_calls == 0
         assert fake_pdf.closed is True
 
+    def test_image_dominant_page_omits_embedded_image_above_byte_budget(self, monkeypatch):
+        embedded_jpeg = b"\xff\xd8\xff" + (b"x" * 20)
+        page = _FakePage(
+            text="This text would be expensive to ask pdfplumber for",
+            images=[
+                {
+                    "width": 95.0,
+                    "height": 95.0,
+                    "stream": _FakeImageStream(embedded_jpeg),
+                }
+            ],
+        )
+        fake_pdf = _FakePdf([page])
+        monkeypatch.setattr(
+            pdf_text_extractor.pdfplumber,
+            "open",
+            lambda path: fake_pdf,
+        )
+
+        pages = extract("fake-scanned.pdf", max_embedded_image_bytes=10)
+
+        assert len(pages) == 1
+        assert pages[0].text == ""
+        assert pages[0].embedded_image_bytes is None
+        assert pages[0].skipped_embedded_image_bytes == len(embedded_jpeg)
+        assert page.extract_text_calls == 0
+        assert fake_pdf.closed is True
+
     def test_small_image_page_still_extracts_text(self, monkeypatch):
         page = _FakePage(
             text="Pizza 25,00 lei\nPasta 31,00 lei",

@@ -337,7 +337,7 @@ async def test_embedded_image_pages_bypass_pdf_renderer(monkeypatch):
     monkeypatch.setattr(
         service_module.pdf_text_extractor,
         "extract",
-        lambda path: [
+        lambda path, **kwargs: [
             PageContent(
                 page_number=0,
                 text="",
@@ -390,6 +390,116 @@ async def test_embedded_image_pages_bypass_pdf_renderer(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_oversized_embedded_image_page_falls_back_to_pdf_renderer(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    oversized_image_bytes = b"\xff\xd8\xff" + (b"x" * 32)
+    rendered_payload = b"\xff\xd8\xffrendered-jpeg"
+    seen_payloads: list[bytes] = []
+
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path, *, max_embedded_image_bytes: [
+            PageContent(
+                page_number=0,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+                embedded_image_bytes=None,
+                skipped_embedded_image_bytes=len(oversized_image_bytes),
+            )
+        ],
+    )
+
+    class _FakePageRenderer:
+        def __init__(self, path: str, *, scale: float = 1.5, quality: int = 85):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+        def render_page(self, page_number: int) -> bytes:
+            return rendered_payload
+
+    class _PayloadVisionExtractor:
+        model_name = "payload-vision"
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            seen_payloads.append(image_bytes)
+            return {"items": [
+                {"name": "Rendered Fallback Item", "price": 10.0, "source_index": 0},
+            ]}
+
+    monkeypatch.setattr(
+        service_module.pdf_renderer,
+        "PdfPageRenderer",
+        _FakePageRenderer,
+        raising=False,
+    )
+    metrics = PdfExtractionTimings()
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: _PayloadVisionExtractor(),
+        progress=StubProgressReporter(),
+        max_embedded_image_bytes=10,
+        metrics=metrics,
+    )
+
+    result = await service.run(_make_request("fake-oversized-embedded-scan.pdf"))
+
+    assert [item.name for item in result.items] == ["Rendered Fallback Item"]
+    assert seen_payloads == [rendered_payload]
+    assert metrics.embedded_image_pages == 0
+    assert metrics.embedded_image_bytes == 0
+    assert metrics.skipped_embedded_image_pages == 1
+    assert metrics.skipped_embedded_image_bytes == len(oversized_image_bytes)
+    assert metrics.rendered_pages == 1
+    assert metrics.rendered_bytes == len(rendered_payload)
+
+
+@pytest.mark.asyncio
+async def test_pdf_parse_receives_embedded_image_byte_budget(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    received_limits: list[int] = []
+
+    def fake_extract(path: str, *, max_embedded_image_bytes: int):
+        received_limits.append(max_embedded_image_bytes)
+        return [
+            PageContent(
+                page_number=0,
+                text="Pizza 25,00 lei Pasta 31,00 lei Salata 20,00 lei",
+                text_density=0.01,
+                has_images=False,
+                width_pts=100.0,
+                height_pts=100.0,
+            )
+        ]
+
+    monkeypatch.setattr(service_module.pdf_text_extractor, "extract", fake_extract)
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": [
+            {"name": "Pizza", "price": 25.0, "source_page": 0, "source_index": 0},
+        ]}),
+        vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        progress=StubProgressReporter(),
+        max_embedded_image_bytes=12345,
+    )
+
+    await service.run(_make_request("fake-digital.pdf"))
+
+    assert received_limits == [12345]
+
+
+@pytest.mark.asyncio
 async def test_optional_timings_record_text_provider_work_without_rendering():
     metrics = PdfExtractionTimings()
     items = []
@@ -421,7 +531,7 @@ async def test_pdf_parse_runs_off_event_loop_thread(monkeypatch):
     event_loop_thread_id = threading.get_ident()
     parse_thread_ids: list[int] = []
 
-    def fake_extract(path: str):
+    def fake_extract(path: str, **kwargs):
         parse_thread_ids.append(threading.get_ident())
         return [
             PageContent(
@@ -519,7 +629,7 @@ async def test_pdf_render_runs_off_event_loop_thread_and_stays_serial(monkeypatc
     monkeypatch.setattr(
         service_module.pdf_text_extractor,
         "extract",
-        lambda path: [
+        lambda path, **kwargs: [
             PageContent(
                 page_number=0,
                 text="",
@@ -608,7 +718,7 @@ async def test_rendered_payloads_do_not_run_ahead_of_provider_slots(monkeypatch)
     monkeypatch.setattr(
         service_module.pdf_text_extractor,
         "extract",
-        lambda path: [
+        lambda path, **kwargs: [
             PageContent(
                 page_number=0,
                 text="",
@@ -692,6 +802,7 @@ def test_provider_concurrency_must_be_positive():
         ({"render_scale": float("nan")}, "render_scale"),
         ({"render_quality": 0}, "render_quality"),
         ({"render_quality": 101}, "render_quality"),
+        ({"max_embedded_image_bytes": -1}, "max_embedded_image_bytes"),
     ],
 )
 def test_service_rejects_invalid_worker_and_render_settings(kwargs, message):
@@ -950,7 +1061,7 @@ async def test_vision_retries_reuse_the_rendered_page(monkeypatch):
     monkeypatch.setattr(
         service_module.pdf_text_extractor,
         "extract",
-        lambda path: [
+        lambda path, **kwargs: [
             PageContent(
                 page_number=0,
                 text="",

@@ -348,6 +348,24 @@ def test_pdf_extraction_factory_passes_render_tuning(monkeypatch):
     assert captured["render_quality"] == 70
 
 
+def test_pdf_extraction_factory_passes_embedded_image_byte_budget(monkeypatch):
+    captured = {}
+
+    class _CapturingService:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setenv("PDF_MAX_EMBEDDED_IMAGE_BYTES", "123456")
+    monkeypatch.setattr(router_module, "PdfMenuExtractionService", _CapturingService)
+    monkeypatch.setattr(router_module, "_build_text_extractor_factory", lambda: (lambda: object()))
+    monkeypatch.setattr(router_module, "_default_extractor_factory", lambda: object())
+
+    builder = router_module.get_pdf_extraction_service_factory()
+    builder(PdfJobRequest(**_valid_body()))
+
+    assert captured["max_embedded_image_bytes"] == 123456
+
+
 @pytest.mark.parametrize(
     ("env_name", "value", "message"),
     [
@@ -358,6 +376,7 @@ def test_pdf_extraction_factory_passes_render_tuning(monkeypatch):
         ("PDF_RENDER_SCALE", "nan", "PDF_RENDER_SCALE"),
         ("PDF_RENDER_JPEG_QUALITY", "0", "PDF_RENDER_JPEG_QUALITY"),
         ("PDF_RENDER_JPEG_QUALITY", "101", "PDF_RENDER_JPEG_QUALITY"),
+        ("PDF_MAX_EMBEDDED_IMAGE_BYTES", "-1", "PDF_MAX_EMBEDDED_IMAGE_BYTES"),
     ],
 )
 def test_pdf_extraction_factory_rejects_invalid_runtime_config(

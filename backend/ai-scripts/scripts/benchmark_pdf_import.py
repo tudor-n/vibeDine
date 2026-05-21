@@ -130,6 +130,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provider-concurrency", type=int, default=4)
     parser.add_argument("--render-scale", type=float, default=1.5)
     parser.add_argument("--render-quality", type=int, default=85)
+    parser.add_argument("--max-embedded-image-bytes", type=int, default=4_000_000)
     parser.add_argument("--fake-latency-ms", type=int, default=25)
     parser.add_argument("--repeat", type=int, default=1)
     args = parser.parse_args()
@@ -144,6 +145,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--render-scale must be > 0.")
     if args.render_quality < 1 or args.render_quality > 100:
         parser.error("--render-quality must be between 1 and 100.")
+    if args.max_embedded_image_bytes < 0:
+        parser.error("--max-embedded-image-bytes must be >= 0.")
     if args.fake_latency_ms < 0:
         parser.error("--fake-latency-ms must be >= 0.")
     if args.repeat < 1:
@@ -187,6 +190,7 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             provider_concurrency=args.provider_concurrency,
             render_scale=args.render_scale,
             render_quality=args.render_quality,
+            max_embedded_image_bytes=args.max_embedded_image_bytes,
             metrics=metrics,
         )
         request = PdfJobRequest(
@@ -213,11 +217,14 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             f"peak_provider_concurrency={vision_stats.peak} "
             f"render_scale={args.render_scale:g} "
             f"render_quality={args.render_quality} "
+            f"max_embedded_image_bytes={args.max_embedded_image_bytes} "
             f"rendered_pages={metrics.rendered_pages} "
             f"rendered_bytes={metrics.rendered_bytes} "
             f"avg_rendered_bytes={metrics.avg_rendered_bytes()} "
             f"embedded_image_pages={metrics.embedded_image_pages} "
             f"embedded_image_bytes={metrics.embedded_image_bytes} "
+            f"skipped_embedded_image_pages={metrics.skipped_embedded_image_pages} "
+            f"skipped_embedded_image_bytes={metrics.skipped_embedded_image_bytes} "
             f"parse_seconds={metrics.parse_seconds:.3f} "
             f"classify_seconds={metrics.classify_seconds:.3f} "
             f"render_seconds={metrics.render_seconds:.3f} "

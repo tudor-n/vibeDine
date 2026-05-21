@@ -81,6 +81,8 @@ class PdfExtractionTimings:
     rendered_bytes: int = 0
     embedded_image_pages: int = 0
     embedded_image_bytes: int = 0
+    skipped_embedded_image_pages: int = 0
+    skipped_embedded_image_bytes: int = 0
 
     def total_measured_seconds(self) -> float:
         return (
@@ -117,6 +119,16 @@ def _record_embedded_image_bytes(metrics: PdfExtractionTimings | None, image_byt
     metrics.embedded_image_bytes += len(image_bytes)
 
 
+def _record_skipped_embedded_image_byte_count(
+    metrics: PdfExtractionTimings | None,
+    byte_count: int,
+) -> None:
+    if metrics is None:
+        return
+    metrics.skipped_embedded_image_pages += 1
+    metrics.skipped_embedded_image_bytes += byte_count
+
+
 class PdfMenuExtractionService:
     def __init__(
         self,
@@ -129,6 +141,7 @@ class PdfMenuExtractionService:
         text_batch_size: int = 8,
         render_scale: float = 1.5,
         render_quality: int = 85,
+        max_embedded_image_bytes: int = pdf_text_extractor.DEFAULT_MAX_EMBEDDED_IMAGE_BYTES,
         metrics: PdfExtractionTimings | None = None,
     ):
         self._text_factory = text_extractor_factory
@@ -152,9 +165,12 @@ class PdfMenuExtractionService:
             raise ValueError("render_scale must be > 0")
         if render_quality < 1 or render_quality > 100:
             raise ValueError("render_quality must be between 1 and 100")
+        if max_embedded_image_bytes < 0:
+            raise ValueError("max_embedded_image_bytes must be >= 0")
         self._text_batch_size = text_batch_size
         self._render_scale = render_scale
         self._render_quality = render_quality
+        self._max_embedded_image_bytes = max_embedded_image_bytes
         self._metrics = metrics
 
     # ------------------------------------------------------------------
@@ -176,7 +192,11 @@ class PdfMenuExtractionService:
 
         parse_started_at = time.perf_counter()
         try:
-            pages = await asyncio.to_thread(pdf_text_extractor.extract, request.storage_path)
+            pages = await asyncio.to_thread(
+                pdf_text_extractor.extract,
+                request.storage_path,
+                max_embedded_image_bytes=self._max_embedded_image_bytes,
+            )
         finally:
             _record_elapsed(self._metrics, "parse_seconds", parse_started_at)
         if not pages:
@@ -430,6 +450,25 @@ class PdfMenuExtractionService:
             if unit.page_contents
             else None
         )
+        skipped_embedded_image_bytes = (
+            unit.page_contents[0].skipped_embedded_image_bytes
+            if unit.page_contents
+            else 0
+        )
+        if skipped_embedded_image_bytes > 0:
+            _record_skipped_embedded_image_byte_count(
+                self._metrics,
+                skipped_embedded_image_bytes,
+            )
+        if (
+            embedded_image_bytes is not None
+            and len(embedded_image_bytes) > self._max_embedded_image_bytes
+        ):
+            _record_skipped_embedded_image_byte_count(
+                self._metrics,
+                len(embedded_image_bytes),
+            )
+            embedded_image_bytes = None
         await self._run_vision_for_page(
             pnum,
             request,

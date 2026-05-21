@@ -12,6 +12,7 @@ import pdfplumber
 logger = logging.getLogger(__name__)
 
 _IMAGE_DOMINANT_AREA_RATIO = 0.85
+DEFAULT_MAX_EMBEDDED_IMAGE_BYTES = 4_000_000
 
 
 @dataclass
@@ -23,6 +24,7 @@ class PageContent:
     width_pts: float
     height_pts: float
     embedded_image_bytes: Optional[bytes] = None
+    skipped_embedded_image_bytes: int = 0
 
 
 def _normalize_text(raw_text: str) -> str:
@@ -84,19 +86,31 @@ def _is_provider_supported_image_bytes(image_bytes: bytes) -> bool:
     )
 
 
-def _embedded_image_bytes(image: dict) -> Optional[bytes]:
+def _embedded_image_payload(
+    image: dict,
+    max_embedded_image_bytes: int,
+) -> tuple[Optional[bytes], int]:
     image_bytes = _stream_raw_bytes(image.get("stream"))
     if image_bytes is None:
-        return None
+        return None, 0
     if not _is_provider_supported_image_bytes(image_bytes):
-        return None
-    return image_bytes
+        return None, 0
+    if len(image_bytes) > max_embedded_image_bytes:
+        return None, len(image_bytes)
+    return image_bytes, 0
 
 
-def extract(path: str) -> list[PageContent]:
+def extract(
+    path: str,
+    *,
+    max_embedded_image_bytes: int = DEFAULT_MAX_EMBEDDED_IMAGE_BYTES,
+) -> list[PageContent]:
     """Open the PDF with pdfplumber, return one PageContent per page in order.
     Closes the PDF before returning. Returns [] for unreadable/empty PDFs (do not raise).
     """
+    if max_embedded_image_bytes < 0:
+        raise ValueError("max_embedded_image_bytes must be >= 0")
+
     try:
         pdf = pdfplumber.open(path)
     except Exception:
@@ -113,10 +127,14 @@ def extract(path: str) -> list[PageContent]:
                 images = page.images or []
                 has_images = bool(images)
                 embedded_image_bytes = None
+                skipped_embedded_image_bytes = 0
                 dominant_image = _dominant_image(width, height, images) if has_images else None
                 if dominant_image is not None:
                     normalized = ""
-                    embedded_image_bytes = _embedded_image_bytes(dominant_image)
+                    embedded_image_bytes, skipped_embedded_image_bytes = _embedded_image_payload(
+                        dominant_image,
+                        max_embedded_image_bytes,
+                    )
                 else:
                     raw_text = page.extract_text() or ""
                     normalized = _normalize_text(raw_text)
@@ -130,6 +148,7 @@ def extract(path: str) -> list[PageContent]:
                         width_pts=width,
                         height_pts=height,
                         embedded_image_bytes=embedded_image_bytes,
+                        skipped_embedded_image_bytes=skipped_embedded_image_bytes,
                     )
                 )
             except Exception:

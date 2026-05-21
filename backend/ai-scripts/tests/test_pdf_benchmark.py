@@ -40,6 +40,8 @@ def test_benchmark_pdf_import_fake_provider_smoke():
     assert "avg_rendered_bytes=" in result.stdout
     assert "embedded_image_pages=" in result.stdout
     assert "embedded_image_bytes=" in result.stdout
+    assert "skipped_embedded_image_pages=" in result.stdout
+    assert "skipped_embedded_image_bytes=" in result.stdout
     assert "text_provider_seconds=" in result.stdout
     assert "vision_provider_seconds=" in result.stdout
     assert "total_seconds=" in result.stdout
@@ -101,6 +103,33 @@ def test_benchmark_pdf_import_accepts_render_tuning_args():
     assert "avg_rendered_bytes=" in result.stdout
     assert "embedded_image_pages=" in result.stdout
     assert "embedded_image_bytes=" in result.stdout
+    assert "skipped_embedded_image_pages=" in result.stdout
+    assert "skipped_embedded_image_bytes=" in result.stdout
+
+
+def test_benchmark_pdf_import_accepts_embedded_image_byte_budget():
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_pdf_import.py"
+    fixture = Path(__file__).parent / "fixtures" / "sample_menus" / "scanned_3page.pdf"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(fixture),
+            "--fake-provider",
+            "--max-embedded-image-bytes",
+            "0",
+            "--fake-latency-ms",
+            "1",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "max_embedded_image_bytes=0" in result.stdout
+    assert "embedded_image_pages=0" in result.stdout
 
 
 def test_benchmark_pdf_import_rejects_non_finite_render_scale():
