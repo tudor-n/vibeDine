@@ -2,6 +2,7 @@ import { ref, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
+import { useHelpCallStore } from '@/stores/useHelpCallStore'
 import type { FlashDeal, OrderStatus } from '@shared/types/models'
 
 
@@ -13,6 +14,7 @@ export function useWebSocket() {
   const sessionStore = useSessionStore()
   const flashDealStore = useFlashDealStore()
   const orderStatusStore = useOrderStatusStore()
+  const helpCallStore = useHelpCallStore()
   const isConnected = ref(false)
   let socket: WebSocket | null = null
 
@@ -92,6 +94,10 @@ export function useWebSocket() {
               if (payload?.orderId && payload?.status) {
                 orderStatusStore.setStatus(payload.orderId, payload.status)
               }
+            }
+
+            if (data.target === 'WaiterOnTheWay') {
+              helpCallStore.clearCooldown()
             }
           }
         }

@@ -111,6 +111,12 @@ const ro: Dict = {
   'flash.errorInvalidSession': 'Sesiune invalidă. Reîncărcați pagina.',
   'flash.errorClaim': 'Eroare la revendicare.',
   'flash.iconLabel': 'Vezi oferta specială',
+
+  'waiter.iconLabel': 'Chemați chelnerul',
+  'waiter.calling': 'Se trimite…',
+  'waiter.onTheWay': 'Chelnerul vine spre dvs.',
+  'waiter.cooldownHint': 'Mai puteți chema în',
+  'waiter.errorGeneric': 'Nu s-a putut trimite. Încercați din nou.',
 }
 
 const en: Dict = {
@@ -218,6 +224,12 @@ const en: Dict = {
   'flash.errorInvalidSession': 'Invalid session. Reload the page.',
   'flash.errorClaim': 'Error claiming offer.',
   'flash.iconLabel': 'View special offer',
+
+  'waiter.iconLabel': 'Call the waiter',
+  'waiter.calling': 'Calling…',
+  'waiter.onTheWay': 'A waiter is on the way',
+  'waiter.cooldownHint': 'You can call again in',
+  'waiter.errorGeneric': 'Could not send. Try again.',
 }
 
 const dict: Record<Locale, Dict> = { ro, en }

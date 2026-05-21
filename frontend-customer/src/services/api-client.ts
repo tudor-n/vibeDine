@@ -78,4 +78,30 @@ export const apiClient = {
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/claim-deal/${dealId}`, {
       method: 'POST',
     }),
+
+  // Dedicated helper: the generic fetcher throws a plain Error and would lose
+  // the 429 retryAfterSeconds payload. Surface status + body so the store can
+  // distinguish "rate limited" from generic failures.
+  callWaiter: async (
+    tableId: string,
+  ): Promise<
+    | { ok: true; cooldownEndsAt: string }
+    | { ok: false; status: number; retryAfterSeconds?: number; message?: string }
+  > => {
+    const res = await fetch(
+      `${BASE_URL}/api/restaurants/${rid()}/tables/${tableId}/call-waiter`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) return { ok: true, cooldownEndsAt: body.cooldownEndsAt };
+    return {
+      ok: false,
+      status: res.status,
+      retryAfterSeconds: body.retryAfterSeconds,
+      message: body.message,
+    };
+  },
 };

@@ -333,6 +333,45 @@ namespace RestaurantApi.Migrations
                     b.ToTable("flash_deal_offers", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.HelpRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acknowledged_at");
+
+                    b.Property<Guid?>("AcknowledgedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("acknowledged_by_user_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("table_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TableId", "CreatedAt");
+
+                    b.ToTable("help_requests", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.Invitation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -924,6 +963,17 @@ namespace RestaurantApi.Migrations
                     b.Navigation("Order");
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.HelpRequest", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
+                        .WithMany()
+                        .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Table");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.Invitation", b =>

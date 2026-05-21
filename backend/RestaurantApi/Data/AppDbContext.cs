@@ -25,6 +25,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<AIDirective> AIDirectives => Set<AIDirective>();
     public DbSet<RecommendationDirective> RecommendationDirectives => Set<RecommendationDirective>();
     public DbSet<SimilarityRule> SimilarityRules => Set<SimilarityRule>();
+    public DbSet<HelpRequest> HelpRequests => Set<HelpRequest>();
 
     // ── Tenancy ──────────────────────────────────────────────────────────────
     public DbSet<Organization> Organizations => Set<Organization>();
@@ -196,6 +197,24 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
              .OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<HelpRequest>(e =>
+        {
+            e.ToTable("help_requests");
+            e.Property(h => h.Id).HasColumnName("id");
+            e.Property(h => h.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(h => h.TableId).HasColumnName("table_id");
+            e.Property(h => h.CreatedAt).HasColumnName("created_at");
+            e.Property(h => h.Status).HasColumnName("status");
+            e.Property(h => h.AcknowledgedAt).HasColumnName("acknowledged_at");
+            e.Property(h => h.AcknowledgedByUserId).HasColumnName("acknowledged_by_user_id");
+            e.HasIndex(h => new { h.TableId, h.CreatedAt });
+
+            e.HasOne(h => h.Table)
+             .WithMany()
+             .HasForeignKey(h => h.TableId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
         // ── Tenancy tables ───────────────────────────────────────────────────
         modelBuilder.Entity<Organization>(e =>
         {
@@ -339,6 +358,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<AIDirective>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<RecommendationDirective>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<SimilarityRule>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<HelpRequest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
     }
 
     /// <summary>Stamps RestaurantId on new tenant-scoped entities from the ambient tenant.</summary>

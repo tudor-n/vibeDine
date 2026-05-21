@@ -15,6 +15,7 @@ import CartView from '@/components/screens/CartView.vue'
 import FlashDealView from '@/components/screens/FlashDealView.vue'
 import OrderSentView from '@/components/screens/OrderSentView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
+import CallWaiterButton from '@/components/CallWaiterButton.vue'
 
 type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent'
 
@@ -161,7 +162,6 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
           key="sent"
           :total="lastTotal"
           @order-again="orderAgain"
-          @call-waiter="() => undefined"
         />
       </Transition>
 
@@ -174,6 +174,10 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
       <FlashDealIcon
         v-if="flashIconVisible && !flashOverlayActive"
         @open="openFlashDeal"
+      />
+
+      <CallWaiterButton
+        v-if="screen !== 'language' && !showSessionError && !flashOverlayActive"
       />
 
       <button
