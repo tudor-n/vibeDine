@@ -299,14 +299,11 @@ async def test_provider_concurrency_limits_vision_calls_even_when_page_concurren
 @pytest.mark.asyncio
 async def test_optional_timings_record_scanned_pdf_parse_render_and_provider_work():
     metrics = PdfExtractionTimings()
+    extractor = DelayedCountingVisionExtractor()
 
     service = PdfMenuExtractionService(
         text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
-        vision_extractor_factory=lambda: FakeVisionExtractor(
-            canned_response={"items": [
-                {"name": "Timed Vision", "price": 12.0, "source_index": 0}
-            ]}
-        ),
+        vision_extractor_factory=lambda: extractor,
         progress=StubProgressReporter(),
         concurrency=3,
         provider_concurrency=2,
@@ -817,7 +814,7 @@ async def test_pdf_parse_runs_off_event_loop_thread(monkeypatch):
         return [
             PageContent(
                 page_number=0,
-                text="Pizza 10 Pasta 12 Salata 8",
+                text="Pizza 10,00 lei Pasta 12,00 lei Salata 8,00 lei",
                 text_density=0.01,
                 has_images=False,
                 width_pts=100.0,

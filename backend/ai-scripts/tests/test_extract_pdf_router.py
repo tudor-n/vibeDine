@@ -28,6 +28,11 @@ def client():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def default_menu_import_storage_root(monkeypatch):
+    monkeypatch.setenv("MENU_IMPORT_STORAGE_ROOT", "/tmp/menu-imports")
+
+
 # ---------------------------------------------------------------------------
 # A canned response we'll inject via dependency override
 # ---------------------------------------------------------------------------
