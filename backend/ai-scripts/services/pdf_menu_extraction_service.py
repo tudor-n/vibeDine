@@ -140,6 +140,14 @@ def _record_skipped_embedded_image_byte_count(
     metrics.skipped_embedded_image_bytes += byte_count
 
 
+def _provider_error_message(exc: BaseException | None, timeout_seconds: float) -> str:
+    if isinstance(exc, asyncio.TimeoutError):
+        return f"provider call timed out after {timeout_seconds:g}s"
+    if exc is None:
+        return "unknown provider error"
+    return str(exc)
+
+
 class PdfMenuExtractionService:
     def __init__(
         self,
@@ -151,6 +159,7 @@ class PdfMenuExtractionService:
         provider_concurrency: int | None = None,
         text_batch_size: int = 8,
         vision_batch_size: int = 1,
+        provider_timeout_seconds: float = 60.0,
         render_scale: float = 1.5,
         render_quality: int = 85,
         max_embedded_image_bytes: int = pdf_text_extractor.DEFAULT_MAX_EMBEDDED_IMAGE_BYTES,
@@ -173,6 +182,10 @@ class PdfMenuExtractionService:
             raise ValueError("text_batch_size must be >= 1")
         if vision_batch_size < 1:
             raise ValueError("vision_batch_size must be >= 1")
+        if not math.isfinite(provider_timeout_seconds):
+            raise ValueError("provider_timeout_seconds must be finite")
+        if provider_timeout_seconds <= 0:
+            raise ValueError("provider_timeout_seconds must be > 0")
         if not math.isfinite(render_scale):
             raise ValueError("render_scale must be finite")
         if render_scale <= 0:
@@ -183,6 +196,7 @@ class PdfMenuExtractionService:
             raise ValueError("max_embedded_image_bytes must be >= 0")
         self._text_batch_size = text_batch_size
         self._vision_batch_size = vision_batch_size
+        self._provider_timeout_seconds = provider_timeout_seconds
         self._render_scale = render_scale
         self._render_quality = render_quality
         self._max_embedded_image_bytes = max_embedded_image_bytes
@@ -395,16 +409,19 @@ class PdfMenuExtractionService:
                 async with provider_semaphore:
                     provider_started_at = time.perf_counter()
                     try:
-                        raw = await extractor.extract(batch_pages)
+                        raw = await self._await_provider_call(extractor.extract(batch_pages))
                     finally:
                         _record_elapsed(self._metrics, "text_provider_seconds", provider_started_at)
                 state.model_name = state.model_name or extractor.model_name
                 break
-            except TextExtractionError as exc:
+            except (TextExtractionError, asyncio.TimeoutError) as exc:
                 last_exc = exc
                 logger.warning(
                     "Text extraction attempt %d/%d failed for pages %s: %s",
-                    attempt + 1, _MAX_RETRIES, unit.page_numbers, exc,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    unit.page_numbers,
+                    _provider_error_message(exc, self._provider_timeout_seconds),
                 )
 
         if raw is None:
@@ -578,7 +595,7 @@ class PdfMenuExtractionService:
                         provider_started_at = time.perf_counter()
                         try:
                             _record_vision_provider_call(self._metrics)
-                            raw = await extract_batch(batch_pages)
+                            raw = await self._await_provider_call(extract_batch(batch_pages))
                         finally:
                             _record_elapsed(self._metrics, "vision_provider_seconds", provider_started_at)
                 state.model_name = state.model_name or extractor.model_name
@@ -601,16 +618,21 @@ class PdfMenuExtractionService:
                         state.items.extend(parsed)
                 return
 
-            except (VisionExtractionError, ValueError) as exc:
+            except (VisionExtractionError, ValueError, asyncio.TimeoutError) as exc:
                 last_exc = exc
                 logger.warning(
                     "Vision batch extraction attempt %d/%d failed for pages %s: %s",
-                    attempt + 1, _MAX_RETRIES, unit.page_numbers, exc,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    unit.page_numbers,
+                    _provider_error_message(exc, self._provider_timeout_seconds),
                 )
 
         logger.warning(
             "Vision batch extraction permanently failed for pages %s after %d attempts: %s",
-            unit.page_numbers, _MAX_RETRIES, last_exc,
+            unit.page_numbers,
+            _MAX_RETRIES,
+            _provider_error_message(last_exc, self._provider_timeout_seconds),
         )
         for pnum in unit.page_numbers:
             state.failed_pages.append(FailedPage(source_page=pnum, reason="vision_api_error"))
@@ -649,7 +671,9 @@ class PdfMenuExtractionService:
                         provider_started_at = time.perf_counter()
                         try:
                             _record_vision_provider_call(self._metrics)
-                            raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
+                            raw = await self._await_provider_call(
+                                extractor.extract(image_bytes=image_bytes, page_number=page_number)
+                            )
                         finally:
                             _record_elapsed(self._metrics, "vision_provider_seconds", provider_started_at)
                 state.model_name = state.model_name or extractor.model_name
@@ -671,19 +695,30 @@ class PdfMenuExtractionService:
                     state.items.extend(parsed)
                 return  # success
 
-            except (VisionExtractionError, ValueError) as exc:
+            except (VisionExtractionError, ValueError, asyncio.TimeoutError) as exc:
                 last_exc = exc
                 logger.warning(
                     "Vision extraction attempt %d/%d failed for page %d: %s",
-                    attempt + 1, _MAX_RETRIES, page_number, exc,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    page_number,
+                    _provider_error_message(exc, self._provider_timeout_seconds),
                 )
 
         # All retries exhausted
         logger.warning(
             "Vision extraction permanently failed for page %d after %d attempts: %s",
-            page_number, _MAX_RETRIES, last_exc,
+            page_number,
+            _MAX_RETRIES,
+            _provider_error_message(last_exc, self._provider_timeout_seconds),
         )
         state.failed_pages.append(FailedPage(source_page=page_number, reason="vision_api_error"))
+
+    async def _await_provider_call(self, awaitable):
+        return await asyncio.wait_for(
+            awaitable,
+            timeout=self._provider_timeout_seconds,
+        )
 
     # ------------------------------------------------------------------
     # Throttled progress reporting

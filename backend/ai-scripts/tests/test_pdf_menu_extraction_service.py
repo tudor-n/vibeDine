@@ -499,6 +499,178 @@ async def test_vision_batch_size_falls_back_to_single_page_extractor(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_single_vision_provider_timeout_marks_page_failed(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    class _HangingVisionExtractor:
+        model_name = "hanging-vision"
+
+        def __init__(self):
+            self.calls: list[int] = []
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            self.calls.append(page_number)
+            await asyncio.sleep(10)
+            return {"items": [
+                {"name": "Never returned", "price": 10.0, "source_index": 0},
+            ]}
+
+    extractor = _HangingVisionExtractor()
+    monkeypatch.setattr(service_module, "_MAX_RETRIES", 1)
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path, **kwargs: [
+            PageContent(
+                page_number=0,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+                embedded_image_bytes=b"\xff\xd8\xffsingle-timeout",
+            )
+        ],
+    )
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: extractor,
+        progress=StubProgressReporter(),
+        provider_timeout_seconds=0.01,
+    )
+
+    result = await service.run(_make_request("fake-timeout-scan.pdf"))
+
+    assert extractor.calls == [0]
+    assert result.items == []
+    assert [failed.source_page for failed in result.failed_pages] == [0]
+    assert [failed.reason for failed in result.failed_pages] == ["vision_api_error"]
+
+
+@pytest.mark.asyncio
+async def test_batched_vision_provider_timeout_marks_all_pages_failed(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    class _HangingBatchVisionExtractor:
+        model_name = "hanging-batch-vision"
+
+        def __init__(self):
+            self.batch_calls: list[list[int]] = []
+            self.single_calls: list[int] = []
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            self.single_calls.append(page_number)
+            return {"items": []}
+
+        async def extract_batch(self, pages) -> dict:
+            self.batch_calls.append([page.page_number for page in pages])
+            await asyncio.sleep(10)
+            return {"items": [
+                {
+                    "name": f"Never returned {page.page_number}",
+                    "price": 10.0,
+                    "source_page": page.page_number,
+                    "source_index": 0,
+                }
+                for page in pages
+            ]}
+
+    extractor = _HangingBatchVisionExtractor()
+    monkeypatch.setattr(service_module, "_MAX_RETRIES", 1)
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path, **kwargs: [
+            PageContent(
+                page_number=page_number,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+                embedded_image_bytes=f"\xff\xd8\xffbatch-timeout-{page_number}".encode(),
+            )
+            for page_number in range(2)
+        ],
+    )
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: extractor,
+        progress=StubProgressReporter(),
+        vision_batch_size=2,
+        provider_timeout_seconds=0.01,
+    )
+
+    result = await service.run(_make_request("fake-batch-timeout-scan.pdf"))
+
+    assert extractor.batch_calls == [[0, 1]]
+    assert extractor.single_calls == []
+    assert result.items == []
+    assert [failed.source_page for failed in result.failed_pages] == [0, 1]
+    assert [failed.reason for failed in result.failed_pages] == [
+        "vision_api_error",
+        "vision_api_error",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_text_provider_timeout_marks_text_pages_failed(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    class _HangingTextExtractor:
+        model_name = "hanging-text"
+
+        def __init__(self):
+            self.calls: list[list[int]] = []
+
+        async def extract(self, pages) -> dict:
+            self.calls.append([page.page_number for page in pages])
+            await asyncio.sleep(10)
+            return {"items": [
+                {
+                    "name": f"Never returned {page.page_number}",
+                    "price": 10.0,
+                    "source_page": page.page_number,
+                    "source_index": 0,
+                }
+                for page in pages
+            ]}
+
+    extractor = _HangingTextExtractor()
+    monkeypatch.setattr(service_module, "_MAX_RETRIES", 1)
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path, **kwargs: [
+            PageContent(
+                page_number=0,
+                text="Pizza 25,00 lei Pasta 31,00 lei Salata 20,00 lei",
+                text_density=0.01,
+                has_images=False,
+                width_pts=100.0,
+                height_pts=100.0,
+            )
+        ],
+    )
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: extractor,
+        vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        progress=StubProgressReporter(),
+        provider_timeout_seconds=0.01,
+    )
+
+    result = await service.run(_make_request("fake-text-timeout.pdf"))
+
+    assert extractor.calls == [[0]]
+    assert result.items == []
+    assert [failed.source_page for failed in result.failed_pages] == [0]
+    assert [failed.reason for failed in result.failed_pages] == ["vision_api_error"]
+
+
+@pytest.mark.asyncio
 async def test_oversized_embedded_image_page_falls_back_to_pdf_renderer(monkeypatch):
     from services.pdf_text_extractor import PageContent
 
@@ -913,6 +1085,8 @@ def test_provider_concurrency_must_be_positive():
         ({"render_quality": 101}, "render_quality"),
         ({"max_embedded_image_bytes": -1}, "max_embedded_image_bytes"),
         ({"vision_batch_size": 0}, "vision_batch_size"),
+        ({"provider_timeout_seconds": 0}, "provider_timeout_seconds"),
+        ({"provider_timeout_seconds": float("nan")}, "provider_timeout_seconds"),
     ],
 )
 def test_service_rejects_invalid_worker_and_render_settings(kwargs, message):

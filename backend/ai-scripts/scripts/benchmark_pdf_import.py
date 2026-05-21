@@ -159,6 +159,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--extract-concurrency", type=int, default=8)
     parser.add_argument("--provider-concurrency", type=int, default=4)
     parser.add_argument("--vision-batch-size", type=int, default=1)
+    parser.add_argument("--provider-timeout-seconds", type=float, default=60.0)
     parser.add_argument("--render-scale", type=float, default=1.5)
     parser.add_argument("--render-quality", type=int, default=85)
     parser.add_argument("--max-embedded-image-bytes", type=int, default=4_000_000)
@@ -172,6 +173,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("--provider-concurrency must be >= 1.")
     if args.vision_batch_size < 1:
         parser.error("--vision-batch-size must be >= 1.")
+    if not math.isfinite(args.provider_timeout_seconds):
+        parser.error("--provider-timeout-seconds must be finite.")
+    if args.provider_timeout_seconds <= 0:
+        parser.error("--provider-timeout-seconds must be > 0.")
     if not math.isfinite(args.render_scale):
         parser.error("--render-scale must be finite.")
     if args.render_scale <= 0:
@@ -222,6 +227,7 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             concurrency=args.extract_concurrency,
             provider_concurrency=args.provider_concurrency,
             vision_batch_size=args.vision_batch_size,
+            provider_timeout_seconds=args.provider_timeout_seconds,
             render_scale=args.render_scale,
             render_quality=args.render_quality,
             max_embedded_image_bytes=args.max_embedded_image_bytes,
@@ -250,6 +256,7 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             f"vision_calls={vision_stats.calls} "
             f"peak_provider_concurrency={vision_stats.peak} "
             f"vision_batch_size={args.vision_batch_size} "
+            f"provider_timeout_seconds={args.provider_timeout_seconds:g} "
             f"render_scale={args.render_scale:g} "
             f"render_quality={args.render_quality} "
             f"max_embedded_image_bytes={args.max_embedded_image_bytes} "

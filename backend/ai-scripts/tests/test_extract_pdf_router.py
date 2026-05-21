@@ -328,6 +328,24 @@ def test_pdf_extraction_factory_passes_provider_concurrency(monkeypatch):
     assert captured["provider_concurrency"] == 2
 
 
+def test_pdf_extraction_factory_passes_provider_timeout(monkeypatch):
+    captured = {}
+
+    class _CapturingService:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setenv("PDF_PROVIDER_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setattr(router_module, "PdfMenuExtractionService", _CapturingService)
+    monkeypatch.setattr(router_module, "_build_text_extractor_factory", lambda: (lambda: object()))
+    monkeypatch.setattr(router_module, "_default_extractor_factory", lambda: object())
+
+    builder = router_module.get_pdf_extraction_service_factory()
+    builder(PdfJobRequest(**_valid_body()))
+
+    assert captured["provider_timeout_seconds"] == 12.5
+
+
 def test_pdf_extraction_factory_passes_render_tuning(monkeypatch):
     captured = {}
 
@@ -389,6 +407,8 @@ def test_pdf_extraction_factory_passes_vision_batch_size(monkeypatch):
     [
         ("PDF_EXTRACT_CONCURRENCY", "0", "PDF_EXTRACT_CONCURRENCY"),
         ("PDF_PROVIDER_MAX_CONCURRENCY", "0", "PDF_PROVIDER_MAX_CONCURRENCY"),
+        ("PDF_PROVIDER_TIMEOUT_SECONDS", "0", "PDF_PROVIDER_TIMEOUT_SECONDS"),
+        ("PDF_PROVIDER_TIMEOUT_SECONDS", "nan", "PDF_PROVIDER_TIMEOUT_SECONDS"),
         ("PDF_TEXT_BATCH_SIZE", "0", "PDF_TEXT_BATCH_SIZE"),
         ("PDF_RENDER_SCALE", "0", "PDF_RENDER_SCALE"),
         ("PDF_RENDER_SCALE", "nan", "PDF_RENDER_SCALE"),

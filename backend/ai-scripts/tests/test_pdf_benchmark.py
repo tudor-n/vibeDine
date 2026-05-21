@@ -19,6 +19,8 @@ def test_benchmark_pdf_import_fake_provider_smoke():
             "2",
             "--vision-batch-size",
             "2",
+            "--provider-timeout-seconds",
+            "12.5",
             "--fake-latency-ms",
             "1",
         ],
@@ -33,6 +35,7 @@ def test_benchmark_pdf_import_fake_provider_smoke():
     assert "items=3" in result.stdout
     assert "peak_provider_concurrency=" in result.stdout
     assert "vision_batch_size=2" in result.stdout
+    assert "provider_timeout_seconds=12.5" in result.stdout
     assert "parse_seconds=" in result.stdout
     assert "classify_seconds=" in result.stdout
     assert "render_seconds=" in result.stdout
@@ -155,6 +158,29 @@ def test_benchmark_pdf_import_rejects_invalid_vision_batch_size():
 
     assert result.returncode == 2, result.stderr
     assert "--vision-batch-size must be >= 1." in result.stderr
+
+
+def test_benchmark_pdf_import_rejects_invalid_provider_timeout():
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_pdf_import.py"
+    fixture = Path(__file__).parent / "fixtures" / "sample_menus" / "scanned_3page.pdf"
+
+    for value in ("0", "nan", "inf", "-inf"):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                str(fixture),
+                "--fake-provider",
+                "--provider-timeout-seconds",
+                value,
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        assert result.returncode == 2, result.stderr
+        assert "--provider-timeout-seconds" in result.stderr
 
 
 def test_benchmark_pdf_import_rejects_non_finite_render_scale():

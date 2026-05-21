@@ -115,6 +115,11 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
     )
     text_batch_size = _read_int_env("PDF_TEXT_BATCH_SIZE", 8, minimum=1)
     vision_batch_size = _read_int_env("PDF_VISION_BATCH_SIZE", 1, minimum=1)
+    provider_timeout_seconds = _read_float_env(
+        "PDF_PROVIDER_TIMEOUT_SECONDS",
+        60.0,
+        greater_than=0.0,
+    )
     render_scale = _read_float_env("PDF_RENDER_SCALE", 1.5, greater_than=0.0)
     render_quality = _read_int_env("PDF_RENDER_JPEG_QUALITY", 85, minimum=1, maximum=100)
     max_embedded_image_bytes = _read_int_env(
@@ -138,6 +143,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
             provider_concurrency=provider_concurrency,
             text_batch_size=text_batch_size,
             vision_batch_size=vision_batch_size,
+            provider_timeout_seconds=provider_timeout_seconds,
             render_scale=render_scale,
             render_quality=render_quality,
             max_embedded_image_bytes=max_embedded_image_bytes,

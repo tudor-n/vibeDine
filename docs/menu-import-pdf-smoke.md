@@ -120,6 +120,7 @@ python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
   --extract-concurrency 8 `
   --provider-concurrency 4 `
   --vision-batch-size 1 `
+  --provider-timeout-seconds 60 `
   --render-scale 1.5 `
   --render-quality 85 `
   --max-embedded-image-bytes 4000000 `
@@ -127,7 +128,7 @@ python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
   --repeat 3
 ```
 
-The output reports one line per run with page count, item count, failed pages, vision call count, peak provider concurrency, vision batch size, render scale/quality, embedded image byte budget, rendered JPEG page/byte counts, embedded image page/byte counts, skipped embedded image page/byte counts, average rendered bytes per page, parse/classify/render/provider timings, measured timing total, and wall time. Provider timings are cumulative across concurrent provider calls, so they can exceed wall time when concurrency is greater than one. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
+The output reports one line per run with page count, item count, failed pages, vision call count, peak provider concurrency, vision batch size, provider timeout, render scale/quality, embedded image byte budget, rendered JPEG page/byte counts, embedded image page/byte counts, skipped embedded image page/byte counts, average rendered bytes per page, parse/classify/render/provider timings, measured timing total, and wall time. Provider timings are cumulative across concurrent provider calls, so they can exceed wall time when concurrency is greater than one. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
 
 For scanned PDFs, compare `--render-scale` and `--render-quality` values before changing production defaults. Lower values reduce rendered payload size and provider upload time, but they can also reduce OCR quality.
 
@@ -137,7 +138,7 @@ Image-dominant pages skip pdfplumber text extraction and route straight to the v
 
 `--vision-batch-size` is intentionally explicit. Keep it at `1` for baseline runs, then compare `2`, `3`, or `4` against the same scanned PDF to measure provider call reduction and extraction quality before changing production.
 
-Production uses the matching `PDF_RENDER_SCALE`, `PDF_RENDER_JPEG_QUALITY`, `PDF_MAX_EMBEDDED_IMAGE_BYTES`, and `PDF_VISION_BATCH_SIZE` environment variables. Keep `PDF_EXTRACT_CONCURRENCY`, `PDF_PROVIDER_MAX_CONCURRENCY`, `PDF_TEXT_BATCH_SIZE`, `PDF_VISION_BATCH_SIZE`, `PDF_RENDER_SCALE`, and `PDF_RENDER_JPEG_QUALITY` positive and finite; keep `PDF_MAX_EMBEDDED_IMAGE_BYTES` non-negative. Invalid values fail fast instead of letting a large import hang.
+Production uses the matching `PDF_RENDER_SCALE`, `PDF_RENDER_JPEG_QUALITY`, `PDF_MAX_EMBEDDED_IMAGE_BYTES`, `PDF_VISION_BATCH_SIZE`, and `PDF_PROVIDER_TIMEOUT_SECONDS` environment variables. Keep `PDF_EXTRACT_CONCURRENCY`, `PDF_PROVIDER_MAX_CONCURRENCY`, `PDF_TEXT_BATCH_SIZE`, `PDF_VISION_BATCH_SIZE`, `PDF_PROVIDER_TIMEOUT_SECONDS`, `PDF_RENDER_SCALE`, and `PDF_RENDER_JPEG_QUALITY` positive and finite; keep `PDF_MAX_EMBEDDED_IMAGE_BYTES` non-negative. Invalid values fail fast instead of letting a large import hang.
 
 To benchmark real providers, set the provider API key and opt in explicitly:
 
@@ -150,6 +151,7 @@ python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
   --extract-concurrency 8 `
   --provider-concurrency 2 `
   --vision-batch-size 1 `
+  --provider-timeout-seconds 60 `
   --render-scale 1.5 `
   --render-quality 85 `
   --repeat 1
