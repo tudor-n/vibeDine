@@ -18,11 +18,41 @@ SCANNED_3PAGE = _FIXTURE_PATHS["scanned_3page"]
 # Import the module under test (will fail until we create it)
 # ---------------------------------------------------------------------------
 from services.pdf_text_extractor import extract, PageContent
+from services import pdf_text_extractor
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+class _FakePage:
+    def __init__(
+        self,
+        *,
+        text: str,
+        images: list[dict],
+        width: float = 100.0,
+        height: float = 100.0,
+    ):
+        self._text = text
+        self.extract_text_calls = 0
+        self.images = images
+        self.width = width
+        self.height = height
+
+    def extract_text(self):
+        self.extract_text_calls += 1
+        return self._text
+
+
+class _FakePdf:
+    def __init__(self, pages: list[_FakePage]):
+        self.pages = pages
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
 
 class TestDigitalPdf:
     def test_returns_three_pages(self):
@@ -65,6 +95,50 @@ class TestScannedPdf:
     def test_returns_three_pages(self):
         pages = extract(SCANNED_3PAGE)
         assert len(pages) == 3
+
+    def test_image_dominant_page_skips_extract_text(self, monkeypatch):
+        page = _FakePage(
+            text="This text would be expensive to ask pdfplumber for",
+            images=[{"width": 95.0, "height": 95.0}],
+        )
+        fake_pdf = _FakePdf([page])
+        monkeypatch.setattr(
+            pdf_text_extractor.pdfplumber,
+            "open",
+            lambda path: fake_pdf,
+        )
+
+        pages = extract("fake-scanned.pdf")
+
+        assert len(pages) == 1
+        assert pages[0].text == ""
+        assert pages[0].text_density == 0.0
+        assert pages[0].has_images is True
+        assert pages[0].width_pts == 100.0
+        assert pages[0].height_pts == 100.0
+        assert page.extract_text_calls == 0
+        assert fake_pdf.closed is True
+
+    def test_small_image_page_still_extracts_text(self, monkeypatch):
+        page = _FakePage(
+            text="Pizza 25,00 lei\nPasta 31,00 lei",
+            images=[{"width": 12.0, "height": 10.0}],
+        )
+        fake_pdf = _FakePdf([page])
+        monkeypatch.setattr(
+            pdf_text_extractor.pdfplumber,
+            "open",
+            lambda path: fake_pdf,
+        )
+
+        pages = extract("fake-mixed.pdf")
+
+        assert len(pages) == 1
+        assert pages[0].text == "Pizza 25,00 lei Pasta 31,00 lei"
+        assert pages[0].text_density > 0
+        assert pages[0].has_images is True
+        assert page.extract_text_calls == 1
+        assert fake_pdf.closed is True
 
     def test_text_is_essentially_empty(self):
         pages = extract(SCANNED_3PAGE)

@@ -131,6 +131,8 @@ For scanned PDFs, compare `--render-scale` and `--render-quality` values before 
 
 Large PDF parsing and page rendering are offloaded from the Python event loop. Rendering still uses one PDFium worker per job, so page rasterization stays serial while progress callbacks and other requests can keep moving.
 
+Image-dominant pages skip pdfplumber text extraction and route straight to the vision path. This removes wasted parse work for photo/scanned PDFs while preserving text extraction for digital pages with small embedded images.
+
 Production uses the matching `PDF_RENDER_SCALE` and `PDF_RENDER_JPEG_QUALITY` environment variables. Keep `PDF_EXTRACT_CONCURRENCY`, `PDF_PROVIDER_MAX_CONCURRENCY`, `PDF_TEXT_BATCH_SIZE`, `PDF_RENDER_SCALE`, and `PDF_RENDER_JPEG_QUALITY` positive and finite; invalid values fail fast instead of letting a large import hang.
 
 To benchmark real providers, set the provider API key and opt in explicitly:
