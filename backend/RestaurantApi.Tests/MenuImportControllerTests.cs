@@ -123,6 +123,21 @@ public class MenuImportControllerTests : IAsyncLifetime
         return Convert.ToHexString(h.ComputeHash(body)).ToLowerInvariant();
     }
 
+    private async Task<HttpResponseMessage> SendProgressCallbackAsync(Guid routeJobId, ProgressCallbackRequest payload)
+    {
+        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+        var sig = ComputeHmac(HmacSecret, jsonBytes);
+
+        var request = new HttpRequestMessage(HttpMethod.Post,
+            $"/api/internal/menu-imports/{routeJobId}/progress");
+        request.Content = new ByteArrayContent(jsonBytes);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        request.Headers.Add("X-Hmac-Signature", sig);
+
+        using var anonClient = _factory.CreateClient();
+        return await anonClient.SendAsync(request);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Test 1: Happy path — 202, DB row created, file on disk
     // ──────────────────────────────────────────────────────────────────────────
@@ -334,6 +349,204 @@ public class MenuImportControllerTests : IAsyncLifetime
         var resp = await anonClient.SendAsync(request);
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Internal progress endpoint — route/body jobId mismatch → 400
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task POST_internal_progress_route_body_jobId_mismatch_returns_400()
+    {
+        var routeJobId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = routeJobId,
+                RestaurantId = RestaurantA,
+                Status = "extracting",
+                Phase = "parsing",
+                StorageKey = $"{RestaurantA:N}/{routeJobId:N}.pdf",
+                OriginalFileName = "mismatch_test.pdf",
+                FileSizeBytes = 200,
+                ProviderUsed = "gemini",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var payload = new ProgressCallbackRequest
+        {
+            JobId = Guid.NewGuid(),
+            Status = "extracting",
+            Phase = "parsing",
+            ProcessedPages = 3,
+            TotalPages = 10,
+            FailedPages = 0,
+        };
+
+        var resp = await SendProgressCallbackAsync(routeJobId, payload);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == routeJobId);
+        job.ProcessedPages.Should().Be(0);
+        job.TotalPages.Should().Be(0);
+        job.Status.Should().Be("extracting");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Internal progress endpoint — terminal cancelled job ignores later progress
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task POST_internal_progress_cancelled_job_ignores_extracting_update()
+    {
+        var jobId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = RestaurantA,
+                Status = "cancelled",
+                Phase = "cancelled",
+                ProcessedPages = 4,
+                TotalPages = 8,
+                FailedPages = 1,
+                StorageKey = $"{RestaurantA:N}/{jobId:N}.pdf",
+                OriginalFileName = "cancelled_progress_test.pdf",
+                FileSizeBytes = 200,
+                ProviderUsed = "gemini",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var payload = new ProgressCallbackRequest
+        {
+            JobId = jobId,
+            Status = "extracting",
+            Phase = "parsing",
+            ProcessedPages = 7,
+            TotalPages = 10,
+            FailedPages = 0,
+            EtaSeconds = 12,
+        };
+
+        var resp = await SendProgressCallbackAsync(jobId, payload);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+        job.Status.Should().Be("cancelled");
+        job.Phase.Should().Be("cancelled");
+        job.ProcessedPages.Should().Be(4);
+        job.TotalPages.Should().Be(8);
+        job.FailedPages.Should().Be(1);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Internal progress endpoint — provider complete does not pre-complete the job
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task POST_internal_progress_complete_payload_keeps_job_extracting()
+    {
+        var jobId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = RestaurantA,
+                Status = "extracting",
+                Phase = "extracting",
+                ProcessedPages = 7,
+                TotalPages = 10,
+                StorageKey = $"{RestaurantA:N}/{jobId:N}.pdf",
+                OriginalFileName = "complete_progress_test.pdf",
+                FileSizeBytes = 200,
+                ProviderUsed = "gemini",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var payload = new ProgressCallbackRequest
+        {
+            JobId = jobId,
+            Status = "complete",
+            Phase = "finalizing",
+            ProcessedPages = 10,
+            TotalPages = 10,
+            FailedPages = 0,
+        };
+
+        var resp = await SendProgressCallbackAsync(jobId, payload);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+        job.Status.Should().Be("extracting");
+        job.Phase.Should().Be("finalizing");
+        job.ProcessedPages.Should().Be(10);
+        job.CompletedAt.Should().BeNull();
+        job.ResultJson.Should().BeNull();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Internal progress endpoint — provider failure persists failure details
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task POST_internal_progress_failed_payload_sets_failed_with_error_message()
+    {
+        var jobId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = RestaurantA,
+                Status = "extracting",
+                Phase = "parsing",
+                StorageKey = $"{RestaurantA:N}/{jobId:N}.pdf",
+                OriginalFileName = "failed_progress_test.pdf",
+                FileSizeBytes = 200,
+                ProviderUsed = "gemini",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var payload = new ProgressCallbackRequest
+        {
+            JobId = jobId,
+            Status = "failed",
+            Phase = "parsing",
+            ProcessedPages = 0,
+            TotalPages = 0,
+            FailedPages = 0,
+            ErrorMessage = "Unreadable PDF",
+        };
+
+        var resp = await SendProgressCallbackAsync(jobId, payload);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+        job.Status.Should().Be("failed");
+        job.ErrorMessage.Should().Be("Unreadable PDF");
     }
 
     // ──────────────────────────────────────────────────────────────────────────

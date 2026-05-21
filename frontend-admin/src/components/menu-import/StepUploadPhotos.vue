@@ -8,8 +8,11 @@ const store = useMenuImportStore()
 const dragOver = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const lastRejection = ref<string | null>(null)
+const PDF_MAX_FILE_BYTES = 110_000_000
 
 const acceptAttr = computed(() => MENU_VALIDATION.IMPORT_ALLOWED_MIME.join(','))
+const photoMaxMb = computed(() => MENU_VALIDATION.IMPORT_MAX_FILE_BYTES / 1024 / 1024)
+const pdfMaxMb = computed(() => PDF_MAX_FILE_BYTES / 1_000_000)
 
 function onPickClick() {
   fileInput.value?.click()
@@ -53,6 +56,10 @@ async function onDrop(event: DragEvent) {
 
 async function routeToPdfFlow(file: File) {
   lastRejection.value = null
+  if (file.size > PDF_MAX_FILE_BYTES) {
+    lastRejection.value = `Maxim ${pdfMaxMb.value} MB / PDF.`
+    return
+  }
   try {
     await store.startPdfImport(file)
   } catch {
@@ -70,8 +77,8 @@ function reportRejected(rejected: { reason: string }[]) {
     reason === 'too_many'
       ? `Limită ${MENU_VALIDATION.IMPORT_MAX_FILES} fotografii.`
       : reason === 'too_large'
-        ? `Maxim ${MENU_VALIDATION.IMPORT_MAX_FILE_BYTES / 1024 / 1024} MB / fotografie.`
-        : 'Tipul de fișier nu este suportat (jpeg/png/webp/heic/pdf).'
+        ? `Maxim ${photoMaxMb.value} MB / fotografie.`
+        : 'Tipul de fișier nu este suportat (jpeg/png/webp/heic sau PDF unic).'
 }
 
 async function startScan() {
@@ -99,8 +106,9 @@ function thumbUrl(file: File): string {
       <div class="eyebrow mb-3">pasul 1 · încărcare</div>
       <h2 class="display-title text-2xl mb-2">Trage fotografiile aici</h2>
       <p class="text-ink-70 text-sm mb-4">
-        Maxim {{ MENU_VALIDATION.IMPORT_MAX_FILES }} pagini ·
-        {{ MENU_VALIDATION.IMPORT_MAX_FILE_BYTES / 1024 / 1024 }} MB pe fotografie ·
+        Maxim {{ MENU_VALIDATION.IMPORT_MAX_FILES }} fotografii ·
+        {{ photoMaxMb }} MB pe fotografie ·
+        PDF unic până la {{ pdfMaxMb }} MB ·
         jpeg / png / webp / heic / pdf
       </p>
       <button class="pill-btn pill-btn-ghost" type="button" @click="onPickClick">
@@ -117,6 +125,7 @@ function thumbUrl(file: File): string {
     </div>
 
     <p v-if="lastRejection" class="reject-note">⚠ {{ lastRejection }}</p>
+    <p v-if="store.importError" class="reject-note">⚠ {{ store.importError }}</p>
 
     <div v-if="store.files.length" class="thumbs">
       <figure v-for="file in store.files" :key="file.name" class="thumb card-white">

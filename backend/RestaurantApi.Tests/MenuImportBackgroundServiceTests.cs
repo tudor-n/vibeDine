@@ -51,13 +51,13 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private ServiceProvider BuildServiceProvider(IPdfExtractor pythonClient)
+    private ServiceProvider BuildServiceProvider(IPdfExtractor pythonClient, FakeHubContext? hubContext = null)
     {
         var sc = new ServiceCollection();
         sc.AddScoped<ICurrentTenant, CurrentTenant>();
         sc.AddDbContext<AppDbContext>(opts => opts.UseNpgsql(_pg.GetConnectionString()));
         sc.AddSingleton<IFileStorage>(new FakeFileStorage());
-        sc.AddSingleton<IHubContext<StaffHub>>(new FakeHubContext());
+        sc.AddSingleton<IHubContext<StaffHub>>(hubContext ?? new FakeHubContext());
         sc.AddSingleton<MenuImportProgressNotifier>();
         sc.AddSingleton<IPdfExtractor>(pythonClient);
         sc.AddSingleton<IOptions<MenuImportOptions>>(Options.Create(new MenuImportOptions
@@ -306,6 +306,87 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         job.ErrorMessage.Should().Contain("stalled");
     }
 
+    // ── Test 5: Failed SignalR contract ─────────────────────────────────────
+    [Fact]
+    public async Task Failed_job_event_payload_uses_errorMessage()
+    {
+        var hub = new FakeHubContext();
+        await using var sp = BuildServiceProvider(new ThrowingPythonClient("extractor exploded"), hub);
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        var rid = Guid.NewGuid();
+        var jobId = await SeedPendingJob(sp, rid, "failed_contract_test.pdf");
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        var failed = hub.SentMessages.Should()
+            .ContainSingle(m => m.Method == "MenuImportFailed")
+            .Which;
+        var payload = JsonSerializer.SerializeToElement(failed.Args.Should().ContainSingle().Which);
+
+        payload.TryGetProperty("errorMessage", out var errorMessage).Should().BeTrue();
+        errorMessage.GetString().Should().Be("extractor exploded");
+        payload.TryGetProperty("error", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cancelled_job_during_extractor_failure_does_not_emit_failed_event()
+    {
+        var hub = new FakeHubContext();
+        var rid = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        ServiceProvider? sp = null;
+        var client = new CancellingThrowingPythonClient(
+            "extractor exploded after cancel",
+            async () =>
+            {
+                using var scope = sp!.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+                using var _ = tenant.SuppressResolution();
+
+                var job = await db.MenuImportJobs.IgnoreQueryFilters()
+                    .FirstAsync(j => j.Id == jobId);
+                job.Status = "cancelled";
+                job.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            });
+
+        sp = BuildServiceProvider(client, hub);
+        await using var _sp = sp;
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+            var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+            using var _ = tenant.SuppressResolution();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = rid,
+                Status = "pending",
+                Phase = "parsing",
+                StorageKey = $"{rid:N}/{jobId:N}.pdf",
+                OriginalFileName = "cancel_then_fail.pdf",
+                FileSizeBytes = 100,
+                ProviderUsed = "gemini",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        hub.SentMessages.Should().NotContain(m => m.Method == "MenuImportFailed");
+    }
+
     // ── Fakes ─────────────────────────────────────────────────────────────────
 
     private sealed class FakePythonClient : IPdfExtractor
@@ -328,6 +409,33 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
             await Task.Delay(_delay, ct);
             var json = JsonSerializer.SerializeToDocument(new { items = Array.Empty<object>() }).RootElement;
             return json;
+        }
+    }
+
+    private sealed class ThrowingPythonClient : IPdfExtractor
+    {
+        private readonly string _message;
+        public ThrowingPythonClient(string message) => _message = message;
+
+        public Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
+            => throw new InvalidOperationException(_message);
+    }
+
+    private sealed class CancellingThrowingPythonClient : IPdfExtractor
+    {
+        private readonly string _message;
+        private readonly Func<Task> _cancel;
+
+        public CancellingThrowingPythonClient(string message, Func<Task> cancel)
+        {
+            _message = message;
+            _cancel = cancel;
+        }
+
+        public async Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
+        {
+            await _cancel();
+            throw new InvalidOperationException(_message);
         }
     }
 
@@ -360,26 +468,45 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
 
     private sealed class FakeHubContext : IHubContext<StaffHub>
     {
-        public IHubClients Clients { get; } = new FakeHubClients();
+        public List<SentHubMessage> SentMessages { get; } = new();
+        public IHubClients Clients { get; }
         public IGroupManager Groups { get; } = new FakeGroupManager();
+
+        public FakeHubContext()
+        {
+            Clients = new FakeHubClients(this);
+        }
+
+        public sealed record SentHubMessage(string Method, object?[] Args);
 
         private sealed class FakeHubClients : IHubClients
         {
-            public IClientProxy All => new FakeClientProxy();
-            public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => new FakeClientProxy();
-            public IClientProxy Client(string connectionId) => new FakeClientProxy();
-            public IClientProxy Clients(IReadOnlyList<string> connectionIds) => new FakeClientProxy();
-            public IClientProxy Group(string groupName) => new FakeClientProxy();
-            public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => new FakeClientProxy();
-            public IClientProxy Groups(IReadOnlyList<string> groupNames) => new FakeClientProxy();
-            public IClientProxy User(string userId) => new FakeClientProxy();
-            public IClientProxy Users(IReadOnlyList<string> userIds) => new FakeClientProxy();
+            private readonly FakeHubContext _context;
+            public FakeHubClients(FakeHubContext context) => _context = context;
+
+            public IClientProxy All => new FakeClientProxy(_context);
+            public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => new FakeClientProxy(_context);
+            public IClientProxy Client(string connectionId) => new FakeClientProxy(_context);
+            public IClientProxy Clients(IReadOnlyList<string> connectionIds) => new FakeClientProxy(_context);
+            public IClientProxy Group(string groupName) => new FakeClientProxy(_context);
+            public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => new FakeClientProxy(_context);
+            public IClientProxy Groups(IReadOnlyList<string> groupNames) => new FakeClientProxy(_context);
+            public IClientProxy User(string userId) => new FakeClientProxy(_context);
+            public IClientProxy Users(IReadOnlyList<string> userIds) => new FakeClientProxy(_context);
         }
 
         private sealed class FakeClientProxy : IClientProxy
         {
+            private readonly FakeHubContext _context;
+            public FakeClientProxy(FakeHubContext context) => _context = context;
+
             public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default)
-                => Task.CompletedTask;
+            {
+                lock (_context.SentMessages)
+                    _context.SentMessages.Add(new SentHubMessage(method, args));
+
+                return Task.CompletedTask;
+            }
         }
 
         private sealed class FakeGroupManager : IGroupManager

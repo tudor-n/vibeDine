@@ -158,6 +158,11 @@ public class MenuImportInternalController : ControllerBase
         PropertyNameCaseInsensitive = true,
     };
 
+    private static bool IsTerminalStatus(string status) =>
+        string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "complete", StringComparison.OrdinalIgnoreCase);
+
     private readonly AppDbContext _db;
     private readonly ICurrentTenant _tenant;
     private readonly MenuImportOptions _options;
@@ -203,6 +208,8 @@ public class MenuImportInternalController : ControllerBase
         }
 
         if (payload is null) return BadRequest(new { message = "Empty payload." });
+        if (payload.JobId != jobId)
+            return BadRequest(new { message = "Route jobId does not match payload jobId." });
 
         // Cross-tenant work: suppress tenant filter so we can find the job by ID alone.
         using var _ = _tenant.SuppressResolution();
@@ -211,10 +218,16 @@ public class MenuImportInternalController : ControllerBase
             .FirstOrDefaultAsync(j => j.Id == jobId, ct);
 
         if (job is null) return NotFound();
+        if (IsTerminalStatus(job.Status)) return Ok();
+
+        var isFailedPayload = string.Equals(payload.Status, "failed", StringComparison.OrdinalIgnoreCase);
+        var persistedStatus = string.Equals(payload.Status, "complete", StringComparison.OrdinalIgnoreCase)
+            ? "extracting"
+            : payload.Status;
 
         // Update progress fields
         var now = DateTime.UtcNow;
-        job.Status = payload.Status;
+        job.Status = persistedStatus;
         job.Phase = payload.Phase;
         job.ProcessedPages = payload.ProcessedPages;
         job.TotalPages = payload.TotalPages;
@@ -225,16 +238,27 @@ public class MenuImportInternalController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
 
+        if (isFailedPayload)
+        {
+            await _notifier.EmitFailedAsync(job.RestaurantId, job.Id, new
+            {
+                jobId = job.Id,
+                errorMessage = payload.ErrorMessage ?? "Import PDF eșuat.",
+            }, ct);
+            return Ok();
+        }
+
         // Emit throttled SignalR progress event
         await _notifier.EmitProgressAsync(job.RestaurantId, job.Id, new
         {
             jobId = job.Id,
-            status = payload.Status,
+            status = persistedStatus,
             phase = payload.Phase,
             processedPages = payload.ProcessedPages,
             totalPages = payload.TotalPages,
             failedPages = payload.FailedPages,
             etaSeconds = payload.EtaSeconds,
+            errorMessage = payload.ErrorMessage,
         }, ct);
 
         return Ok();

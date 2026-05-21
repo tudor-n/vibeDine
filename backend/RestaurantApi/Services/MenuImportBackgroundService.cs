@@ -37,6 +37,11 @@ public sealed class MenuImportBackgroundService : BackgroundService
 
     private bool _staleRecoveryRun;
 
+    private static bool IsTerminalStatus(string status) =>
+        string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "complete", StringComparison.OrdinalIgnoreCase);
+
     public MenuImportBackgroundService(
         IServiceProvider services,
         ILogger<MenuImportBackgroundService> logger,
@@ -169,9 +174,9 @@ public sealed class MenuImportBackgroundService : BackgroundService
             var fresh = await db.MenuImportJobs
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(j => j.Id == job.Id, ct);
-            if (fresh is null || fresh.Status == "cancelled")
+            if (fresh is null || IsTerminalStatus(fresh.Status))
             {
-                _logger.LogInformation("Job {JobId} cancelled before extraction started — skipping", job.Id);
+                _logger.LogInformation("Job {JobId} reached a terminal state before extraction started — skipping", job.Id);
                 return;
             }
         }
@@ -199,9 +204,9 @@ public sealed class MenuImportBackgroundService : BackgroundService
                     .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(j => j.Id == job.Id, ct);
 
-                if (fresh is null || fresh.Status == "cancelled")
+                if (fresh is null || IsTerminalStatus(fresh.Status))
                 {
-                    _logger.LogInformation("Job {JobId} cancelled during extraction — not saving result", job.Id);
+                    _logger.LogInformation("Job {JobId} reached a terminal state during extraction — not saving result", job.Id);
                     return;
                 }
 
@@ -230,19 +235,19 @@ public sealed class MenuImportBackgroundService : BackgroundService
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(j => j.Id == job.Id, CancellationToken.None);
 
-            if (fresh is not null && fresh.Status != "cancelled")
+            if (fresh is not null && !IsTerminalStatus(fresh.Status))
             {
                 fresh.Status = "failed";
                 fresh.ErrorMessage = ex.Message;
                 fresh.UpdatedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync(CancellationToken.None);
-            }
 
-            await _notifier.EmitFailedAsync(job.RestaurantId, job.Id, new
-            {
-                jobId = job.Id,
-                error = ex.Message,
-            }, CancellationToken.None);
+                await _notifier.EmitFailedAsync(job.RestaurantId, job.Id, new
+                {
+                    jobId = job.Id,
+                    errorMessage = ex.Message,
+                }, CancellationToken.None);
+            }
         }
         finally
         {

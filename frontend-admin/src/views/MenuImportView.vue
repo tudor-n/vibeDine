@@ -51,7 +51,7 @@ onBeforeUnmount(() => {
     <ImportStepIndicator :current="importStore.step" />
 
     <PdfImportProgress
-      v-if="importStore.mode === 'pdf' && importStore.pdfJob && importStore.step !== 3"
+      v-if="importStore.mode === 'pdf' && importStore.pdfJob && importStore.step === 1"
       :job="importStore.pdfJob"
       @cancel="importStore.cancelPdfImport()"
     />

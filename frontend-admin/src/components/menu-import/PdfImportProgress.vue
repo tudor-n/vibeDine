@@ -5,7 +5,7 @@ import { computed } from 'vue'
 
 interface Job {
   id: string
-  status: 'pending' | 'extracting' | 'complete' | 'failed' | 'cancelled'
+  status: 'uploading' | 'pending' | 'extracting' | 'complete' | 'failed' | 'cancelled'
   phase: 'parsing' | 'classifying' | 'extracting' | 'finalizing'
   fileName: string
   fileSizeBytes: number
@@ -22,11 +22,13 @@ const emit = defineEmits<{ (e: 'cancel'): void }>()
 // ── Derived state ─────────────────────────────────────────────────────────────
 
 const showCancel = computed(() =>
+  props.job.status !== 'uploading' &&
   props.job.status !== 'complete' &&
   props.job.status !== 'failed' &&
   props.job.status !== 'cancelled',
 )
 
+const isUploading = computed(() => props.job.status === 'uploading')
 const isFailed   = computed(() => props.job.status === 'failed')
 const isComplete = computed(() => props.job.status === 'complete')
 
@@ -42,6 +44,11 @@ const fileSizeLabel = computed(() => {
 const progressPct = computed(() => {
   if (!props.job.totalPages) return 0
   return Math.min(100, (props.job.processedPages / props.job.totalPages) * 100)
+})
+
+const progressCounter = computed(() => {
+  if (!props.job.totalPages) return 'în pornire'
+  return `${props.job.processedPages} / ${props.job.totalPages}`
 })
 
 // Phase translation
@@ -65,12 +72,19 @@ const etaLabel = computed(() => {
   return `~${m}m ${r}s`
 })
 
+const fileMeta = computed(() => {
+  const pageText = props.job.totalPages > 0 ? `${props.job.totalPages} pagini` : 'se pregătește'
+  return `${fileSizeLabel.value} · ${pageText}`
+})
+
 // Status line
 const statusLine = computed(() => {
+  if (isUploading.value) return 'Se încarcă PDF-ul și pornesc importul.'
   if (isComplete.value) {
     const ok = props.job.totalPages - props.job.failedPages
     return `Import finalizat · ${ok} pagini procesate.`
   }
+  if (!props.job.totalPages) return 'Importul este în coadă · aștept primele pagini.'
   return `Faza curentă: ${phaseLabel.value} · ETA ${etaLabel.value}`
 })
 
@@ -117,7 +131,7 @@ const dots = computed<DotState[]>(() => {
     <!-- ── File meta ────────────────────────────────────────────────────── -->
     <div class="file-section">
       <div class="display-title file-name">{{ job.fileName }}</div>
-      <div class="file-meta">{{ fileSizeLabel }} · {{ job.totalPages }} pagini</div>
+      <div class="file-meta">{{ fileMeta }}</div>
     </div>
 
     <!-- ── Progress bar ─────────────────────────────────────────────────── -->
@@ -125,11 +139,11 @@ const dots = computed<DotState[]>(() => {
       <div class="progress-track" role="progressbar"
            :aria-valuenow="job.processedPages"
            :aria-valuemin="0"
-           :aria-valuemax="job.totalPages"
-           :aria-label="`${job.processedPages} din ${job.totalPages} pagini procesate`">
+           :aria-valuemax="job.totalPages || 1"
+           :aria-label="job.totalPages ? `${job.processedPages} din ${job.totalPages} pagini procesate` : 'Import PDF în curs de pornire'">
         <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
       </div>
-      <span class="progress-counter">{{ job.processedPages }} / {{ job.totalPages }}</span>
+      <span class="progress-counter">{{ progressCounter }}</span>
     </div>
 
     <!-- ── Phase / ETA line ─────────────────────────────────────────────── -->

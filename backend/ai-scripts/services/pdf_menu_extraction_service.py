@@ -40,6 +40,10 @@ _JITTER_MAX_MS = 100
 _THROTTLE_MS = 0.250
 
 
+class PdfReadError(Exception):
+    """Raised when a PDF cannot be opened/read during the parsing phase."""
+
+
 class PdfMenuExtractionService:
     def __init__(
         self,
@@ -88,12 +92,7 @@ class PdfMenuExtractionService:
                 failed_pages=0,
                 error_message="Unreadable PDF",
             ))
-            return MenuExtractionResponse(
-                items=[],
-                failed_pages=[],
-                model="unknown",
-                schema_version=1,
-            )
+            raise PdfReadError("Unreadable PDF")
 
         total_pages = len(pages)
 
@@ -128,13 +127,21 @@ class PdfMenuExtractionService:
         )
 
         semaphore = asyncio.Semaphore(self._concurrency)
-        tasks = [
-            asyncio.create_task(
-                self._run_unit(unit, request, state, semaphore)
-            )
-            for unit in work_units
-        ]
-        await asyncio.gather(*tasks)
+        page_renderer = _LazyPageRenderer(
+            request.storage_path,
+            scale=self._render_scale,
+            quality=self._render_quality,
+        )
+        try:
+            tasks = [
+                asyncio.create_task(
+                    self._run_unit(unit, request, state, semaphore, page_renderer)
+                )
+                for unit in work_units
+            ]
+            await asyncio.gather(*tasks)
+        finally:
+            page_renderer.close()
 
         # Deduplicate
         deduped = dedup_items(state.items)
@@ -150,7 +157,7 @@ class PdfMenuExtractionService:
         # Final event
         await self._progress.send(ProgressEvent(
             job_id=job_id,
-            status="complete",
+            status="extracting",
             phase="finalizing",
             processed_pages=total_pages,
             total_pages=total_pages,
@@ -174,12 +181,13 @@ class PdfMenuExtractionService:
         request: PdfJobRequest,
         state: "_ExtractionState",
         semaphore: asyncio.Semaphore,
+        page_renderer: "_LazyPageRenderer",
     ) -> None:
         async with semaphore:
             if unit.kind == "text_batch":
-                await self._run_text_batch(unit, request, state)
+                await self._run_text_batch(unit, request, state, page_renderer)
             elif unit.kind == "image_page":
-                await self._run_image_page(unit, request, state)
+                await self._run_image_page(unit, request, state, page_renderer)
             else:  # skip
                 state.processed_pages += len(unit.page_numbers)
 
@@ -190,6 +198,7 @@ class PdfMenuExtractionService:
         unit: "_WorkUnit",
         request: PdfJobRequest,
         state: "_ExtractionState",
+        page_renderer: "_LazyPageRenderer",
     ) -> None:
         """Extract a batch of text pages, with retry and per-page reclassification fallback."""
         batch_pages = [
@@ -246,7 +255,7 @@ class PdfMenuExtractionService:
                 logger.info("Reclassifying page %d through vision pipeline", pnum)
                 state.reclassified += 1
                 await self._run_vision_for_page(
-                    pnum, request, state, is_reclassified=True
+                    pnum, request, state, page_renderer, is_reclassified=True
                 )
             else:
                 parsed = _parse_items(page_raw_items, pnum)
@@ -262,9 +271,12 @@ class PdfMenuExtractionService:
         unit: "_WorkUnit",
         request: PdfJobRequest,
         state: "_ExtractionState",
+        page_renderer: "_LazyPageRenderer",
     ) -> None:
         pnum = unit.page_numbers[0]
-        await self._run_vision_for_page(pnum, request, state, is_reclassified=False)
+        await self._run_vision_for_page(
+            pnum, request, state, page_renderer, is_reclassified=False
+        )
         state.processed_pages += 1
 
     async def _run_vision_for_page(
@@ -272,6 +284,7 @@ class PdfMenuExtractionService:
         page_number: int,
         request: PdfJobRequest,
         state: "_ExtractionState",
+        page_renderer: "_LazyPageRenderer",
         *,
         is_reclassified: bool,
     ) -> None:
@@ -283,13 +296,9 @@ class PdfMenuExtractionService:
                 delay = (_BACKOFF_MS[attempt - 1] + jitter) / 1000.0
                 await asyncio.sleep(delay)
             try:
-                # pypdfium2 uses a C library that is not thread-safe; run synchronously
-                # in the event loop (rendering is fast, blocked by I/O at the OS level).
-                image_bytes = pdf_renderer.render_page(
-                    request.storage_path, page_number,
-                    scale=self._render_scale,
-                    quality=self._render_quality,
-                )
+                # pypdfium2 uses a C library that is not thread-safe; keep rendering
+                # synchronous and reuse one open PdfDocument for the whole job.
+                image_bytes = page_renderer.render_page(page_number)
                 extractor = self._vision_factory()
                 raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
                 state.model_name = state.model_name or extractor.model_name
@@ -358,6 +367,31 @@ class _WorkUnit:
         self.kind = kind  # "text_batch" | "image_page" | "skip"
         self.page_numbers = page_numbers
         self.page_contents = page_contents or []  # list[PageContent] for text batches
+
+
+class _LazyPageRenderer:
+    """Open the PDF renderer only if a page actually needs the vision path."""
+
+    def __init__(self, path: str, *, scale: float, quality: int):
+        self._path = path
+        self._scale = scale
+        self._quality = quality
+        self._renderer = None
+
+    def render_page(self, page_number: int) -> bytes:
+        if self._renderer is None:
+            self._renderer = pdf_renderer.PdfPageRenderer(
+                self._path,
+                scale=self._scale,
+                quality=self._quality,
+            )
+            self._renderer.__enter__()
+        return self._renderer.render_page(page_number)
+
+    def close(self) -> None:
+        if self._renderer is not None:
+            self._renderer.__exit__(None, None, None)
+            self._renderer = None
 
 
 def _build_work_units(

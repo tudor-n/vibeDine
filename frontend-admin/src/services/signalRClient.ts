@@ -8,6 +8,7 @@ export interface StaffHubClient {
   leaveAdminGroup(restaurantId: string): Promise<void>
   on<T>(event: string, handler: (payload: T) => void): void
   off(event: string): void
+  onReconnected(handler: (connectionId?: string) => void | Promise<void>): void
 }
 
 export function createStaffHubClient(): StaffHubClient {
@@ -29,5 +30,8 @@ export function createStaffHubClient(): StaffHubClient {
     leaveAdminGroup: (rid) => conn.invoke('LeaveRoleGroup', rid, 'admin'),
     on: (event, handler) => conn.on(event, handler as (...args: unknown[]) => void),
     off: (event) => conn.off(event),
+    onReconnected: (handler) => conn.onreconnected((connectionId) => {
+      void handler(connectionId ?? undefined)
+    }),
   }
 }

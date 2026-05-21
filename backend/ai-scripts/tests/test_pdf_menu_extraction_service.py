@@ -18,7 +18,8 @@ from models.menu_extraction import (
 )
 from services.text_extractor import FakeTextExtractor, TextExtractionError
 from services.vision_extractor import FakeVisionExtractor, VisionExtractionError
-from services.pdf_menu_extraction_service import PdfMenuExtractionService
+from services import pdf_menu_extraction_service as service_module
+from services.pdf_menu_extraction_service import PdfMenuExtractionService, PdfReadError
 from services.progress_reporter import ProgressReporter
 
 
@@ -128,7 +129,7 @@ async def test_digital_3page_text_extraction_returns_items():
 
 @pytest.mark.asyncio
 async def test_digital_3page_progress_events_structure():
-    """First event has phase=parsing, last has status=complete."""
+    """First event has phase=parsing; final progress stays non-terminal for C# completion."""
     items = []
     for p in range(3):
         items.extend(_text_items_for_page(p))
@@ -140,7 +141,7 @@ async def test_digital_3page_progress_events_structure():
     assert len(reporter.events) >= 2
     assert reporter.events[0].phase == "parsing"
     last = reporter.events[-1]
-    assert last.status == "complete"
+    assert last.status == "extracting"
     assert last.phase == "finalizing"
 
 
@@ -298,22 +299,68 @@ async def test_dedup_removes_duplicate_items():
 
 
 # ---------------------------------------------------------------------------
-# Test: unreadable PDF returns empty response and sends failed event
+# Test: unreadable PDF raises and sends failed event
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_unreadable_pdf_returns_empty_response():
-    """If the PDF cannot be opened (extract returns []), return empty response."""
+async def test_unreadable_pdf_raises_after_failed_progress_event():
+    """If the PDF cannot be opened (extract returns []), raise instead of succeeding."""
     service, reporter = _build_service(text_response={"items": []})
 
     request = _make_request("/nonexistent/path/fake.pdf")
-    result = await service.run(request)
+    with pytest.raises(PdfReadError, match="Unreadable PDF"):
+        await service.run(request)
 
-    assert result.items == []
     # Should have sent a failed progress event
     failed_events = [e for e in reporter.events if e.status == "failed"]
     assert len(failed_events) == 1
     assert failed_events[0].error_message is not None
+
+
+@pytest.mark.asyncio
+async def test_scanned_pdf_uses_single_page_renderer_context(monkeypatch):
+    """Scanned PDFs should reuse one renderer/document across vision pages."""
+    renderer_paths: list[str] = []
+    rendered_pages: list[int] = []
+    closed_count = 0
+
+    class _FakePageRenderer:
+        def __init__(self, path: str, *, scale: float = 1.5, quality: int = 85):
+            renderer_paths.append(path)
+            self.path = path
+            self.scale = scale
+            self.quality = quality
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            nonlocal closed_count
+            closed_count += 1
+
+        def render_page(self, page_number: int) -> bytes:
+            rendered_pages.append(page_number)
+            return b"\xff\xd8\xfffake-jpeg"
+
+    monkeypatch.setattr(
+        service_module.pdf_renderer,
+        "PdfPageRenderer",
+        _FakePageRenderer,
+        raising=False,
+    )
+
+    service, reporter = _build_service(
+        vision_response={"items": [
+            {"name": "Scanned Item", "price": 15.0, "source_index": 0}
+        ]},
+    )
+
+    result = await service.run(_make_request(SCANNED_3PAGE))
+
+    assert renderer_paths == [SCANNED_3PAGE]
+    assert sorted(rendered_pages) == [0, 1, 2]
+    assert closed_count == 1
+    assert len(result.items) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +423,7 @@ async def test_vision_extraction_all_retries_exhausted_marks_failed_pages():
 
 @pytest.mark.asyncio
 async def test_completion_event_always_sent():
-    """Even when every page fails, the final status=complete event must be sent."""
+    """Even when every page fails, final progress stays non-terminal for C# completion."""
     service, reporter = _build_service(
         vision_raises=VisionExtractionError("boom"),
     )
@@ -384,7 +431,8 @@ async def test_completion_event_always_sent():
     await service.run(request)
 
     last = reporter.events[-1]
-    assert last.status == "complete"
+    assert last.status == "extracting"
+    assert last.phase == "finalizing"
 
 
 # ---------------------------------------------------------------------------

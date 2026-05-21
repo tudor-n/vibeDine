@@ -13,6 +13,7 @@ vi.mock('@/stores/useAuthStore', () => ({
 // ── Mock the SignalR client ─────────────────────────────────────────────────
 // We capture the registered handlers so tests can invoke them directly.
 const mockHandlers: Record<string, (payload: unknown) => void> = {}
+const mockReconnectHandlers: Array<() => void | Promise<void>> = []
 const mockHub = {
   start: vi.fn().mockResolvedValue(undefined),
   stop: vi.fn().mockResolvedValue(undefined),
@@ -22,6 +23,9 @@ const mockHub = {
     mockHandlers[event] = handler
   }),
   off: vi.fn(),
+  onReconnected: vi.fn().mockImplementation((handler: () => void | Promise<void>) => {
+    mockReconnectHandlers.push(handler)
+  }),
 }
 
 vi.mock('@/services/signalRClient', () => ({
@@ -96,6 +100,11 @@ const completedJobNoHints: MenuImportJobResponse = {
   },
 }
 
+const completedJobMissingResult: MenuImportJobResponse = {
+  ...completedJobFixture,
+  result: undefined,
+}
+
 // ── Store tests ──────────────────────────────────────────────────────────────
 
 describe('useMenuImportStore — PDF flow', () => {
@@ -105,6 +114,7 @@ describe('useMenuImportStore — PDF flow', () => {
     vi.clearAllMocks()
     // Clear captured handlers from previous test
     for (const key of Object.keys(mockHandlers)) delete mockHandlers[key]
+    mockReconnectHandlers.length = 0
     // Restore hub mock implementations (clearAllMocks resets implementations on spies)
     mockHub.start.mockResolvedValue(undefined)
     mockHub.stop.mockResolvedValue(undefined)
@@ -113,6 +123,15 @@ describe('useMenuImportStore — PDF flow', () => {
     mockHub.on.mockImplementation((event: string, handler: (p: unknown) => void) => {
       mockHandlers[event] = handler
     })
+    mockHub.onReconnected.mockImplementation((handler: () => void | Promise<void>) => {
+      mockReconnectHandlers.push(handler)
+    })
+    vi.useRealTimers()
+  })
+
+  afterEach(() => {
+    useMenuImportStore().$reset()
+    vi.useRealTimers()
   })
 
   // ── 1. startPdfImport happy path ──────────────────────────────────────────
@@ -129,6 +148,33 @@ describe('useMenuImportStore — PDF flow', () => {
     expect(store.pdfJob!.status).toBe('pending')
     expect(store.pdfJob!.fileName).toBe('menu.pdf')
     expect(store.pdfJob!.fileSizeBytes).toBe(file.size)
+  })
+
+  it('startPdfImport exposes an uploading pdfJob before the 202 response resolves', async () => {
+    let resolveStart!: (value: { jobId: string }) => void
+    mockApi.startPdfImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveStart = resolve
+      }),
+    )
+
+    const store = useMenuImportStore()
+    const file = makePdfFile('large-menu.pdf')
+    const startPromise = store.startPdfImport(file)
+
+    expect(store.mode).toBe('pdf')
+    expect(store.pdfJob).toMatchObject({
+      id: '',
+      status: 'uploading',
+      fileName: 'large-menu.pdf',
+      fileSizeBytes: file.size,
+    })
+    expect(mockHub.start).not.toHaveBeenCalled()
+
+    resolveStart({ jobId: 'abc' })
+    await startPromise
+
+    expect(store.pdfJob).toMatchObject({ id: 'abc', status: 'pending' })
   })
 
   // ── 2. Progress event updates pdfJob ──────────────────────────────────────
@@ -174,6 +220,7 @@ describe('useMenuImportStore — PDF flow', () => {
     expect(store.extractedItems.length).toBeGreaterThan(0)
     // Has hints → step 2
     expect(store.step).toBe(2)
+    expect(store.mode).toBe('photos')
   })
 
   it('MenuImportCompleted advances to step 3 when no hints exist', async () => {
@@ -191,6 +238,53 @@ describe('useMenuImportStore — PDF flow', () => {
     expect(store.step).toBe(3)
   })
 
+  it('polls an active PDF job and hydrates completion when the SignalR completion event is missed', async () => {
+    vi.useFakeTimers()
+    mockApi.startPdfImport.mockResolvedValue({ jobId: 'abc' })
+    mockApi.getImportJob.mockResolvedValue(completedJobFixture)
+
+    const store = useMenuImportStore()
+    await store.startPdfImport(makePdfFile())
+
+    expect(mockApi.getImportJob).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(mockApi.getImportJob).toHaveBeenCalledWith('abc')
+    expect(store.pdfJob!.status).toBe('complete')
+    expect(store.extractedItems.length).toBeGreaterThan(0)
+    expect(store.step).toBe(2)
+    expect(store.mode).toBe('photos')
+  })
+
+  it('fails loudly when polling returns complete without a result payload', async () => {
+    vi.useFakeTimers()
+    mockApi.startPdfImport.mockResolvedValue({ jobId: 'abc' })
+    mockApi.getImportJob.mockResolvedValue(completedJobMissingResult)
+
+    const store = useMenuImportStore()
+    await store.startPdfImport(makePdfFile())
+
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(store.pdfJob!.status).toBe('failed')
+    expect(store.importError).toContain('fără rezultat')
+  })
+
+  it('rejoins the admin SignalR group after automatic reconnect', async () => {
+    mockApi.startPdfImport.mockResolvedValue({ jobId: 'abc' })
+
+    const store = useMenuImportStore()
+    await store.startPdfImport(makePdfFile())
+
+    expect(mockHub.onReconnected).toHaveBeenCalledTimes(1)
+
+    mockHub.joinAdminGroup.mockClear()
+    await mockReconnectHandlers[0]?.()
+
+    expect(mockHub.joinAdminGroup).toHaveBeenCalledWith('rest-123')
+  })
+
   // ── 4. Cancellation ───────────────────────────────────────────────────────
   it('cancelPdfImport calls cancelImportJob and sets status=cancelled', async () => {
     mockApi.startPdfImport.mockResolvedValue({ jobId: 'abc' })
@@ -202,6 +296,30 @@ describe('useMenuImportStore — PDF flow', () => {
 
     expect(mockApi.cancelImportJob).toHaveBeenCalledWith('abc')
     expect(store.pdfJob!.status).toBe('cancelled')
+  })
+
+  it('cancelPdfImport during upload cancels the created job and keeps cancelled state', async () => {
+    let resolveStart!: (value: { jobId: string }) => void
+    mockApi.startPdfImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveStart = resolve
+      }),
+    )
+    mockApi.cancelImportJob.mockResolvedValue(undefined)
+
+    const store = useMenuImportStore()
+    const startPromise = store.startPdfImport(makePdfFile('slow-upload.pdf'))
+
+    expect(store.pdfJob!.status).toBe('uploading')
+    await store.cancelPdfImport()
+    expect(store.pdfJob!.status).toBe('cancelled')
+
+    resolveStart({ jobId: 'abc' })
+    await startPromise
+
+    expect(mockApi.cancelImportJob).toHaveBeenCalledWith('abc')
+    expect(store.pdfJob!.status).toBe('cancelled')
+    expect(mockHub.start).not.toHaveBeenCalled()
   })
 
   // ── 5. $reset clears PDF state ────────────────────────────────────────────
@@ -234,6 +352,41 @@ describe('useMenuImportStore — PDF flow', () => {
 
     expect(store.pdfJob!.status).toBe('failed')
     expect(store.importError).toBeTruthy()
+  })
+
+  it('MenuImportFailed falls back to backend error when errorMessage is absent', async () => {
+    mockApi.startPdfImport.mockResolvedValue({ jobId: 'abc' })
+
+    const store = useMenuImportStore()
+    await store.startPdfImport(makePdfFile())
+
+    mockHandlers['MenuImportFailed']?.({ jobId: 'abc', error: 'PDF prea mare.' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(store.pdfJob!.status).toBe('failed')
+    expect(store.pdfJob!.errorMessage).toBe('PDF prea mare.')
+    expect(store.importError).toBe('PDF prea mare.')
+  })
+
+  it('MenuImportProgress with failed status fails instead of forcing extracting', async () => {
+    mockApi.startPdfImport.mockResolvedValue({ jobId: 'abc' })
+
+    const store = useMenuImportStore()
+    await store.startPdfImport(makePdfFile())
+
+    mockHandlers['MenuImportProgress']?.({
+      jobId: 'abc',
+      status: 'failed',
+      phase: 'parsing',
+      processedPages: 0,
+      totalPages: 0,
+      failedPages: 0,
+      errorMessage: 'Unreadable PDF',
+    })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(store.pdfJob!.status).toBe('failed')
+    expect(store.importError).toBe('Unreadable PDF')
   })
 })
 

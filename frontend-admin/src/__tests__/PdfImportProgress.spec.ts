@@ -36,6 +36,19 @@ describe('PdfImportProgress', () => {
     expect(wrapper.text()).toContain('62 / 100')
   })
 
+  it('renders an uploading status before page totals are known', () => {
+    const wrapper = mount(PdfImportProgress, {
+      props: {
+        job: makeJob({
+          status: 'uploading' as const,
+          processedPages: 0,
+          totalPages: 0,
+        }),
+      },
+    })
+    expect(wrapper.text()).toContain('Se încarcă PDF-ul')
+  })
+
   it('renders exactly totalPages dots', () => {
     const wrapper = mount(PdfImportProgress, { props: { job: makeJob() } })
     expect(wrapper.findAll('[data-testid="page-dot"]')).toHaveLength(100)

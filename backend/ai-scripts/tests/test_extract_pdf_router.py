@@ -2,6 +2,7 @@
 TDD — tests for the /menu/extract-pdf endpoint added to routers/menu_extraction.py
 """
 import json
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -14,6 +15,7 @@ from models.menu_extraction import (
     PdfJobRequest,
 )
 from routers import menu_extraction as router_module
+from services.pdf_menu_extraction_service import PdfReadError
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +55,8 @@ def _valid_body(**overrides) -> dict:
     base = {
         "job_id": str(VALID_JOB_ID),
         "restaurant_id": str(VALID_RESTAURANT_ID),
-        "storage_path": "/uploads/menu.pdf",
-        "progress_callback_url": "http://internal/api/internal/menu-imports/abc/progress",
+        "storage_path": "/tmp/menu-imports/menu.pdf",
+        "progress_callback_url": "http://localhost/api/internal/menu-imports/abc/progress",
         "hmac_secret": "supersecret12345",
         "provider": "gemini",
     }
@@ -114,6 +116,144 @@ def test_extract_pdf_empty_storage_path_returns_422(client):
     assert response.status_code == 422
 
 
+def test_extract_pdf_rejects_storage_path_outside_configured_root(client, monkeypatch, tmp_path):
+    """The router must reject paths outside MENU_IMPORT_STORAGE_ROOT before extraction."""
+    allowed_root = tmp_path / "imports"
+    outside_path = tmp_path / "outside" / "menu.pdf"
+    monkeypatch.setenv("MENU_IMPORT_STORAGE_ROOT", str(allowed_root))
+
+    called = False
+
+    def fake_factory():
+        def builder(req: PdfJobRequest):
+            nonlocal called
+            called = True
+
+            class _FakeService:
+                async def run(self, request):
+                    return CANNED_RESPONSE
+            return _FakeService()
+        return builder
+
+    app.dependency_overrides[router_module.get_pdf_extraction_service_factory] = fake_factory
+
+    response = client.post(
+        "/menu/extract-pdf",
+        json=_valid_body(storage_path=str(outside_path)),
+    )
+
+    assert response.status_code == 400
+    assert "storage_path" in response.json()["detail"]
+    assert called is False
+
+
+def test_extract_pdf_accepts_storage_path_under_configured_root(client, monkeypatch, tmp_path):
+    """A path under MENU_IMPORT_STORAGE_ROOT should reach the service unchanged enough to run."""
+    allowed_root = tmp_path / "imports"
+    allowed_path = allowed_root / "menu.pdf"
+    monkeypatch.setenv("MENU_IMPORT_STORAGE_ROOT", str(allowed_root))
+    received: list[PdfJobRequest] = []
+
+    def fake_factory():
+        def builder(req: PdfJobRequest):
+            received.append(req)
+
+            class _FakeService:
+                async def run(self, request):
+                    return CANNED_RESPONSE
+            return _FakeService()
+        return builder
+
+    app.dependency_overrides[router_module.get_pdf_extraction_service_factory] = fake_factory
+
+    response = client.post(
+        "/menu/extract-pdf",
+        json=_valid_body(storage_path=str(allowed_path)),
+    )
+
+    assert response.status_code == 200
+    assert len(received) == 1
+    assert received[0].storage_path == str(allowed_path.resolve(strict=False))
+
+
+def test_extract_pdf_rejects_callback_host_not_in_allowlist(client, monkeypatch):
+    """The router must reject callbacks to hosts outside MENU_IMPORT_CALLBACK_HOSTS."""
+    monkeypatch.setenv("MENU_IMPORT_CALLBACK_HOSTS", "localhost,backend-api")
+    called = False
+
+    def fake_factory():
+        def builder(req: PdfJobRequest):
+            nonlocal called
+            called = True
+
+            class _FakeService:
+                async def run(self, request):
+                    return CANNED_RESPONSE
+            return _FakeService()
+        return builder
+
+    app.dependency_overrides[router_module.get_pdf_extraction_service_factory] = fake_factory
+
+    response = client.post(
+        "/menu/extract-pdf",
+        json=_valid_body(progress_callback_url="http://evil.example/progress"),
+    )
+
+    assert response.status_code == 400
+    assert "progress_callback_url" in response.json()["detail"]
+    assert called is False
+
+
+def test_extract_pdf_allows_backend_api_callback_host_by_default(client):
+    """backend-api is a dev/default allowed callback host."""
+    received: list[PdfJobRequest] = []
+
+    def fake_factory():
+        def builder(req: PdfJobRequest):
+            received.append(req)
+
+            class _FakeService:
+                async def run(self, request):
+                    return CANNED_RESPONSE
+            return _FakeService()
+        return builder
+
+    app.dependency_overrides[router_module.get_pdf_extraction_service_factory] = fake_factory
+
+    response = client.post(
+        "/menu/extract-pdf",
+        json=_valid_body(progress_callback_url="http://backend-api/api/internal/menu-imports/abc/progress"),
+    )
+
+    assert response.status_code == 200
+    assert len(received) == 1
+
+
+def test_extract_pdf_unreadable_pdf_returns_http_error(client, monkeypatch, tmp_path):
+    """A service-level unreadable PDF must not be returned as a successful extraction."""
+    allowed_root = tmp_path / "imports"
+    unreadable_path = allowed_root / "missing.pdf"
+    monkeypatch.setenv("MENU_IMPORT_STORAGE_ROOT", str(allowed_root))
+
+    def fake_factory():
+        def builder(req: PdfJobRequest):
+            class _FakeService:
+                async def run(self, request):
+                    raise PdfReadError("Unreadable PDF")
+            return _FakeService()
+        return builder
+
+    app.dependency_overrides[router_module.get_pdf_extraction_service_factory] = fake_factory
+
+    response = client.post(
+        "/menu/extract-pdf",
+        json=_valid_body(storage_path=str(unreadable_path)),
+    )
+
+    assert response.status_code == 400
+    assert "Unreadable PDF" in response.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # Test: endpoint wiring — response_model matches MenuExtractionResponse shape
 # ---------------------------------------------------------------------------
@@ -160,6 +300,8 @@ def test_extract_pdf_factory_receives_request_data(client):
     client.post("/menu/extract-pdf", json=_valid_body())
 
     assert len(received) == 1
-    assert received[0].storage_path == "/uploads/menu.pdf"
+    assert received[0].storage_path == str(
+        Path("/tmp/menu-imports/menu.pdf").resolve(strict=False)
+    )
     assert received[0].job_id == VALID_JOB_ID
     assert received[0].restaurant_id == VALID_RESTAURANT_ID

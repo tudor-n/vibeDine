@@ -12,12 +12,15 @@ $env:MenuImport__StorageRoot   = "C:\Temp\menu-import-uploads"   # writable path
 $env:Jwt__Key                  = "replace-with-32-char-min-jwt-key-padX"
 
 # Python AI service — choose ONE provider
+$env:MENU_IMPORT_STORAGE_ROOT  = "C:\Temp\menu-import-uploads"   # same path the API uses locally
+$env:MENU_IMPORT_CALLBACK_HOSTS = "localhost,127.0.0.1"
 $env:GEMINI_API_KEY            = "your-gemini-api-key"
 # or
 $env:ANTHROPIC_API_KEY         = "your-anthropic-api-key"
 ```
 
 > The `MenuImport__HmacSecret` must be at least 32 characters. The `Jwt__Key` must be at least 32 characters.
+> When running with Docker Compose, the API and AI containers share the named `menu_imports` volume at `/menu-imports`, and the callback URL is `http://backend-api:5000`.
 
 ---
 

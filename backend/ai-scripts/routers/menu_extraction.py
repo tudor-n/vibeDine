@@ -1,18 +1,28 @@
 import os
+from pathlib import Path
 from typing import Callable, List
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from models.menu_extraction import MenuExtractionResponse, PdfJobRequest
 from services.menu_extraction_service import MenuExtractionService
-from services.pdf_menu_extraction_service import PdfMenuExtractionService
+from services.pdf_menu_extraction_service import PdfMenuExtractionService, PdfReadError
 from services.progress_reporter import ProgressReporter
 from services.text_extractor import ClaudeTextExtractor, GeminiTextExtractor, TextExtractor
 from services.vision_extractor import ClaudeExtractor, GeminiExtractor, VisionExtractor
 
 
 router = APIRouter(prefix="/menu", tags=["menu-extraction"])
+
+_DEFAULT_STORAGE_ROOT = "/tmp/menu-imports"
+_DEFAULT_CALLBACK_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "backend-api",
+}
 
 
 def _default_extractor_factory() -> VisionExtractor:
@@ -91,6 +101,72 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
     return builder
 
 
+def _validate_storage_path(storage_path: str) -> str:
+    root = Path(
+        os.environ.get("MENU_IMPORT_STORAGE_ROOT", _DEFAULT_STORAGE_ROOT)
+    ).expanduser().resolve(strict=False)
+    candidate = Path(storage_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve(strict=False)
+
+    if not _is_relative_to(resolved, root):
+        raise HTTPException(
+            status_code=400,
+            detail="storage_path must be under MENU_IMPORT_STORAGE_ROOT",
+        )
+    return str(resolved)
+
+
+def _validate_progress_callback_url(callback_url: str) -> None:
+    parsed = urlparse(callback_url)
+    host = parsed.hostname.lower() if parsed.hostname else ""
+    if parsed.scheme not in {"http", "https"} or not host:
+        raise HTTPException(
+            status_code=400,
+            detail="progress_callback_url must be an absolute HTTP(S) URL",
+        )
+
+    allowed_hosts = _allowed_callback_hosts()
+    if host not in allowed_hosts:
+        raise HTTPException(
+            status_code=400,
+            detail="progress_callback_url host is not allowed",
+        )
+
+
+def _allowed_callback_hosts() -> set[str]:
+    raw = os.environ.get("MENU_IMPORT_CALLBACK_HOSTS", "")
+    if not raw.strip():
+        return set(_DEFAULT_CALLBACK_HOSTS)
+    return {
+        host
+        for entry in raw.split(",")
+        if (host := _normalize_host(entry))
+    }
+
+
+def _normalize_host(entry: str) -> str:
+    value = entry.strip().lower()
+    if not value:
+        return ""
+    if "://" in value:
+        return (urlparse(value).hostname or "").lower()
+    if value.startswith("[") and "]" in value:
+        return value[1:value.index("]")]
+    if value.count(":") == 1:
+        return value.split(":", 1)[0]
+    return value
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
 @router.post("/extract-pdf", response_model=MenuExtractionResponse)
 async def extract_pdf(
     request: PdfJobRequest,
@@ -98,5 +174,12 @@ async def extract_pdf(
         get_pdf_extraction_service_factory
     ),
 ) -> MenuExtractionResponse:
+    request = request.model_copy(
+        update={"storage_path": _validate_storage_path(request.storage_path)}
+    )
+    _validate_progress_callback_url(request.progress_callback_url)
     service = factory(request)
-    return await service.run(request)
+    try:
+        return await service.run(request)
+    except PdfReadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
