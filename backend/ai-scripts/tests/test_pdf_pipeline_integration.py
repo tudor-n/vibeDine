@@ -7,7 +7,7 @@ real LLM calls are made.
 
 Validates:
 - Correct routing (text batches vs vision pages).
-- Progress callbacks: at least one parsing event + one complete event.
+- Progress callbacks: at least one parsing event + one finalizing event.
 - Deduplication across both routes.
 - Reclassification fallback when text returns empty items for a page.
 - All three fixture PDFs produce at least one item.
@@ -128,13 +128,15 @@ async def test_digital_3page_produces_items_and_correct_progress():
     assert len(result.items) > 0, "Expected at least 1 item from digital PDF"
     assert result.failed_pages == []
 
-    # Progress events: first must be parsing, last must be complete
+    # Progress events: first must be parsing, last stays non-terminal for C# completion
     assert len(reporter.events) >= 2
     assert reporter.events[0].phase == "parsing", \
         f"First event phase should be 'parsing', got '{reporter.events[0].phase}'"
     last = reporter.events[-1]
-    assert last.status == "complete", \
-        f"Last event status should be 'complete', got '{last.status}'"
+    assert last.status == "extracting", \
+        f"Last event status should be 'extracting', got '{last.status}'"
+    assert last.phase == "finalizing", \
+        f"Last event phase should be 'finalizing', got '{last.phase}'"
 
     # Text extractor was used (digital PDF → text pages)
     assert len(text_log) >= 1, "Expected at least 1 text batch call for digital PDF"
@@ -179,7 +181,8 @@ async def test_scanned_3page_uses_only_vision_pipeline():
     assert len(text_log) == 0, f"Expected 0 text calls for scanned PDF, got {len(text_log)}"
 
     last = reporter.events[-1]
-    assert last.status == "complete"
+    assert last.status == "extracting"
+    assert last.phase == "finalizing"
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +230,8 @@ async def test_mixed_5page_exercises_both_routes():
     assert len(text_log) >= 1, f"Expected >= 1 text calls for mixed PDF, got {len(text_log)}"
 
     last = reporter.events[-1]
-    assert last.status == "complete"
+    assert last.status == "extracting"
+    assert last.phase == "finalizing"
 
 
 # ---------------------------------------------------------------------------
@@ -325,21 +329,23 @@ async def test_completion_event_always_sent_even_on_failure():
         progress=reporter,
     )
 
-    # scanned PDF → all image pages → all fail → complete event still sent
+    # scanned PDF → all image pages → all fail → finalizing event still sent
     result = await service.run(_request(SCANNED_3PAGE))
 
     last = reporter.events[-1]
-    assert last.status == "complete", \
-        f"Expected last event status='complete' even on failure; got '{last.status}'"
+    assert last.status == "extracting", \
+        f"Expected last event status='extracting' even on failure; got '{last.status}'"
+    assert last.phase == "finalizing", \
+        f"Expected last event phase='finalizing' even on failure; got '{last.phase}'"
     assert len(result.failed_pages) == 3
 
 
 # ---------------------------------------------------------------------------
-# E — progress events: at least one parsing + one complete
+# E — progress events: at least one parsing + one finalizing
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_progress_events_include_parsing_and_complete():
+async def test_progress_events_include_parsing_and_finalizing():
     reporter = RecordingProgressReporter()
 
     service = PdfMenuExtractionService(
@@ -353,7 +359,6 @@ async def test_progress_events_include_parsing_and_complete():
     await service.run(_request(DIGITAL_3PAGE))
 
     phases = [e.phase for e in reporter.events]
-    statuses = [e.status for e in reporter.events]
 
     assert "parsing" in phases, f"Expected 'parsing' phase in events; got {phases}"
-    assert "complete" in statuses, f"Expected 'complete' status in events; got {statuses}"
+    assert "finalizing" in phases, f"Expected 'finalizing' phase in events; got {phases}"

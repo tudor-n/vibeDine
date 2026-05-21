@@ -328,6 +328,51 @@ def test_pdf_extraction_factory_passes_provider_concurrency(monkeypatch):
     assert captured["provider_concurrency"] == 2
 
 
+def test_pdf_extraction_factory_passes_render_tuning(monkeypatch):
+    captured = {}
+
+    class _CapturingService:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setenv("PDF_RENDER_SCALE", "1.0")
+    monkeypatch.setenv("PDF_RENDER_JPEG_QUALITY", "70")
+    monkeypatch.setattr(router_module, "PdfMenuExtractionService", _CapturingService)
+    monkeypatch.setattr(router_module, "_build_text_extractor_factory", lambda: (lambda: object()))
+    monkeypatch.setattr(router_module, "_default_extractor_factory", lambda: object())
+
+    builder = router_module.get_pdf_extraction_service_factory()
+    builder(PdfJobRequest(**_valid_body()))
+
+    assert captured["render_scale"] == 1.0
+    assert captured["render_quality"] == 70
+
+
+@pytest.mark.parametrize(
+    ("env_name", "value", "message"),
+    [
+        ("PDF_EXTRACT_CONCURRENCY", "0", "PDF_EXTRACT_CONCURRENCY"),
+        ("PDF_PROVIDER_MAX_CONCURRENCY", "0", "PDF_PROVIDER_MAX_CONCURRENCY"),
+        ("PDF_TEXT_BATCH_SIZE", "0", "PDF_TEXT_BATCH_SIZE"),
+        ("PDF_RENDER_SCALE", "0", "PDF_RENDER_SCALE"),
+        ("PDF_RENDER_SCALE", "nan", "PDF_RENDER_SCALE"),
+        ("PDF_RENDER_JPEG_QUALITY", "0", "PDF_RENDER_JPEG_QUALITY"),
+        ("PDF_RENDER_JPEG_QUALITY", "101", "PDF_RENDER_JPEG_QUALITY"),
+    ],
+)
+def test_pdf_extraction_factory_rejects_invalid_runtime_config(
+    monkeypatch,
+    env_name,
+    value,
+    message,
+):
+    monkeypatch.setenv(env_name, value)
+    monkeypatch.setattr(router_module, "_build_text_extractor_factory", lambda: (lambda: object()))
+
+    with pytest.raises(ValueError, match=message):
+        router_module.get_pdf_extraction_service_factory()
+
+
 @pytest.mark.parametrize(
     ("work_concurrency", "expected_provider_concurrency"),
     [

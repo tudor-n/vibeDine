@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 import time
 from dataclasses import dataclass
@@ -123,6 +124,8 @@ class PdfMenuExtractionService:
         self._text_factory = text_extractor_factory
         self._vision_factory = vision_extractor_factory
         self._progress = progress
+        if concurrency < 1:
+            raise ValueError("concurrency must be >= 1")
         self._concurrency = concurrency
         self._provider_concurrency = (
             _default_provider_concurrency(concurrency)
@@ -131,6 +134,14 @@ class PdfMenuExtractionService:
         )
         if self._provider_concurrency < 1:
             raise ValueError("provider_concurrency must be >= 1")
+        if text_batch_size < 1:
+            raise ValueError("text_batch_size must be >= 1")
+        if not math.isfinite(render_scale):
+            raise ValueError("render_scale must be finite")
+        if render_scale <= 0:
+            raise ValueError("render_scale must be > 0")
+        if render_quality < 1 or render_quality > 100:
+            raise ValueError("render_quality must be between 1 and 100")
         self._text_batch_size = text_batch_size
         self._render_scale = render_scale
         self._render_quality = render_quality
@@ -419,6 +430,7 @@ class PdfMenuExtractionService:
         is_reclassified: bool,
     ) -> None:
         last_exc: Optional[Exception] = None
+        image_bytes: Optional[bytes] = None
 
         for attempt in range(_MAX_RETRIES):
             if attempt > 0:
@@ -428,7 +440,8 @@ class PdfMenuExtractionService:
             try:
                 # pypdfium2 uses a C library that is not thread-safe; keep rendering
                 # synchronous and reuse one open PdfDocument for the whole job.
-                image_bytes = page_renderer.render_page(page_number)
+                if image_bytes is None:
+                    image_bytes = page_renderer.render_page(page_number)
                 extractor = await vision_extractor.get()
                 async with provider_semaphore:
                     provider_started_at = time.perf_counter()

@@ -408,6 +408,27 @@ def test_provider_concurrency_must_be_positive():
         )
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"concurrency": 0}, "concurrency"),
+        ({"text_batch_size": 0}, "text_batch_size"),
+        ({"render_scale": 0}, "render_scale"),
+        ({"render_scale": float("nan")}, "render_scale"),
+        ({"render_quality": 0}, "render_quality"),
+        ({"render_quality": 101}, "render_quality"),
+    ],
+)
+def test_service_rejects_invalid_worker_and_render_settings(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        PdfMenuExtractionService(
+            text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+            vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+            progress=StubProgressReporter(),
+            **kwargs,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Test: mixed_5page.pdf → correct routing
 # ---------------------------------------------------------------------------
@@ -614,6 +635,76 @@ async def test_vision_extraction_retries_and_succeeds():
 
     # At least one page should have succeeded with the retried item
     assert any(it.name == "Retried" for it in result.items)
+
+
+@pytest.mark.asyncio
+async def test_vision_retries_reuse_the_rendered_page(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    rendered_pages: list[int] = []
+
+    class _FakePageRenderer:
+        def __init__(self, path: str, *, scale: float = 1.5, quality: int = 85):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+        def render_page(self, page_number: int) -> bytes:
+            rendered_pages.append(page_number)
+            return f"page-{page_number}".encode()
+
+    class _RetryVisionExtractor:
+        model_name = "retry-fake"
+
+        def __init__(self):
+            self.calls = 0
+            self.payloads: list[bytes] = []
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            self.calls += 1
+            self.payloads.append(image_bytes)
+            if self.calls < 3:
+                raise VisionExtractionError("transient")
+            return {"items": [{"name": "Retried", "price": 5.0, "source_index": 0}]}
+
+    extractor = _RetryVisionExtractor()
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path: [
+            PageContent(
+                page_number=0,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        service_module.pdf_renderer,
+        "PdfPageRenderer",
+        _FakePageRenderer,
+        raising=False,
+    )
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: extractor,
+        progress=StubProgressReporter(),
+    )
+
+    result = await service.run(_make_request("fake-scanned.pdf"))
+
+    assert [item.name for item in result.items] == ["Retried"]
+    assert extractor.calls == 3
+    assert extractor.payloads == [b"page-0", b"page-0", b"page-0"]
+    assert rendered_pages == [0]
 
 
 # ---------------------------------------------------------------------------

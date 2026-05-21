@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import math
 import os
 from pathlib import Path
 from typing import Callable, List
@@ -23,6 +26,34 @@ _DEFAULT_CALLBACK_HOSTS = {
     "::1",
     "backend-api",
 }
+
+
+def _read_int_env(name: str, default: int, *, minimum: int, maximum: int | None = None) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = int(raw) if raw is not None else default
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer.") from exc
+
+    if value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}.")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} must be <= {maximum}.")
+    return value
+
+
+def _read_float_env(name: str, default: float, *, greater_than: float) -> float:
+    raw = os.environ.get(name)
+    try:
+        value = float(raw) if raw is not None else default
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number.") from exc
+
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite.")
+    if value <= greater_than:
+        raise ValueError(f"{name} must be > {greater_than:g}.")
+    return value
 
 
 def _default_extractor_factory() -> VisionExtractor:
@@ -76,14 +107,15 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
 
     Overridden in tests via app.dependency_overrides.
     """
-    concurrency = int(os.environ.get("PDF_EXTRACT_CONCURRENCY", "8"))
-    provider_concurrency = int(os.environ.get(
+    concurrency = _read_int_env("PDF_EXTRACT_CONCURRENCY", 8, minimum=1)
+    provider_concurrency = _read_int_env(
         "PDF_PROVIDER_MAX_CONCURRENCY",
-        str(min(4, concurrency)),
-    ))
-    text_batch_size = int(os.environ.get("PDF_TEXT_BATCH_SIZE", "8"))
-    render_scale = float(os.environ.get("PDF_RENDER_SCALE", "1.5"))
-    render_quality = int(os.environ.get("PDF_RENDER_JPEG_QUALITY", "85"))
+        min(4, concurrency),
+        minimum=1,
+    )
+    text_batch_size = _read_int_env("PDF_TEXT_BATCH_SIZE", 8, minimum=1)
+    render_scale = _read_float_env("PDF_RENDER_SCALE", 1.5, greater_than=0.0)
+    render_quality = _read_int_env("PDF_RENDER_JPEG_QUALITY", 85, minimum=1, maximum=100)
 
     text_extractor_factory = _build_text_extractor_factory()
 
