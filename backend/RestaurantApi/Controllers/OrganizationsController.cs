@@ -185,6 +185,36 @@ public class OrganizationsController : ControllerBase
         return NoContent();
     }
 
+    // ── Employees ────────────────────────────────────────────────────────────
+
+    [HttpGet("{orgId:guid}/employees")]
+    public async Task<IActionResult> ListEmployees(Guid orgId)
+    {
+        if (!await _access.IsOrgOwnerAsync(UserId, orgId)) return Forbid();
+
+        var rows = await _db.Memberships
+            .Where(m => m.OrganizationId == orgId)
+            .OrderByDescending(m => m.CreatedAt)
+            .Join(_db.Users, m => m.UserId, u => u.Id, (m, u) => new { m, u })
+            .GroupJoin(_db.Restaurants, x => x.m.RestaurantId, r => r.Id, (x, rs) => new { x.m, x.u, rs })
+            .SelectMany(x => x.rs.DefaultIfEmpty(), (x, r) => new EmployeeResponse
+            {
+                MembershipId = x.m.Id,
+                UserId = x.u.Id,
+                FullName = x.u.FullName,
+                Email = x.u.Email ?? string.Empty,
+                AvatarUrl = x.u.AvatarPath == null ? null : "/" + x.u.AvatarPath,
+                Role = x.m.Role.ToString(),
+                RestaurantId = x.m.RestaurantId,
+                RestaurantName = r == null ? null : r.Name,
+                Status = x.m.Status,
+                CreatedAt = x.m.CreatedAt,
+            })
+            .ToListAsync();
+
+        return Ok(rows);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private Task<bool> IsMemberOfOrgAsync(Guid orgId) =>

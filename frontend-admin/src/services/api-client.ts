@@ -61,6 +61,15 @@ export class EmailNotConfirmedError extends Error {
     }
 }
 
+export class WaiterPendingApprovalError extends Error {
+    email: string;
+    constructor(email: string, message: string) {
+        super(message);
+        this.name = 'WaiterPendingApprovalError';
+        this.email = email;
+    }
+}
+
 export interface OrganizationSummary {
     id: string;
     name: string;
@@ -101,6 +110,12 @@ async function parseOrThrow<T>(response: Response): Promise<T> {
             throw new EmailNotConfirmedError(
                 errorData.email ?? '',
                 errorData.message ?? 'Email neconfirmat.',
+            );
+        }
+        if (errorData?.code === 'waiter_pending_approval') {
+            throw new WaiterPendingApprovalError(
+                errorData.email ?? '',
+                errorData.message ?? 'Contul tău așteaptă aprobarea.',
             );
         }
         throw new Error(errorData.message || errorData.error || `API Error: ${response.status}`);
@@ -223,6 +238,135 @@ export const orgApi = {
     revokeInvitation: (orgId: string, inviteId: string) =>
         authedFetcher<void>(`/api/organizations/${orgId}/invitations/${inviteId}`, {
             method: 'DELETE',
+        }),
+
+    listEmployees: (orgId: string) =>
+        authedFetcher<EmployeeRow[]>(`/api/organizations/${orgId}/employees`),
+};
+
+export interface EmployeeRow {
+    membershipId: string;
+    userId: string;
+    fullName: string;
+    email: string;
+    avatarUrl: string | null;
+    role: string;
+    restaurantId: string | null;
+    restaurantName: string | null;
+    status: string;
+    createdAt: string;
+}
+
+// ── Waiter signup links & approval ───────────────────────────────────────────
+export interface WaiterSignupLink {
+    token: string;
+    signupPath: string;
+    isActive: boolean;
+    createdAt: string;
+}
+
+export interface WaiterSignupPreview {
+    organizationName: string;
+    restaurantName: string;
+}
+
+export interface WaiterSignupResult {
+    status: 'confirmation_sent';
+    email: string;
+    message: string;
+}
+
+export interface WaiterRow {
+    membershipId: string;
+    userId: string;
+    fullName: string;
+    email: string;
+    avatarUrl: string | null;
+    restaurantId: string;
+    restaurantName: string;
+    status: string;
+    createdAt: string;
+    emailConfirmed: boolean;
+}
+
+export const waiterApi = {
+    getLink: (restaurantId: string) =>
+        authedFetcher<WaiterSignupLink>(`/api/restaurants/${restaurantId}/waiter-link`),
+
+    regenerateLink: (restaurantId: string) =>
+        authedFetcher<WaiterSignupLink>(`/api/restaurants/${restaurantId}/waiter-link/regenerate`, {
+            method: 'POST',
+        }),
+
+    revokeLink: (restaurantId: string) =>
+        authedFetcher<void>(`/api/restaurants/${restaurantId}/waiter-link/revoke`, {
+            method: 'POST',
+        }),
+
+    listByRestaurant: (restaurantId: string, status?: string) => {
+        const q = status ? `?status=${encodeURIComponent(status)}` : '';
+        return authedFetcher<WaiterRow[]>(`/api/restaurants/${restaurantId}/waiters${q}`);
+    },
+
+    listPendingForOrg: (orgId: string) =>
+        authedFetcher<WaiterRow[]>(`/api/organizations/${orgId}/waiters/pending`),
+
+    approve: (membershipId: string) =>
+        authedFetcher<void>(`/api/waiters/${membershipId}/approve`, { method: 'POST' }),
+
+    reject: (membershipId: string) =>
+        authedFetcher<void>(`/api/waiters/${membershipId}/reject`, { method: 'POST' }),
+
+    remove: (membershipId: string) =>
+        authedFetcher<void>(`/api/waiters/${membershipId}`, { method: 'DELETE' }),
+};
+
+// ── Profile: own account, avatar upload ──────────────────────────────────────
+export interface AvatarResponse {
+    avatarUrl: string;
+}
+
+export const profileApi = {
+    updateName: (fullName: string) =>
+        authedFetcher<void>('/api/auth/me', {
+            method: 'PATCH',
+            body: JSON.stringify({ fullName }),
+        }),
+
+    uploadAvatar: async (file: File): Promise<AvatarResponse> => {
+        const auth = useAuthStore();
+        const form = new FormData();
+        form.append('file', file);
+
+        const doFetch = () =>
+            fetch(`${BASE_URL}/api/auth/me/avatar`, {
+                method: 'POST',
+                body: form,
+                headers: {
+                    ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {}),
+                },
+            });
+
+        let response = await doFetch();
+        if (response.status === 401 && (await auth.tryRefresh())) {
+            response = await doFetch();
+        }
+        return parseOrThrow<AvatarResponse>(response);
+    },
+
+    deleteAvatar: () =>
+        authedFetcher<void>('/api/auth/me/avatar', { method: 'DELETE' }),
+};
+
+// Public (unauthenticated) waiter signup endpoints.
+export const waiterPublicApi = {
+    preview: (token: string) =>
+        fetcher<WaiterSignupPreview>(`/api/waiter-signup/${token}/preview`),
+
+    signup: (token: string, email: string, password: string, fullName: string) =>
+        fetcher<WaiterSignupResult>(`/api/waiter-signup/${token}`, {
+            method: 'POST',
+            body: JSON.stringify({ email, password, fullName }),
         }),
 };
 

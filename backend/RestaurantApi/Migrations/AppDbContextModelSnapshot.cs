@@ -195,6 +195,10 @@ namespace RestaurantApi.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
 
+                    b.Property<string>("AvatarPath")
+                        .HasColumnType("text")
+                        .HasColumnName("avatar_path");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text");
@@ -412,6 +416,13 @@ namespace RestaurantApi.Migrations
                     b.Property<int>("Role")
                         .HasColumnType("integer")
                         .HasColumnName("role");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("active")
+                        .HasColumnName("status");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
@@ -806,6 +817,49 @@ namespace RestaurantApi.Migrations
                     b.ToTable("similarity_rules", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.WaiterSignupLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<Guid>("Token")
+                        .HasColumnType("uuid")
+                        .HasColumnName("token");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.ToTable("waiter_signup_links", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole<System.Guid>", null)
@@ -995,6 +1049,25 @@ namespace RestaurantApi.Migrations
                     b.Navigation("ProductA");
 
                     b.Navigation("ProductB");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.WaiterSignupLink", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RestaurantApi.Models.Restaurant", "Restaurant")
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("Restaurant");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.AppUser", b =>

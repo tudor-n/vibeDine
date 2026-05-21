@@ -23,9 +23,31 @@ const router = createRouter({
             component: () => import('@/views/OnboardingView.vue'),
         },
         {
+            path: '/select-organization',
+            name: 'org-picker',
+            component: () => import('@/views/OrganizationPickerView.vue'),
+        },
+        {
             path: '/accept-invite',
             name: 'accept-invite',
             component: () => import('@/views/AcceptInviteView.vue'),
+        },
+        {
+            path: '/waiter-signup/:token',
+            name: 'waiter-signup',
+            component: () => import('@/views/WaiterSignupView.vue'),
+            meta: { public: true },
+        },
+        {
+            path: '/awaiting-approval',
+            name: 'awaiting-approval',
+            component: () => import('@/views/AwaitingApprovalView.vue'),
+            meta: { public: true },
+        },
+        {
+            path: '/waiters',
+            name: 'waiters',
+            component: () => import('@/views/WaiterManagementView.vue'),
         },
         {
             path: '/',
@@ -75,7 +97,29 @@ const router = createRouter({
             path: '/menu/import',
             name: 'menu-import',
             component: () => import('@/views/MenuImportView.vue'),
-        }
+        },
+        {
+            path: '/settings',
+            component: () => import('@/views/SettingsLayout.vue'),
+            redirect: { name: 'settings-profile' },
+            children: [
+                {
+                    path: 'profile',
+                    name: 'settings-profile',
+                    component: () => import('@/views/Settings/ProfileTab.vue'),
+                },
+                {
+                    path: 'organizations',
+                    name: 'settings-organizations',
+                    component: () => import('@/views/Settings/OrganizationsTab.vue'),
+                },
+                {
+                    path: 'employees',
+                    name: 'settings-employees',
+                    component: () => import('@/views/Settings/EmployeesTab.vue'),
+                },
+            ],
+        },
     ]
 })
 
@@ -87,17 +131,19 @@ router.beforeEach(async (to) => {
         return isPublic ? true : { name: 'login', query: { redirect: to.fullPath } }
     }
 
-    // Authenticated visiting a public page → go to the dashboard.
+    // Authenticated visiting a public page → go to home (guard will then steer correctly).
     if (isPublic) return { path: '/' }
 
-    // After a full-page reload the token survives (localStorage) but the
-    // in-memory profile/memberships and restaurant list do not. Restore both
-    // before any view evaluates permissions like `isOrgOwnerOfActive`.
-    if (!auth.user || auth.accessibleRestaurants.length === 0) {
+    // After a full-page reload the token survives (localStorage) but the in-memory
+    // profile/memberships and org list do not. Restore both before any view evaluates
+    // permissions like `isOrgOwnerOfActive` / `isWaiter`.
+    if (!auth.user || auth.accessibleOrganizations.length === 0) {
         try {
             await Promise.all([
                 auth.user ? Promise.resolve() : auth.fetchMe(),
-                auth.accessibleRestaurants.length ? Promise.resolve() : auth.loadAccessibleRestaurants(),
+                auth.accessibleOrganizations.length
+                    ? Promise.resolve()
+                    : auth.loadAccessibleOrganizations(),
             ])
         } catch {
             auth.logout()
@@ -105,15 +151,34 @@ router.beforeEach(async (to) => {
         }
     }
 
-    // Accepting an invite is allowed even with no restaurants yet.
+    // Accepting an invite is allowed even with no orgs yet.
     if (to.name === 'accept-invite') return true
 
-    // No org/restaurant yet → onboarding.
-    if (auth.accessibleRestaurants.length === 0) {
+    // No org → onboarding (create the first one).
+    if (auth.accessibleOrganizations.length === 0) {
         return to.name === 'onboarding' ? true : { name: 'onboarding' }
     }
-    if (to.name === 'onboarding') return { path: '/' }
+    if (to.name === 'onboarding') return { name: 'org-picker' }
 
+    // Has orgs but none selected → force the picker (always shown, even with 1 org).
+    if (!auth.activeOrganizationId) {
+        return to.name === 'org-picker' ? true : { name: 'org-picker' }
+    }
+
+    // Waiters only have access to active orders, the orders log, the picker, and the
+    // settings profile tab. Anything else (menu, AI config, rules, tables, organization,
+    // waiter management, dashboard) is rerouted to the active orders board.
+    const WAITER_ALLOWED = new Set([
+        'orders-active',
+        'orders',
+        'org-picker',
+        'settings-profile',
+    ])
+    if (auth.isWaiter && !WAITER_ALLOWED.has(String(to.name))) {
+        return { name: 'orders-active' }
+    }
+
+    // Active org selected — the picker is still allowed (the user clicked "Switch organization").
     return true
 })
 

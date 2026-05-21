@@ -7,6 +7,7 @@ public class MembershipDto
     public Guid? RestaurantId { get; set; }
     public string? RestaurantName { get; set; }
     public string Role { get; set; } = string.Empty;
+    public string Status { get; set; } = "active";
 }
 
 public class UserProfileResponse
@@ -14,6 +15,7 @@ public class UserProfileResponse
     public Guid Id { get; set; }
     public string Email { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
     public List<MembershipDto> Memberships { get; set; } = [];
 }
 

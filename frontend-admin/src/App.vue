@@ -10,15 +10,20 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-// Login / onboarding / accept-invite render full-screen without the admin shell.
+// Login / onboarding / org-picker / accept-invite render full-screen without the admin shell.
 const bareLayout = computed(() =>
-  ['login', 'onboarding', 'accept-invite'].includes(route.name as string),
+  ['login', 'onboarding', 'org-picker', 'accept-invite'].includes(route.name as string),
 )
 const showShell = computed(() => auth.isAuthenticated && !bareLayout.value)
 
 function onSwitchRestaurant(e: Event) {
   auth.setActiveRestaurant((e.target as HTMLSelectElement).value)
   router.go(0)
+}
+
+function switchOrganization() {
+  auth.clearActiveOrganization()
+  router.push('/select-organization')
 }
 
 function logout() {
@@ -73,13 +78,13 @@ function logout() {
 
       <div class="hidden md:block eyebrow mb-2 mt-2">Navigare</div>
 
-      <RouterLink to="/" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">◆</span>
         <span class="nav-label">Dashboard</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/menu" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/menu" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon">☰</span>
         <span class="nav-label">Meniu</span>
         <span class="nav-arrow">→</span>
@@ -91,13 +96,13 @@ function logout() {
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/ai-config" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/ai-config" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">✦</span>
         <span class="nav-label">Configurare AI</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/rules" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/rules" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">∞</span>
         <span class="nav-label">Reguli</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
@@ -109,9 +114,20 @@ function logout() {
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/tables" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/tables" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">▦</span>
         <span class="nav-label">Mese &amp; QR</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
+      <RouterLink
+        v-if="auth.canManageWaitersOfActive"
+        to="/waiters"
+        class="nav-link"
+        active-class="nav-link-active"
+      >
+        <span class="nav-icon" aria-hidden="true">⊕</span>
+        <span class="nav-label">Ospătari</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
@@ -128,28 +144,54 @@ function logout() {
 
       <!-- Footer chip -->
       <div class="hidden md:flex mt-auto pt-6 items-center gap-3 text-ink-70">
-        <div class="w-10 h-10 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-base flex-shrink-0">
-          {{ (auth.user?.fullName || 'A').charAt(0).toUpperCase() }}
+        <div class="w-10 h-10 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-base flex-shrink-0 overflow-hidden">
+          <img
+            v-if="auth.user?.avatarUrl"
+            :src="auth.user.avatarUrl"
+            alt=""
+            class="w-full h-full object-cover"
+          />
+          <template v-else>{{ (auth.user?.fullName || 'A').charAt(0).toUpperCase() }}</template>
         </div>
         <div class="leading-snug flex-1 min-w-0">
           <select
-            v-if="auth.accessibleRestaurants.length"
+            v-if="auth.restaurantsInActiveOrg.length"
             class="rest-switch"
             :value="auth.activeRestaurantId ?? ''"
             aria-label="Schimbă locația"
             @change="onSwitchRestaurant"
           >
-            <option v-for="r in auth.accessibleRestaurants" :key="r.id" :value="r.id">
+            <option v-for="r in auth.restaurantsInActiveOrg" :key="r.id" :value="r.id">
               {{ r.name }}
             </option>
           </select>
           <div class="text-base font-semibold text-ink truncate">{{ auth.user?.fullName || 'Manager' }}</div>
+          <div v-if="auth.activeOrganization" class="text-[12px] text-ink-70 truncate">
+            {{ auth.activeOrganization.name }}
+          </div>
         </div>
       </div>
 
+      <RouterLink to="/settings/profile" class="nav-link hidden md:flex mt-2" active-class="nav-link-active">
+        <span class="nav-icon" aria-hidden="true">⚙</span>
+        <span class="nav-label">Setări</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
       <button
         type="button"
-        class="nav-link nav-link-logout hidden md:flex mt-2"
+        class="nav-link hidden md:flex"
+        aria-label="Schimbă organizația"
+        @click="switchOrganization"
+      >
+        <span class="nav-icon" aria-hidden="true">⇄</span>
+        <span class="nav-label">Schimbă organizația</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </button>
+
+      <button
+        type="button"
+        class="nav-link nav-link-logout hidden md:flex"
         aria-label="Deconectare"
         @click="logout"
       >
