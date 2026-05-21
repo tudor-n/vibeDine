@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { waiterPublicApi, type WaiterSignupPreview } from '@/services/api-client'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const token = route.params.token as string
 
 const preview = ref<WaiterSignupPreview | null>(null)
@@ -17,6 +20,12 @@ const confirmPassword = ref('')
 const error = ref<string | null>(null)
 const busy = ref(false)
 const done = ref<{ email: string; message: string } | null>(null)
+
+function signOutAndStay() {
+  auth.logout()
+  // Stay on the same URL so the signup form becomes interactive.
+  router.go(0)
+}
 
 onMounted(async () => {
   try {
@@ -74,7 +83,13 @@ async function submit() {
         <h1 class="display-title text-3xl mb-1">{{ preview?.restaurantName }}</h1>
         <p class="text-ink-70 mb-6 text-sm">{{ preview?.organizationName }}</p>
 
-        <form class="flex flex-col gap-3" @submit.prevent="submit">
+        <div v-if="auth.isAuthenticated" class="auth-banner mb-4">
+          Ești deja autentificat ca <strong>{{ auth.user?.email }}</strong>. Pentru a crea
+          un cont nou de ospătar trebuie să te deconectezi mai întâi.
+          <button type="button" class="btn-link" @click="signOutAndStay">Deconectează-mă</button>
+        </div>
+
+        <form class="flex flex-col gap-3" :class="{ 'opacity-50 pointer-events-none': auth.isAuthenticated }" @submit.prevent="submit">
           <label class="text-sm font-semibold">Nume complet</label>
           <input v-model="fullName" required placeholder="ex. Andrei Popescu" class="auth-input" />
 
@@ -125,4 +140,26 @@ async function submit() {
   opacity: 0.6;
   cursor: progress;
 }
+.auth-banner {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.btn-link {
+  margin-top: 6px;
+  display: inline-block;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #92400e;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.pointer-events-none { pointer-events: none; }
+.opacity-50 { opacity: 0.5; }
 </style>

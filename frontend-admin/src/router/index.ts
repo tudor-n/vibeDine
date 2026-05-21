@@ -89,9 +89,10 @@ const router = createRouter({
             component: () => import('@/views/TablesView.vue')
         },
         {
+            // Legacy entry point — the entire panel has moved into Settings → Colaboratori.
+            // Keep the path so any old bookmark forwards to the new location.
             path: '/organization',
-            name: 'organization',
-            component: () => import('@/views/OrganizationView.vue')
+            redirect: { name: 'settings-collaborators' },
         },
         {
             path: '/menu/import',
@@ -118,10 +119,21 @@ const router = createRouter({
                     name: 'settings-employees',
                     component: () => import('@/views/Settings/EmployeesTab.vue'),
                 },
+                {
+                    path: 'collaborators',
+                    name: 'settings-collaborators',
+                    component: () => import('@/views/Settings/CollaboratorsTab.vue'),
+                },
             ],
         },
     ]
 })
+
+// Public pages an authenticated user should still be allowed to visit (e.g. clicking a
+// waiter signup link in the same browser they're logged into as a manager). Pages like
+// 'login' / 'confirm-email' don't belong in this list — being already authenticated
+// makes them meaningless, so we keep redirecting away from them.
+const PUBLIC_ALLOWED_WHEN_AUTHENTICATED = new Set(['waiter-signup', 'awaiting-approval'])
 
 router.beforeEach(async (to) => {
     const auth = useAuthStore()
@@ -131,8 +143,11 @@ router.beforeEach(async (to) => {
         return isPublic ? true : { name: 'login', query: { redirect: to.fullPath } }
     }
 
-    // Authenticated visiting a public page → go to home (guard will then steer correctly).
-    if (isPublic) return { path: '/' }
+    // Authenticated visiting a public page → go to home (guard will then steer correctly),
+    // except for a small whitelist of pages that are still useful when signed in.
+    if (isPublic && !PUBLIC_ALLOWED_WHEN_AUTHENTICATED.has(String(to.name))) {
+        return { path: '/' }
+    }
 
     // After a full-page reload the token survives (localStorage) but the in-memory
     // profile/memberships and org list do not. Restore both before any view evaluates
