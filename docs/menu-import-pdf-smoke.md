@@ -119,10 +119,11 @@ python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
   --fake-provider `
   --extract-concurrency 8 `
   --provider-concurrency 4 `
-  --fake-latency-ms 25
+  --fake-latency-ms 25 `
+  --repeat 3
 ```
 
-The output reports page count, item count, failed pages, peak provider concurrency, and total wall time. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
+The output reports one line per run with page count, item count, failed pages, peak provider concurrency, parse/classify/render/provider timings, measured timing total, and wall time. Provider timings are cumulative across concurrent provider calls, so they can exceed wall time when concurrency is greater than one. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
 
 ---
 

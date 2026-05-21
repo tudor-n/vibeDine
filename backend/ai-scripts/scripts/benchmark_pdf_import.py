@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from models.menu_extraction import PdfJobRequest
-from services.pdf_menu_extraction_service import PdfMenuExtractionService
+from services.pdf_menu_extraction_service import PdfExtractionTimings, PdfMenuExtractionService
 from services.text_extractor import FakeTextExtractor
 
 
@@ -79,6 +79,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--extract-concurrency", type=int, default=8)
     parser.add_argument("--provider-concurrency", type=int, default=4)
     parser.add_argument("--fake-latency-ms", type=int, default=25)
+    parser.add_argument("--repeat", type=int, default=1)
     args = parser.parse_args()
 
     if not args.fake_provider:
@@ -89,6 +90,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--provider-concurrency must be >= 1.")
     if args.fake_latency_ms < 0:
         parser.error("--fake-latency-ms must be >= 0.")
+    if args.repeat < 1:
+        parser.error("--repeat must be >= 1.")
     return args
 
 
@@ -101,37 +104,48 @@ async def run_benchmark(args: argparse.Namespace) -> int:
         print(f"PDF path is not a file: {pdf_path}", file=sys.stderr)
         return 2
 
-    reporter = NoopProgressReporter()
-    vision = BenchmarkVisionExtractor(args.fake_latency_ms)
-    service = PdfMenuExtractionService(
-        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
-        vision_extractor_factory=lambda: vision,
-        progress=reporter,
-        concurrency=args.extract_concurrency,
-        provider_concurrency=args.provider_concurrency,
-    )
-    request = PdfJobRequest(
-        job_id=uuid4(),
-        restaurant_id=uuid4(),
-        storage_path=str(pdf_path),
-        progress_callback_url="http://localhost/noop",
-        hmac_secret="benchmark-secret",
-        provider="fake",
-    )
+    for run_number in range(1, args.repeat + 1):
+        reporter = NoopProgressReporter()
+        vision = BenchmarkVisionExtractor(args.fake_latency_ms)
+        metrics = PdfExtractionTimings()
+        service = PdfMenuExtractionService(
+            text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+            vision_extractor_factory=lambda: vision,
+            progress=reporter,
+            concurrency=args.extract_concurrency,
+            provider_concurrency=args.provider_concurrency,
+            metrics=metrics,
+        )
+        request = PdfJobRequest(
+            job_id=uuid4(),
+            restaurant_id=uuid4(),
+            storage_path=str(pdf_path),
+            progress_callback_url="http://localhost/noop",
+            hmac_secret="benchmark-secret",
+            provider="fake",
+        )
 
-    start = time.perf_counter()
-    response = await service.run(request)
-    total_seconds = time.perf_counter() - start
+        start = time.perf_counter()
+        response = await service.run(request)
+        total_seconds = time.perf_counter() - start
 
-    pages = reporter.total_pages or len(response.items) + len(response.failed_pages)
-    print(
-        f"pages={pages} "
-        f"items={len(response.items)} "
-        f"failed_pages={len(response.failed_pages)} "
-        f"vision_calls={vision.calls} "
-        f"peak_provider_concurrency={vision.peak} "
-        f"total_seconds={total_seconds:.3f}"
-    )
+        pages = reporter.total_pages or len(response.items) + len(response.failed_pages)
+        run_prefix = f"run={run_number} " if args.repeat > 1 else ""
+        print(
+            f"{run_prefix}"
+            f"pages={pages} "
+            f"items={len(response.items)} "
+            f"failed_pages={len(response.failed_pages)} "
+            f"vision_calls={vision.calls} "
+            f"peak_provider_concurrency={vision.peak} "
+            f"parse_seconds={metrics.parse_seconds:.3f} "
+            f"classify_seconds={metrics.classify_seconds:.3f} "
+            f"render_seconds={metrics.render_seconds:.3f} "
+            f"text_provider_seconds={metrics.text_provider_seconds:.3f} "
+            f"vision_provider_seconds={metrics.vision_provider_seconds:.3f} "
+            f"measured_seconds={metrics.total_measured_seconds():.3f} "
+            f"total_seconds={total_seconds:.3f}"
+        )
     return 0
 
 

@@ -19,7 +19,11 @@ from models.menu_extraction import (
 from services.text_extractor import FakeTextExtractor, TextExtractionError
 from services.vision_extractor import FakeVisionExtractor, VisionExtractionError
 from services import pdf_menu_extraction_service as service_module
-from services.pdf_menu_extraction_service import PdfMenuExtractionService, PdfReadError
+from services.pdf_menu_extraction_service import (
+    PdfExtractionTimings,
+    PdfMenuExtractionService,
+    PdfReadError,
+)
 from services.progress_reporter import ProgressReporter
 
 
@@ -288,6 +292,56 @@ async def test_provider_concurrency_limits_vision_calls_even_when_page_concurren
     assert extractor.peak <= 2
     assert sorted(extractor.calls) == [0, 1, 2]
     assert factory_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_optional_timings_record_scanned_pdf_parse_render_and_provider_work():
+    metrics = PdfExtractionTimings()
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: FakeVisionExtractor(
+            canned_response={"items": [
+                {"name": "Timed Vision", "price": 12.0, "source_index": 0}
+            ]}
+        ),
+        progress=StubProgressReporter(),
+        concurrency=3,
+        provider_concurrency=2,
+        metrics=metrics,
+    )
+
+    result = await service.run(_make_request(SCANNED_3PAGE))
+
+    assert len(result.items) == 3
+    assert metrics.parse_seconds > 0
+    assert metrics.classify_seconds > 0
+    assert metrics.render_seconds > 0
+    assert metrics.vision_provider_seconds > 0
+    assert metrics.text_provider_seconds == 0
+    assert metrics.total_measured_seconds() >= metrics.render_seconds
+
+
+@pytest.mark.asyncio
+async def test_optional_timings_record_text_provider_work_without_rendering():
+    metrics = PdfExtractionTimings()
+    items = []
+    for page_num in range(3):
+        items.extend(_text_items_for_page(page_num))
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": items}),
+        vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        progress=StubProgressReporter(),
+        metrics=metrics,
+    )
+
+    result = await service.run(_make_request(DIGITAL_3PAGE))
+
+    assert len(result.items) == 6
+    assert metrics.text_provider_seconds > 0
+    assert metrics.render_seconds == 0
+    assert metrics.vision_provider_seconds == 0
 
 
 @pytest.mark.asyncio

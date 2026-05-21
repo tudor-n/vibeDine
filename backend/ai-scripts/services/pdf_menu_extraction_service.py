@@ -11,6 +11,7 @@ import asyncio
 import logging
 import random
 import time
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 from pydantic import ValidationError
@@ -67,6 +68,30 @@ class PdfReadError(Exception):
     """Raised when a PDF cannot be opened/read during the parsing phase."""
 
 
+@dataclass
+class PdfExtractionTimings:
+    parse_seconds: float = 0.0
+    classify_seconds: float = 0.0
+    render_seconds: float = 0.0
+    text_provider_seconds: float = 0.0
+    vision_provider_seconds: float = 0.0
+
+    def total_measured_seconds(self) -> float:
+        return (
+            self.parse_seconds
+            + self.classify_seconds
+            + self.render_seconds
+            + self.text_provider_seconds
+            + self.vision_provider_seconds
+        )
+
+
+def _record_elapsed(metrics: PdfExtractionTimings | None, field_name: str, started_at: float) -> None:
+    if metrics is None:
+        return
+    setattr(metrics, field_name, getattr(metrics, field_name) + time.perf_counter() - started_at)
+
+
 class PdfMenuExtractionService:
     def __init__(
         self,
@@ -79,6 +104,7 @@ class PdfMenuExtractionService:
         text_batch_size: int = 8,
         render_scale: float = 1.5,
         render_quality: int = 85,
+        metrics: PdfExtractionTimings | None = None,
     ):
         self._text_factory = text_extractor_factory
         self._vision_factory = vision_extractor_factory
@@ -94,6 +120,7 @@ class PdfMenuExtractionService:
         self._text_batch_size = text_batch_size
         self._render_scale = render_scale
         self._render_quality = render_quality
+        self._metrics = metrics
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -112,7 +139,11 @@ class PdfMenuExtractionService:
             failed_pages=0,
         ))
 
-        pages = pdf_text_extractor.extract(request.storage_path)
+        parse_started_at = time.perf_counter()
+        try:
+            pages = pdf_text_extractor.extract(request.storage_path)
+        finally:
+            _record_elapsed(self._metrics, "parse_seconds", parse_started_at)
         if not pages:
             await self._progress.send(ProgressEvent(
                 job_id=job_id,
@@ -137,7 +168,11 @@ class PdfMenuExtractionService:
             failed_pages=0,
         ))
 
-        kinds: list[PageKind] = [page_classifier.classify(p) for p in pages]
+        classify_started_at = time.perf_counter()
+        try:
+            kinds: list[PageKind] = [page_classifier.classify(p) for p in pages]
+        finally:
+            _record_elapsed(self._metrics, "classify_seconds", classify_started_at)
 
         # Phase 3: extracting — build work units
         await self._progress.send(ProgressEvent(
@@ -163,6 +198,7 @@ class PdfMenuExtractionService:
             request.storage_path,
             scale=self._render_scale,
             quality=self._render_quality,
+            metrics=self._metrics,
         )
         vision_extractor = _LazyVisionExtractor(self._vision_factory)
         try:
@@ -276,7 +312,11 @@ class PdfMenuExtractionService:
             try:
                 extractor = self._text_factory()
                 async with provider_semaphore:
-                    raw = await extractor.extract(batch_pages)
+                    provider_started_at = time.perf_counter()
+                    try:
+                        raw = await extractor.extract(batch_pages)
+                    finally:
+                        _record_elapsed(self._metrics, "text_provider_seconds", provider_started_at)
                 state.model_name = state.model_name or extractor.model_name
                 break
             except TextExtractionError as exc:
@@ -377,7 +417,11 @@ class PdfMenuExtractionService:
                 image_bytes = page_renderer.render_page(page_number)
                 extractor = await vision_extractor.get()
                 async with provider_semaphore:
-                    raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
+                    provider_started_at = time.perf_counter()
+                    try:
+                        raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
+                    finally:
+                        _record_elapsed(self._metrics, "vision_provider_seconds", provider_started_at)
                 state.model_name = state.model_name or extractor.model_name
 
                 raw_items = raw.get("items") if isinstance(raw, dict) else []
@@ -449,21 +493,33 @@ class _WorkUnit:
 class _LazyPageRenderer:
     """Open the PDF renderer only if a page actually needs the vision path."""
 
-    def __init__(self, path: str, *, scale: float, quality: int):
+    def __init__(
+        self,
+        path: str,
+        *,
+        scale: float,
+        quality: int,
+        metrics: PdfExtractionTimings | None,
+    ):
         self._path = path
         self._scale = scale
         self._quality = quality
+        self._metrics = metrics
         self._renderer = None
 
     def render_page(self, page_number: int) -> bytes:
-        if self._renderer is None:
-            self._renderer = pdf_renderer.PdfPageRenderer(
-                self._path,
-                scale=self._scale,
-                quality=self._quality,
-            )
-            self._renderer.__enter__()
-        return self._renderer.render_page(page_number)
+        render_started_at = time.perf_counter()
+        try:
+            if self._renderer is None:
+                self._renderer = pdf_renderer.PdfPageRenderer(
+                    self._path,
+                    scale=self._scale,
+                    quality=self._quality,
+                )
+                self._renderer.__enter__()
+            return self._renderer.render_page(page_number)
+        finally:
+            _record_elapsed(self._metrics, "render_seconds", render_started_at)
 
     def close(self) -> None:
         if self._renderer is not None:
