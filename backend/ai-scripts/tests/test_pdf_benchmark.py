@@ -62,3 +62,31 @@ def test_benchmark_pdf_import_repeat_prefixes_run_number():
     lines = result.stdout.splitlines()
     assert lines[0].startswith("run=1 pages=3")
     assert lines[1].startswith("run=2 pages=3")
+
+
+def test_benchmark_pdf_import_real_provider_without_key_exits_cleanly():
+    script = Path(__file__).parents[1] / "scripts" / "benchmark_pdf_import.py"
+    fixture = Path(__file__).parent / "fixtures" / "sample_menus" / "scanned_3page.pdf"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(fixture),
+            "--real-provider",
+            "--provider",
+            "gemini",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "PYTHONPATH": str(Path(__file__).parents[1]),
+        },
+    )
+
+    assert result.returncode == 2
+    assert "GEMINI_API_KEY" in result.stderr
+    assert "not supported" not in result.stderr
+    assert "Traceback" not in result.stderr
