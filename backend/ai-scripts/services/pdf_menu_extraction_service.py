@@ -31,7 +31,11 @@ from services.dedup import dedup_items
 from services.page_classifier import PageKind
 from services.progress_reporter import ProgressReporter
 from services.text_extractor import TextExtractionError, TextExtractor
-from services.vision_extractor import VisionExtractionError, VisionExtractor
+from services.vision_extractor import (
+    VisionExtractionError,
+    VisionExtractionPage,
+    VisionExtractor,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +87,7 @@ class PdfExtractionTimings:
     embedded_image_bytes: int = 0
     skipped_embedded_image_pages: int = 0
     skipped_embedded_image_bytes: int = 0
+    vision_provider_calls: int = 0
 
     def total_measured_seconds(self) -> float:
         return (
@@ -103,6 +108,12 @@ def _record_elapsed(metrics: PdfExtractionTimings | None, field_name: str, start
     if metrics is None:
         return
     setattr(metrics, field_name, getattr(metrics, field_name) + time.perf_counter() - started_at)
+
+
+def _record_vision_provider_call(metrics: PdfExtractionTimings | None) -> None:
+    if metrics is None:
+        return
+    metrics.vision_provider_calls += 1
 
 
 def _record_rendered_bytes(metrics: PdfExtractionTimings | None, image_bytes: bytes) -> None:
@@ -139,6 +150,7 @@ class PdfMenuExtractionService:
         concurrency: int = 8,
         provider_concurrency: int | None = None,
         text_batch_size: int = 8,
+        vision_batch_size: int = 1,
         render_scale: float = 1.5,
         render_quality: int = 85,
         max_embedded_image_bytes: int = pdf_text_extractor.DEFAULT_MAX_EMBEDDED_IMAGE_BYTES,
@@ -159,6 +171,8 @@ class PdfMenuExtractionService:
             raise ValueError("provider_concurrency must be >= 1")
         if text_batch_size < 1:
             raise ValueError("text_batch_size must be >= 1")
+        if vision_batch_size < 1:
+            raise ValueError("vision_batch_size must be >= 1")
         if not math.isfinite(render_scale):
             raise ValueError("render_scale must be finite")
         if render_scale <= 0:
@@ -168,6 +182,7 @@ class PdfMenuExtractionService:
         if max_embedded_image_bytes < 0:
             raise ValueError("max_embedded_image_bytes must be >= 0")
         self._text_batch_size = text_batch_size
+        self._vision_batch_size = vision_batch_size
         self._render_scale = render_scale
         self._render_quality = render_quality
         self._max_embedded_image_bytes = max_embedded_image_bytes
@@ -239,7 +254,12 @@ class PdfMenuExtractionService:
             failed_pages=0,
         ))
 
-        work_units = _build_work_units(pages, kinds, self._text_batch_size)
+        work_units = _build_work_units(
+            pages,
+            kinds,
+            self._text_batch_size,
+            self._vision_batch_size,
+        )
 
         # Shared mutable state for progress tracking (protected by asyncio single-thread)
         state = _ExtractionState(
@@ -331,8 +351,8 @@ class PdfMenuExtractionService:
                     page_renderer,
                     vision_extractor,
                 )
-            elif unit.kind == "image_page":
-                await self._run_image_page(
+            elif unit.kind == "image_batch":
+                await self._run_image_batch(
                     unit,
                     request,
                     state,
@@ -434,7 +454,7 @@ class PdfMenuExtractionService:
 
         state.processed_pages += len(unit.page_numbers)
 
-    async def _run_image_page(
+    async def _run_image_batch(
         self,
         unit: "_WorkUnit",
         request: PdfJobRequest,
@@ -444,33 +464,47 @@ class PdfMenuExtractionService:
         page_renderer: "_LazyPageRenderer",
         vision_extractor: "_LazyVisionExtractor",
     ) -> None:
-        pnum = unit.page_numbers[0]
-        embedded_image_bytes = (
-            unit.page_contents[0].embedded_image_bytes
-            if unit.page_contents
-            else None
+        extractor = await vision_extractor.get()
+        extract_batch = getattr(extractor, "extract_batch", None)
+        if len(unit.page_contents) < 2 or not callable(extract_batch):
+            for page_content in unit.page_contents:
+                await self._run_single_image_page(
+                    page_content,
+                    request,
+                    state,
+                    provider_semaphore,
+                    payload_semaphore,
+                    page_renderer,
+                    vision_extractor,
+                )
+            state.processed_pages += len(unit.page_numbers)
+            return
+
+        await self._run_vision_batch(
+            unit,
+            request,
+            state,
+            provider_semaphore,
+            payload_semaphore,
+            page_renderer,
+            extractor,
+            extract_batch,
         )
-        skipped_embedded_image_bytes = (
-            unit.page_contents[0].skipped_embedded_image_bytes
-            if unit.page_contents
-            else 0
-        )
-        if skipped_embedded_image_bytes > 0:
-            _record_skipped_embedded_image_byte_count(
-                self._metrics,
-                skipped_embedded_image_bytes,
-            )
-        if (
-            embedded_image_bytes is not None
-            and len(embedded_image_bytes) > self._max_embedded_image_bytes
-        ):
-            _record_skipped_embedded_image_byte_count(
-                self._metrics,
-                len(embedded_image_bytes),
-            )
-            embedded_image_bytes = None
+        state.processed_pages += len(unit.page_numbers)
+
+    async def _run_single_image_page(
+        self,
+        page_content,
+        request: PdfJobRequest,
+        state: "_ExtractionState",
+        provider_semaphore: asyncio.Semaphore,
+        payload_semaphore: asyncio.Semaphore,
+        page_renderer: "_LazyPageRenderer",
+        vision_extractor: "_LazyVisionExtractor",
+    ) -> None:
+        embedded_image_bytes = self._usable_embedded_image_bytes(page_content)
         await self._run_vision_for_page(
-            pnum,
+            page_content.page_number,
             request,
             state,
             provider_semaphore,
@@ -480,7 +514,106 @@ class PdfMenuExtractionService:
             embedded_image_bytes=embedded_image_bytes,
             is_reclassified=False,
         )
-        state.processed_pages += 1
+
+    def _usable_embedded_image_bytes(self, page_content) -> Optional[bytes]:
+        skipped_embedded_image_bytes = (
+            page_content.skipped_embedded_image_bytes
+            if page_content is not None
+            else 0
+        )
+        if skipped_embedded_image_bytes > 0:
+            _record_skipped_embedded_image_byte_count(
+                self._metrics,
+                skipped_embedded_image_bytes,
+            )
+        embedded_image_bytes = page_content.embedded_image_bytes if page_content is not None else None
+        if (
+            embedded_image_bytes is not None
+            and len(embedded_image_bytes) > self._max_embedded_image_bytes
+        ):
+            _record_skipped_embedded_image_byte_count(
+                self._metrics,
+                len(embedded_image_bytes),
+            )
+            embedded_image_bytes = None
+        return embedded_image_bytes
+
+    async def _run_vision_batch(
+        self,
+        unit: "_WorkUnit",
+        request: PdfJobRequest,
+        state: "_ExtractionState",
+        provider_semaphore: asyncio.Semaphore,
+        payload_semaphore: asyncio.Semaphore,
+        page_renderer: "_LazyPageRenderer",
+        extractor: VisionExtractor,
+        extract_batch,
+    ) -> None:
+        last_exc: Optional[Exception] = None
+        batch_pages: Optional[list[VisionExtractionPage]] = None
+
+        for attempt in range(_MAX_RETRIES):
+            if attempt > 0:
+                jitter = random.randint(0, _JITTER_MAX_MS)
+                delay = (_BACKOFF_MS[attempt - 1] + jitter) / 1000.0
+                await asyncio.sleep(delay)
+            try:
+                async with payload_semaphore:
+                    if batch_pages is None:
+                        batch_pages = []
+                        for page_content in unit.page_contents:
+                            embedded_image_bytes = self._usable_embedded_image_bytes(page_content)
+                            if embedded_image_bytes is not None:
+                                _record_embedded_image_bytes(self._metrics, embedded_image_bytes)
+                                image_bytes = embedded_image_bytes
+                            else:
+                                image_bytes = await page_renderer.render_page(page_content.page_number)
+                            batch_pages.append(
+                                VisionExtractionPage(
+                                    page_number=page_content.page_number,
+                                    image_bytes=image_bytes,
+                                )
+                            )
+                    async with provider_semaphore:
+                        provider_started_at = time.perf_counter()
+                        try:
+                            _record_vision_provider_call(self._metrics)
+                            raw = await extract_batch(batch_pages)
+                        finally:
+                            _record_elapsed(self._metrics, "vision_provider_seconds", provider_started_at)
+                state.model_name = state.model_name or extractor.model_name
+
+                raw_items = raw.get("items") if isinstance(raw, dict) else []
+                if raw_items is None:
+                    raw_items = []
+
+                items_by_page: dict[int, list[dict]] = {pnum: [] for pnum in unit.page_numbers}
+                for raw_item in raw_items:
+                    src_page = raw_item.get("source_page")
+                    if src_page in items_by_page:
+                        items_by_page[src_page].append(raw_item)
+
+                for pnum in unit.page_numbers:
+                    parsed = _parse_items(items_by_page.get(pnum, []), pnum)
+                    if isinstance(parsed, FailedPage):
+                        state.failed_pages.append(parsed)
+                    else:
+                        state.items.extend(parsed)
+                return
+
+            except (VisionExtractionError, ValueError) as exc:
+                last_exc = exc
+                logger.warning(
+                    "Vision batch extraction attempt %d/%d failed for pages %s: %s",
+                    attempt + 1, _MAX_RETRIES, unit.page_numbers, exc,
+                )
+
+        logger.warning(
+            "Vision batch extraction permanently failed for pages %s after %d attempts: %s",
+            unit.page_numbers, _MAX_RETRIES, last_exc,
+        )
+        for pnum in unit.page_numbers:
+            state.failed_pages.append(FailedPage(source_page=pnum, reason="vision_api_error"))
 
     async def _run_vision_for_page(
         self,
@@ -515,6 +648,7 @@ class PdfMenuExtractionService:
                     async with provider_semaphore:
                         provider_started_at = time.perf_counter()
                         try:
+                            _record_vision_provider_call(self._metrics)
                             raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
                         finally:
                             _record_elapsed(self._metrics, "vision_provider_seconds", provider_started_at)
@@ -581,9 +715,9 @@ class _WorkUnit:
     __slots__ = ("kind", "page_numbers", "page_contents")
 
     def __init__(self, kind: str, page_numbers: list[int], page_contents=None):
-        self.kind = kind  # "text_batch" | "image_page" | "skip"
+        self.kind = kind  # "text_batch" | "image_batch" | "skip"
         self.page_numbers = page_numbers
-        self.page_contents = page_contents or []  # list[PageContent] for text batches
+        self.page_contents = page_contents or []  # list[PageContent] for page work
 
 
 class _LazyPageRenderer:
@@ -665,10 +799,12 @@ def _build_work_units(
     pages,
     kinds: list[PageKind],
     text_batch_size: int,
+    vision_batch_size: int,
 ) -> list[_WorkUnit]:
-    """Group consecutive text pages into batches; each image page is its own unit."""
+    """Group consecutive text and image pages into bounded provider batches."""
     units: list[_WorkUnit] = []
     text_buffer: list = []
+    image_buffer: list = []
 
     def _flush_text_buffer():
         if not text_buffer:
@@ -682,24 +818,37 @@ def _build_work_units(
             ))
         text_buffer.clear()
 
+    def _flush_image_buffer():
+        if not image_buffer:
+            return
+        for i in range(0, len(image_buffer), vision_batch_size):
+            batch = image_buffer[i: i + vision_batch_size]
+            units.append(_WorkUnit(
+                kind="image_batch",
+                page_numbers=[p.page_number for p in batch],
+                page_contents=batch,
+            ))
+        image_buffer.clear()
+
     for page_content, kind in zip(pages, kinds):
         if kind == "text":
+            _flush_image_buffer()
             text_buffer.append(page_content)
         else:
             _flush_text_buffer()
             if kind == "image":
-                units.append(_WorkUnit(
-                    kind="image_page",
-                    page_numbers=[page_content.page_number],
-                    page_contents=[page_content],
-                ))
+                image_buffer.append(page_content)
+                if len(image_buffer) >= vision_batch_size:
+                    _flush_image_buffer()
             else:  # skip
+                _flush_image_buffer()
                 units.append(_WorkUnit(
                     kind="skip",
                     page_numbers=[page_content.page_number],
                 ))
 
     _flush_text_buffer()
+    _flush_image_buffer()
     return units
 
 

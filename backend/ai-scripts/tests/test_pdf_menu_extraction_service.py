@@ -390,6 +390,115 @@ async def test_embedded_image_pages_bypass_pdf_renderer(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_vision_batch_size_groups_image_pages_for_batch_extractor(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    class _BatchVisionExtractor:
+        model_name = "batch-vision"
+
+        def __init__(self):
+            self.batch_calls: list[list[int]] = []
+            self.single_calls: list[int] = []
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            self.single_calls.append(page_number)
+            return {"items": [
+                {"name": f"Single {page_number}", "price": 10.0, "source_index": 0},
+            ]}
+
+        async def extract_batch(self, pages) -> dict:
+            page_numbers = [page.page_number for page in pages]
+            self.batch_calls.append(page_numbers)
+            return {"items": [
+                {
+                    "name": f"Batch {page.page_number}",
+                    "price": 10.0 + page.page_number,
+                    "source_page": page.page_number,
+                    "source_index": 0,
+                }
+                for page in pages
+            ]}
+
+    extractor = _BatchVisionExtractor()
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path, **kwargs: [
+            PageContent(
+                page_number=page_number,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+                embedded_image_bytes=f"\xff\xd8\xffpage-{page_number}".encode(),
+            )
+            for page_number in range(4)
+        ],
+    )
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: extractor,
+        progress=StubProgressReporter(),
+        vision_batch_size=2,
+    )
+
+    result = await service.run(_make_request("fake-scanned.pdf"))
+
+    assert extractor.batch_calls == [[0, 1], [2, 3]]
+    assert extractor.single_calls == []
+    assert sorted(item.source_page for item in result.items) == [0, 1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_vision_batch_size_falls_back_to_single_page_extractor(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    class _SingleOnlyVisionExtractor:
+        model_name = "single-only-vision"
+
+        def __init__(self):
+            self.single_calls: list[int] = []
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            self.single_calls.append(page_number)
+            return {"items": [
+                {"name": f"Single {page_number}", "price": 10.0, "source_index": 0},
+            ]}
+
+    extractor = _SingleOnlyVisionExtractor()
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path, **kwargs: [
+            PageContent(
+                page_number=page_number,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+                embedded_image_bytes=f"\xff\xd8\xffpage-{page_number}".encode(),
+            )
+            for page_number in range(3)
+        ],
+    )
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: extractor,
+        progress=StubProgressReporter(),
+        vision_batch_size=3,
+    )
+
+    result = await service.run(_make_request("fake-scanned.pdf"))
+
+    assert extractor.single_calls == [0, 1, 2]
+    assert sorted(item.source_page for item in result.items) == [0, 1, 2]
+
+
+@pytest.mark.asyncio
 async def test_oversized_embedded_image_page_falls_back_to_pdf_renderer(monkeypatch):
     from services.pdf_text_extractor import PageContent
 
@@ -803,6 +912,7 @@ def test_provider_concurrency_must_be_positive():
         ({"render_quality": 0}, "render_quality"),
         ({"render_quality": 101}, "render_quality"),
         ({"max_embedded_image_bytes": -1}, "max_embedded_image_bytes"),
+        ({"vision_batch_size": 0}, "vision_batch_size"),
     ],
 )
 def test_service_rejects_invalid_worker_and_render_settings(kwargs, message):

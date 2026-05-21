@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 from models.menu_extraction import PdfJobRequest
 from services.pdf_menu_extraction_service import PdfExtractionTimings, PdfMenuExtractionService
 from services.text_extractor import ClaudeTextExtractor, FakeTextExtractor, GeminiTextExtractor
-from services.vision_extractor import ClaudeExtractor, GeminiExtractor
+from services.vision_extractor import ClaudeExtractor, GeminiExtractor, VisionExtractionPage
 
 
 class NoopProgressReporter:
@@ -58,6 +58,29 @@ class BenchmarkVisionExtractor:
             ]
         }
 
+    async def extract_batch(self, pages: list[VisionExtractionPage]):
+        async with self._lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            self.calls += 1
+        try:
+            await asyncio.sleep(self.latency)
+        finally:
+            async with self._lock:
+                self.active -= 1
+
+        return {
+            "items": [
+                {
+                    "name": f"Benchmark Item {page.page_number}",
+                    "price": 10.0,
+                    "source_page": page.page_number,
+                    "source_index": 0,
+                }
+                for page in pages
+            ]
+        }
+
 
 class ProviderCallStats:
     def __init__(self):
@@ -87,6 +110,13 @@ class CountingVisionExtractor:
         self._stats.begin()
         try:
             return await self._inner.extract(image_bytes=image_bytes, page_number=page_number)
+        finally:
+            self._stats.end()
+
+    async def extract_batch(self, pages: list[VisionExtractionPage]):
+        self._stats.begin()
+        try:
+            return await self._inner.extract_batch(pages)
         finally:
             self._stats.end()
 
@@ -128,6 +158,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--provider", choices=("gemini", "claude"), default="gemini")
     parser.add_argument("--extract-concurrency", type=int, default=8)
     parser.add_argument("--provider-concurrency", type=int, default=4)
+    parser.add_argument("--vision-batch-size", type=int, default=1)
     parser.add_argument("--render-scale", type=float, default=1.5)
     parser.add_argument("--render-quality", type=int, default=85)
     parser.add_argument("--max-embedded-image-bytes", type=int, default=4_000_000)
@@ -139,6 +170,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--extract-concurrency must be >= 1.")
     if args.provider_concurrency < 1:
         parser.error("--provider-concurrency must be >= 1.")
+    if args.vision_batch_size < 1:
+        parser.error("--vision-batch-size must be >= 1.")
     if not math.isfinite(args.render_scale):
         parser.error("--render-scale must be finite.")
     if args.render_scale <= 0:
@@ -188,6 +221,7 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             progress=reporter,
             concurrency=args.extract_concurrency,
             provider_concurrency=args.provider_concurrency,
+            vision_batch_size=args.vision_batch_size,
             render_scale=args.render_scale,
             render_quality=args.render_quality,
             max_embedded_image_bytes=args.max_embedded_image_bytes,
@@ -215,6 +249,7 @@ async def run_benchmark(args: argparse.Namespace) -> int:
             f"failed_pages={len(response.failed_pages)} "
             f"vision_calls={vision_stats.calls} "
             f"peak_provider_concurrency={vision_stats.peak} "
+            f"vision_batch_size={args.vision_batch_size} "
             f"render_scale={args.render_scale:g} "
             f"render_quality={args.render_quality} "
             f"max_embedded_image_bytes={args.max_embedded_image_bytes} "

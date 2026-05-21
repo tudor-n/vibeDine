@@ -1,5 +1,6 @@
 import base64
 import os
+from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
 import httpx
@@ -15,6 +16,24 @@ class VisionExtractor(Protocol):
 
     async def extract(self, image_bytes: bytes, page_number: int) -> dict[str, Any]:
         """Return the raw JSON dict the provider produced for one image."""
+        ...
+
+
+@dataclass(frozen=True)
+class VisionExtractionPage:
+    page_number: int
+    image_bytes: bytes
+
+
+class BatchVisionExtractor(Protocol):
+    model_name: str
+
+    async def extract_batch(self, pages: list[VisionExtractionPage]) -> dict[str, Any]:
+        """Return raw JSON for multiple image pages.
+
+        Batch responses must include source_page on every item so callers can
+        attribute items back to the original PDF page.
+        """
         ...
 
 
@@ -34,6 +53,12 @@ class FakeVisionExtractor:
         self.model_name = model_name
 
     async def extract(self, image_bytes: bytes, page_number: int) -> dict[str, Any]:
+        if self._raises is not None:
+            raise self._raises
+        assert self._canned is not None
+        return self._canned
+
+    async def extract_batch(self, pages: list[VisionExtractionPage]) -> dict[str, Any]:
         if self._raises is not None:
             raise self._raises
         assert self._canned is not None
@@ -68,6 +93,31 @@ MENU_EXTRACTION_TOOL_SCHEMA = {
     },
 }
 
+BATCH_MENU_EXTRACTION_TOOL_SCHEMA = {
+    "name": "emit_menu_items",
+    "description": "Emit the structured list of menu items extracted from multiple photos.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "price": {"type": "number"},
+                        "source_page": {"type": "integer", "minimum": 0},
+                        "source_index": {"type": "integer", "minimum": 0},
+                        "category_hint": {"type": ["string", "null"]},
+                    },
+                    "required": ["name", "price", "source_page", "source_index"],
+                },
+            }
+        },
+        "required": ["items"],
+    },
+}
+
 EXTRACTION_PROMPT = """Extract every item that has a clear price from this menu photo.
 
 Rules:
@@ -78,6 +128,22 @@ Rules:
 - If a price is a range or "de la X", use the lower bound.
 - If an item has multiple prices (small/large), emit one row per price, appending the qualifier to the name (e.g. "Salată Caesar (mică)").
 - `source_index` is the 0-based reading order within this page (top-to-bottom, left-to-right for two-column menus).
+- If you can't read an item clearly, skip it. Do not invent items.
+"""
+
+BATCH_EXTRACTION_PROMPT = """Extract every item that has a clear price from these menu photos.
+
+Each image is labeled with its original PDF page number. For every emitted item,
+set `source_page` to that exact page number.
+
+Rules:
+- Include only rows where a price is printed. Skip section headings ("APERITIVE", "BĂUTURI", "FEL PRINCIPAL", "DESERTURI" etc.) as items, decorative captions, the restaurant's name/contact info, and footnotes.
+- For `category_hint`: use the literal section heading printed above this item (e.g. "APERITIVE", "Fel principal"). Leave it null only for items that genuinely sit outside any visible heading. Do not invent a heading.
+- Keep the original Romanian spelling and diacritics (ă, â, î, ș, ț).
+- Prices in RON: convert "24,90 lei" / "24.90 RON" / "24,90" → 24.90.
+- If a price is a range or "de la X", use the lower bound.
+- If an item has multiple prices (small/large), emit one row per price, appending the qualifier to the name (e.g. "Salată Caesar (mică)").
+- `source_index` is the 0-based reading order within that page (top-to-bottom, left-to-right for two-column menus).
 - If you can't read an item clearly, skip it. Do not invent items.
 """
 
@@ -122,6 +188,46 @@ class ClaudeExtractor:
                         ],
                     }
                 ],
+                timeout=httpx.Timeout(60.0, connect=10.0),
+            )
+        except APIStatusError as exc:
+            raise VisionExtractionError(f"Anthropic API error: {exc.status_code}") from exc
+        except Exception as exc:
+            raise VisionExtractionError("Vision provider call failed") from exc
+
+        for block in response.content:
+            if block.type == "tool_use" and block.name == "emit_menu_items":
+                payload = block.input
+                if not isinstance(payload, dict) or "items" not in payload:
+                    raise VisionExtractionError("Tool-use payload missing 'items'")
+                return payload  # type: ignore[return-value]
+        raise VisionExtractionError("Model did not return a tool_use block")
+
+    async def extract_batch(self, pages: list[VisionExtractionPage]) -> dict[str, Any]:
+        if not pages:
+            return {"items": []}
+
+        content: list[dict[str, Any]] = []
+        for page in pages:
+            media_type = _sniff_media_type(page.image_bytes)
+            encoded = base64.standard_b64encode(page.image_bytes).decode("ascii")
+            content.append({"type": "text", "text": f"PDF page {page.page_number}"})
+            content.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": encoded},
+                }
+            )
+        content.append({"type": "text", "text": BATCH_EXTRACTION_PROMPT})
+
+        try:
+            response = await self._client.messages.create(
+                model=self.model_name,
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                tools=[BATCH_MENU_EXTRACTION_TOOL_SCHEMA],
+                tool_choice={"type": "tool", "name": "emit_menu_items"},
+                messages=[{"role": "user", "content": content}],
                 timeout=httpx.Timeout(60.0, connect=10.0),
             )
         except APIStatusError as exc:
@@ -182,6 +288,27 @@ GEMINI_RESPONSE_SCHEMA = {
     "required": ["items"],
 }
 
+GEMINI_BATCH_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "price": {"type": "number"},
+                    "source_page": {"type": "integer"},
+                    "source_index": {"type": "integer"},
+                    "category_hint": {"type": "string", "nullable": True},
+                },
+                "required": ["name", "price", "source_page", "source_index"],
+            },
+        }
+    },
+    "required": ["items"],
+}
+
 GEMINI_PROMPT = (
     "You extract structured menu data from photos of printed restaurant menus. "
     "The menus are typically in Romanian. Return only the JSON object — no markdown fences, no commentary.\n\n"
@@ -214,6 +341,48 @@ class GeminiExtractor:
                 config=genai_types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=GEMINI_RESPONSE_SCHEMA,
+                ),
+            )
+        except Exception as exc:
+            raise VisionExtractionError("Vision provider call failed") from exc
+
+        raw_text = getattr(response, "text", None)
+        if not raw_text:
+            raise VisionExtractionError("Empty response from Gemini")
+        try:
+            payload = json.loads(raw_text)
+        except (ValueError, TypeError) as exc:
+            raise VisionExtractionError("Failed to parse Gemini JSON response") from exc
+        if not isinstance(payload, dict) or "items" not in payload:
+            raise VisionExtractionError("Gemini payload missing 'items'")
+        return payload
+
+    async def extract_batch(self, pages: list[VisionExtractionPage]) -> dict[str, Any]:
+        if not pages:
+            return {"items": []}
+
+        contents: list[Any] = []
+        for page in pages:
+            contents.append(f"PDF page {page.page_number}")
+            contents.append(
+                genai_types.Part.from_bytes(
+                    data=page.image_bytes,
+                    mime_type=_sniff_media_type(page.image_bytes),
+                )
+            )
+        contents.append(
+            "You extract structured menu data from photos of printed restaurant menus. "
+            "The menus are typically in Romanian. Return only the JSON object — no markdown fences, no commentary.\n\n"
+            + BATCH_EXTRACTION_PROMPT
+        )
+
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=self.model_name,
+                contents=contents,
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=GEMINI_BATCH_RESPONSE_SCHEMA,
                 ),
             )
         except Exception as exc:
