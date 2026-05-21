@@ -103,9 +103,26 @@ dir $env:MenuImport__StorageRoot
 # The job's PDF file (e.g., {restaurantId}/{jobId}.pdf) should be absent.
 ```
 
-The background service calls `IFileStorage.DeleteAsync` in its `finally` block for every job regardless of success or failure. Verify the directory is empty after all jobs finish.
+The background service calls `IFileStorage.DeleteAsync` after the worker writes a terminal job state. Verify the directory is empty after all jobs finish.
 
-If a file remains, it indicates the delete path threw an exception that was silently swallowed — check the `MenuImportBackgroundService` warning logs.
+If a file remains, it indicates the delete path likely threw an exception — check the `MenuImportBackgroundService` warning logs.
+
+---
+
+## Large scanned PDF benchmark
+
+Run the fake-provider benchmark without committing large PDFs:
+
+```powershell
+cd backend/ai-scripts
+python scripts/benchmark_pdf_import.py /path/to/local/scanned-menu.pdf `
+  --fake-provider `
+  --extract-concurrency 8 `
+  --provider-concurrency 4 `
+  --fake-latency-ms 25
+```
+
+The output reports page count, item count, failed pages, peak provider concurrency, and total wall time. Use a local 75 MB / 80 page scanned PDF for sprint measurements.
 
 ---
 

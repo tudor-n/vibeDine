@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using RestaurantApi.Data;
@@ -21,6 +22,9 @@ public sealed class MenuImportOptions
     public string CallbackBaseUrl { get; set; } = "";
     public string DefaultProvider { get; set; } = "gemini";
     public int StaleAfterMinutes { get; set; } = 5;
+    public int LeaseDurationSeconds { get; set; } = 120;
+    public int HeartbeatIntervalSeconds { get; set; } = 30;
+    public int MaxProcessingAttempts { get; set; } = 2;
 }
 
 /// <summary>
@@ -34,8 +38,6 @@ public sealed class MenuImportBackgroundService : BackgroundService
     private readonly ILogger<MenuImportBackgroundService> _logger;
     private readonly MenuImportOptions _options;
     private readonly MenuImportProgressNotifier _notifier;
-
-    private bool _staleRecoveryRun;
 
     private static bool IsTerminalStatus(string status) =>
         string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase) ||
@@ -87,13 +89,7 @@ public sealed class MenuImportBackgroundService : BackgroundService
     /// </summary>
     public async Task RunOnceForTestAsync(CancellationToken ct)
     {
-        // First run: recover stale jobs stuck in "extracting" with no progress.
-        if (!_staleRecoveryRun)
-        {
-            await RecoverStaleJobsAsync(ct);
-            _staleRecoveryRun = true;
-        }
-
+        await RecoverStaleJobsAsync(ct);
         await ProcessPendingJobsAsync(ct);
     }
 
@@ -104,26 +100,76 @@ public sealed class MenuImportBackgroundService : BackgroundService
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+        var fileStorage = scope.ServiceProvider.GetRequiredService<IFileStorage>();
 
         using var _ = tenant.SuppressResolution();
 
-        var cutoff = DateTime.UtcNow.AddMinutes(-_options.StaleAfterMinutes);
-        var stale = await db.MenuImportJobs
-            .Where(j => j.Status == "extracting" && j.UpdatedAt < cutoff)
+        var now = DateTime.UtcNow;
+        var cutoff = now.AddMinutes(-_options.StaleAfterMinutes);
+        var staleJobs = await db.MenuImportJobs
+            .IgnoreQueryFilters()
+            .Where(j =>
+                j.Status == "extracting" &&
+                (
+                    (j.UpdatedAt < cutoff &&
+                     j.LeaseId == null &&
+                     j.LeaseExpiresAt == null &&
+                     j.LastHeartbeatAt == null)
+                    ||
+                    (j.LeaseExpiresAt != null &&
+                     j.LeaseExpiresAt < now &&
+                     j.ProcessingAttempts >= _options.MaxProcessingAttempts)
+                ))
+            .Select(j => new { j.Id, j.StorageKey })
             .ToListAsync(ct);
 
-        if (stale.Count == 0) return;
+        if (staleJobs.Count == 0) return;
 
-        var now = DateTime.UtcNow;
-        foreach (var job in stale)
+        var recoveredJobs = new List<(Guid Id, string StorageKey)>();
+        foreach (var staleJob in staleJobs)
         {
-            job.Status = "failed";
-            job.ErrorMessage = "Extraction stalled (no progress).";
-            job.UpdatedAt = now;
-        }
-        await db.SaveChangesAsync(ct);
+            var recovered = await db.MenuImportJobs
+                .IgnoreQueryFilters()
+                .Where(j =>
+                    j.Id == staleJob.Id &&
+                    j.Status == "extracting" &&
+                    (
+                        (j.UpdatedAt < cutoff &&
+                         j.LeaseId == null &&
+                         j.LeaseExpiresAt == null &&
+                         j.LastHeartbeatAt == null)
+                        ||
+                        (j.LeaseExpiresAt != null &&
+                         j.LeaseExpiresAt < now &&
+                         j.ProcessingAttempts >= _options.MaxProcessingAttempts)
+                    ))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(j => j.Status, "failed")
+                    .SetProperty(j => j.ErrorMessage, "Extraction stalled after the processing lease expired.")
+                    .SetProperty(j => j.UpdatedAt, now)
+                    .SetProperty(j => j.LeaseId, (Guid?)null)
+                    .SetProperty(j => j.LeaseExpiresAt, (DateTime?)null)
+                    .SetProperty(j => j.LastHeartbeatAt, (DateTime?)null), ct);
 
-        _logger.LogWarning("MenuImportBackgroundService recovered {Count} stale job(s)", stale.Count);
+            if (recovered == 1)
+                recoveredJobs.Add((staleJob.Id, staleJob.StorageKey));
+        }
+
+        if (recoveredJobs.Count > 0)
+        {
+            _logger.LogWarning("MenuImportBackgroundService recovered {Count} stale job(s)", recoveredJobs.Count);
+            foreach (var job in recoveredJobs)
+            {
+                try
+                {
+                    await fileStorage.DeleteAsync(job.StorageKey, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not delete storage file for stale menu import job {JobId}", job.Id);
+                }
+            }
+        }
     }
 
     // ── Main poll loop ────────────────────────────────────────────────────────
@@ -136,34 +182,65 @@ public sealed class MenuImportBackgroundService : BackgroundService
 
         using var _ = tenant.SuppressResolution();
 
-        var pending = await db.MenuImportJobs
-            .Where(j => j.Status == "pending")
-            .OrderBy(j => j.CreatedAt)
-            .Take(_options.MaxConcurrentJobs)
-            .ToListAsync(ct);
+        var pending = await ClaimJobsAsync(db, ct);
 
         if (pending.Count == 0) return;
-
-        // Mark all as "extracting" in one batch before releasing the scope.
-        var now = DateTime.UtcNow;
-        foreach (var job in pending)
-        {
-            job.Status = "extracting";
-            job.UpdatedAt = now;
-        }
-        await db.SaveChangesAsync(ct);
 
         // Process concurrently; each job gets its own DI scope.
         await Task.WhenAll(pending.Select(job => WorkOneJobAsync(job, ct)));
     }
 
+    private async Task<List<MenuImportJob>> ClaimJobsAsync(AppDbContext db, CancellationToken ct)
+    {
+        var leaseId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddSeconds(_options.LeaseDurationSeconds);
+
+        return await db.MenuImportJobs
+            .FromSqlInterpolated($"""
+                WITH picked AS (
+                    SELECT id
+                    FROM menu_import_jobs
+                    WHERE (
+                        status = 'pending'
+                        OR (status = 'extracting' AND lease_expires_at IS NOT NULL AND lease_expires_at < {now})
+                    )
+                    AND processing_attempts < {_options.MaxProcessingAttempts}
+                    ORDER BY created_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT {_options.MaxConcurrentJobs}
+                )
+                UPDATE menu_import_jobs AS j
+                SET status = 'extracting',
+                    lease_id = {leaseId},
+                    lease_expires_at = {expiresAt},
+                    last_heartbeat_at = {now},
+                    processing_attempts = processing_attempts + 1,
+                    error_message = NULL,
+                    updated_at = {now}
+                FROM picked
+                WHERE j.id = picked.id
+                RETURNING j.*
+                """)
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .ToListAsync(ct);
+    }
+
     private async Task WorkOneJobAsync(MenuImportJob job, CancellationToken ct)
     {
+        if (job.LeaseId is not { } leaseId)
+        {
+            _logger.LogWarning("MenuImport job {JobId} was claimed without a lease id; skipping", job.Id);
+            return;
+        }
+
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
         var fileStorage = scope.ServiceProvider.GetRequiredService<IFileStorage>();
         var extractor = scope.ServiceProvider.GetRequiredService<IPdfExtractor>();
+        var terminalStateWrittenByThisWorker = false;
 
         // Set tenant context for this job's restaurant.
         tenant.SetRestaurant(job.RestaurantId);
@@ -174,14 +251,14 @@ public sealed class MenuImportBackgroundService : BackgroundService
             var fresh = await db.MenuImportJobs
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(j => j.Id == job.Id, ct);
-            if (fresh is null || IsTerminalStatus(fresh.Status))
+            if (fresh is null || IsTerminalStatus(fresh.Status) || fresh.LeaseId != leaseId)
             {
                 _logger.LogInformation("Job {JobId} reached a terminal state before extraction started — skipping", job.Id);
                 return;
             }
         }
 
-        var callbackUrl = $"{_options.CallbackBaseUrl.TrimEnd('/')}/api/internal/menu-imports/{job.Id}/progress";
+        var callbackUrl = $"{_options.CallbackBaseUrl.TrimEnd('/')}/api/internal/menu-imports/{job.Id}/progress?leaseId={leaseId}";
         var storagePath = fileStorage.ResolveLocalPath(job.StorageKey);
 
         var payload = new PdfJobPayload(
@@ -194,28 +271,36 @@ public sealed class MenuImportBackgroundService : BackgroundService
 
         try
         {
-            var resultElement = await extractor.ExtractPdfAsync(payload, ct);
-            var now = DateTime.UtcNow;
-
-            // Re-check cancellation after the (potentially long) extraction call.
+            JsonElement resultElement;
+            using (var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                using var sup = tenant.SuppressResolution();
-                var fresh = await db.MenuImportJobs
-                    .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(j => j.Id == job.Id, ct);
-
-                if (fresh is null || IsTerminalStatus(fresh.Status))
+                var heartbeatTask = RunHeartbeatAsync(job.Id, leaseId, heartbeatCts.Token);
+                try
                 {
-                    _logger.LogInformation("Job {JobId} reached a terminal state during extraction — not saving result", job.Id);
-                    return;
+                    resultElement = await extractor.ExtractPdfAsync(payload, ct);
                 }
+                finally
+                {
+                    await heartbeatCts.CancelAsync();
+                    try
+                    {
+                        await heartbeatTask;
+                    }
+                    catch (OperationCanceledException) when (heartbeatCts.IsCancellationRequested)
+                    {
+                    }
+                }
+            }
 
-                fresh.Status = "complete";
-                fresh.Phase = "finalizing";
-                fresh.ResultJson = resultElement.GetRawText();
-                fresh.CompletedAt = now;
-                fresh.UpdatedAt = now;
-                await db.SaveChangesAsync(ct);
+            using (var sup = tenant.SuppressResolution())
+            {
+                terminalStateWrittenByThisWorker = await TryCompleteJobAsync(db, job.Id, leaseId, resultElement, ct);
+            }
+
+            if (!terminalStateWrittenByThisWorker)
+            {
+                _logger.LogInformation("Job {JobId} lease was lost before completion; not saving result", job.Id);
+                return;
             }
 
             await _notifier.EmitCompletedAsync(job.RestaurantId, job.Id, new
@@ -228,38 +313,156 @@ public sealed class MenuImportBackgroundService : BackgroundService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            if (terminalStateWrittenByThisWorker)
+            {
+                _logger.LogError(ex, "MenuImport job {JobId} failed after terminal state was written", job.Id);
+                return;
+            }
+
             _logger.LogError(ex, "MenuImport job {JobId} failed", job.Id);
 
             using var sup = tenant.SuppressResolution();
-            var fresh = await db.MenuImportJobs
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(j => j.Id == job.Id, CancellationToken.None);
-
-            if (fresh is not null && !IsTerminalStatus(fresh.Status))
+            var failResult = await TryFailJobAsync(db, job.Id, leaseId, ex.Message, CancellationToken.None);
+            terminalStateWrittenByThisWorker = failResult.Written;
+            if (terminalStateWrittenByThisWorker)
             {
-                fresh.Status = "failed";
-                fresh.ErrorMessage = ex.Message;
-                fresh.UpdatedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync(CancellationToken.None);
-
                 await _notifier.EmitFailedAsync(job.RestaurantId, job.Id, new
                 {
                     jobId = job.Id,
-                    errorMessage = ex.Message,
+                    errorMessage = failResult.ErrorMessage,
                 }, CancellationToken.None);
             }
         }
         finally
         {
-            // Best-effort cleanup of the uploaded file.
+            if (terminalStateWrittenByThisWorker)
+            {
+                // Best-effort cleanup of the uploaded file.
+                try
+                {
+                    await fileStorage.DeleteAsync(job.StorageKey, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not delete storage file for job {JobId}", job.Id);
+                }
+            }
+        }
+    }
+
+    private async Task RunHeartbeatAsync(Guid jobId, Guid leaseId, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
             try
             {
-                await fileStorage.DeleteAsync(job.StorageKey, CancellationToken.None);
+                await Task.Delay(TimeSpan.FromSeconds(_options.HeartbeatIntervalSeconds), ct);
+
+                var now = DateTime.UtcNow;
+                var expiresAt = now.AddSeconds(_options.LeaseDurationSeconds);
+
+                using var scope = _services.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+                using var _ = tenant.SuppressResolution();
+
+                var updated = await db.MenuImportJobs
+                    .IgnoreQueryFilters()
+                    .Where(j =>
+                        j.Id == jobId &&
+                        j.LeaseId == leaseId &&
+                        j.Status != "cancelled" &&
+                        j.Status != "failed" &&
+                        j.Status != "complete")
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(j => j.LeaseExpiresAt, expiresAt)
+                        .SetProperty(j => j.LastHeartbeatAt, now)
+                        .SetProperty(j => j.UpdatedAt, now), ct);
+
+                if (updated == 0)
+                    return;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not delete storage file for job {JobId}", job.Id);
+                _logger.LogWarning(ex, "Could not heartbeat menu import job {JobId}", jobId);
             }
         }
+    }
+
+    private async Task<bool> TryCompleteJobAsync(
+        AppDbContext db,
+        Guid jobId,
+        Guid leaseId,
+        JsonElement resultElement,
+        CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var resultJson = resultElement.GetRawText();
+
+        var updated = await db.MenuImportJobs
+            .IgnoreQueryFilters()
+            .Where(j =>
+                j.Id == jobId &&
+                j.LeaseId == leaseId &&
+                j.Status != "cancelled" &&
+                j.Status != "failed" &&
+                j.Status != "complete")
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.Status, "complete")
+                .SetProperty(j => j.Phase, "finalizing")
+                .SetProperty(j => j.ResultJson, resultJson)
+                .SetProperty(j => j.ErrorMessage, (string?)null)
+                .SetProperty(j => j.CompletedAt, now)
+                .SetProperty(j => j.UpdatedAt, now)
+                .SetProperty(j => j.LeaseId, (Guid?)null)
+                .SetProperty(j => j.LeaseExpiresAt, (DateTime?)null)
+                .SetProperty(j => j.LastHeartbeatAt, (DateTime?)null), ct);
+
+        return updated == 1;
+    }
+
+    private async Task<(bool Written, string ErrorMessage)> TryFailJobAsync(
+        AppDbContext db,
+        Guid jobId,
+        Guid leaseId,
+        string errorMessage,
+        CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var priorErrorMessage = await db.MenuImportJobs
+            .IgnoreQueryFilters()
+            .Where(j =>
+                j.Id == jobId &&
+                j.LeaseId == leaseId &&
+                j.Status != "cancelled" &&
+                j.Status != "failed" &&
+                j.Status != "complete")
+            .Select(j => j.ErrorMessage)
+            .FirstOrDefaultAsync(ct);
+        var effectiveErrorMessage = string.IsNullOrWhiteSpace(priorErrorMessage)
+            ? errorMessage
+            : priorErrorMessage;
+
+        var updated = await db.MenuImportJobs
+            .IgnoreQueryFilters()
+            .Where(j =>
+                j.Id == jobId &&
+                j.LeaseId == leaseId &&
+                j.Status != "cancelled" &&
+                j.Status != "failed" &&
+                j.Status != "complete")
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.Status, "failed")
+                .SetProperty(j => j.ErrorMessage, effectiveErrorMessage)
+                .SetProperty(j => j.UpdatedAt, now)
+                .SetProperty(j => j.LeaseId, (Guid?)null)
+                .SetProperty(j => j.LeaseExpiresAt, (DateTime?)null)
+                .SetProperty(j => j.LastHeartbeatAt, (DateTime?)null), ct);
+
+        return (updated == 1, effectiveErrorMessage);
     }
 }

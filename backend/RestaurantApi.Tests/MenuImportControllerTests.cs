@@ -123,13 +123,20 @@ public class MenuImportControllerTests : IAsyncLifetime
         return Convert.ToHexString(h.ComputeHash(body)).ToLowerInvariant();
     }
 
-    private async Task<HttpResponseMessage> SendProgressCallbackAsync(Guid routeJobId, ProgressCallbackRequest payload)
+    private async Task<HttpResponseMessage> SendProgressCallbackAsync(
+        Guid routeJobId,
+        ProgressCallbackRequest payload,
+        Guid? leaseId = null)
     {
         var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         var sig = ComputeHmac(HmacSecret, jsonBytes);
 
+        var path = $"/api/internal/menu-imports/{routeJobId}/progress";
+        if (leaseId is not null)
+            path += $"?leaseId={leaseId.Value}";
+
         var request = new HttpRequestMessage(HttpMethod.Post,
-            $"/api/internal/menu-imports/{routeJobId}/progress");
+            path);
         request.Content = new ByteArrayContent(jsonBytes);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         request.Headers.Add("X-Hmac-Signature", sig);
@@ -289,16 +296,69 @@ public class MenuImportControllerTests : IAsyncLifetime
             $"/api/restaurants/{RestaurantA}/admin/menu/imports/pdf",
             ValidPdfForm("delete_test.pdf"));
         var created = await postResp.Content.ReadFromJsonAsync<StartPdfImportResponse>();
+        created.Should().NotBeNull();
+        var jobId = created!.JobId;
+
+        string storagePath;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var job = await db.MenuImportJobs.IgnoreQueryFilters()
+                .FirstAsync(j => j.Id == jobId);
+            storagePath = System.IO.Path.Combine(
+                _factory.StorageRoot,
+                job.StorageKey.Replace('/', System.IO.Path.DirectorySeparatorChar));
+        }
+        System.IO.File.Exists(storagePath).Should().BeTrue();
 
         var delResp = await _client.DeleteAsync(
-            $"/api/restaurants/{RestaurantA}/admin/menu/imports/{created!.JobId}");
+            $"/api/restaurants/{RestaurantA}/admin/menu/imports/{jobId}");
         delResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var job = await db.MenuImportJobs.IgnoreQueryFilters()
-            .FirstAsync(j => j.Id == created.JobId);
+            .FirstAsync(j => j.Id == jobId);
         job.Status.Should().Be("cancelled");
+        System.IO.File.Exists(storagePath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DELETE_terminal_job_returns_200_without_overwriting_terminal_state()
+    {
+        var jobId = Guid.NewGuid();
+        var completedAt = DateTime.UtcNow.AddMinutes(-1);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = RestaurantA,
+                Status = "complete",
+                Phase = "finalizing",
+                StorageKey = $"{RestaurantA:N}/{jobId:N}.pdf",
+                OriginalFileName = "already-complete.pdf",
+                FileSizeBytes = 100,
+                ProviderUsed = "gemini",
+                ResultJson = """{"items":[]}""",
+                CompletedAt = completedAt,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var delResp = await _client.DeleteAsync(
+            $"/api/restaurants/{RestaurantA}/admin/menu/imports/{jobId}");
+
+        delResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+        job.Status.Should().Be("complete");
+        job.ResultJson.Should().NotBeNull();
+        job.CompletedAt.Should().NotBeNull();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -503,10 +563,10 @@ public class MenuImportControllerTests : IAsyncLifetime
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Internal progress endpoint — provider failure persists failure details
+    // Internal progress endpoint — provider failure records progress but does not own terminal state
     // ──────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task POST_internal_progress_failed_payload_sets_failed_with_error_message()
+    public async Task POST_internal_progress_failed_payload_keeps_job_extracting_with_error_message()
     {
         var jobId = Guid.NewGuid();
         using (var scope = _factory.Services.CreateScope())
@@ -545,8 +605,108 @@ public class MenuImportControllerTests : IAsyncLifetime
         var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
         var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
             .FirstAsync(j => j.Id == jobId);
-        job.Status.Should().Be("failed");
+        job.Status.Should().Be("extracting");
+        job.Phase.Should().Be("parsing");
         job.ErrorMessage.Should().Be("Unreadable PDF");
+        job.CompletedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task POST_internal_progress_without_error_clears_previous_error_message()
+    {
+        var jobId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = RestaurantA,
+                Status = "extracting",
+                Phase = "parsing",
+                StorageKey = $"{RestaurantA:N}/{jobId:N}.pdf",
+                OriginalFileName = "progress-clear-error.pdf",
+                FileSizeBytes = 100,
+                ProviderUsed = "gemini",
+                ErrorMessage = "Unreadable PDF",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var payload = new ProgressCallbackRequest
+        {
+            JobId = jobId,
+            Status = "extracting",
+            Phase = "extracting",
+            ProcessedPages = 2,
+            TotalPages = 4,
+            FailedPages = 0,
+            EtaSeconds = 12,
+        };
+
+        var resp = await SendProgressCallbackAsync(jobId, payload);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+        job.ErrorMessage.Should().BeNull();
+        job.ProcessedPages.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task POST_internal_progress_without_matching_lease_is_ignored()
+    {
+        var jobId = Guid.NewGuid();
+        var currentLeaseId = Guid.NewGuid();
+        var staleLeaseId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = RestaurantA,
+                Status = "extracting",
+                Phase = "extracting",
+                StorageKey = $"{RestaurantA:N}/{jobId:N}.pdf",
+                OriginalFileName = "stale-lease-progress.pdf",
+                FileSizeBytes = 100,
+                ProviderUsed = "gemini",
+                LeaseId = currentLeaseId,
+                LeaseExpiresAt = DateTime.UtcNow.AddMinutes(2),
+                LastHeartbeatAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var payload = new ProgressCallbackRequest
+        {
+            JobId = jobId,
+            Status = "failed",
+            Phase = "parsing",
+            ProcessedPages = 0,
+            TotalPages = 4,
+            FailedPages = 1,
+            ErrorMessage = "Unreadable PDF from stale attempt",
+        };
+
+        var missingLeaseResp = await SendProgressCallbackAsync(jobId, payload);
+        var staleLeaseResp = await SendProgressCallbackAsync(jobId, payload, staleLeaseId);
+
+        missingLeaseResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        staleLeaseResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+        job.Status.Should().Be("extracting");
+        job.Phase.Should().Be("extracting");
+        job.ErrorMessage.Should().BeNull();
+        job.ProcessedPages.Should().Be(0);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

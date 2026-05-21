@@ -5,6 +5,8 @@ Routes pages through the text pipeline (batched) or vision pipeline (per page)
 based on PageKind, applies retry + reclassification fallback, deduplicates,
 and sends throttled progress events.
 """
+from __future__ import annotations
+
 import asyncio
 import logging
 import random
@@ -39,6 +41,27 @@ _JITTER_MAX_MS = 100
 # Throttle: at most one progress event per 250 ms
 _THROTTLE_MS = 0.250
 
+_PROVIDER_LIMITERS_ATTR = "_pdf_menu_provider_limiters"
+
+
+def _default_provider_concurrency(work_concurrency: int) -> int:
+    return max(1, min(4, work_concurrency))
+
+
+def _get_provider_semaphore(limit: int) -> asyncio.Semaphore:
+    if limit < 1:
+        raise ValueError("provider_concurrency must be >= 1")
+    loop = asyncio.get_running_loop()
+    per_loop = getattr(loop, _PROVIDER_LIMITERS_ATTR, None)
+    if per_loop is None:
+        per_loop = {}
+        setattr(loop, _PROVIDER_LIMITERS_ATTR, per_loop)
+    semaphore = per_loop.get(limit)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(limit)
+        per_loop[limit] = semaphore
+    return semaphore
+
 
 class PdfReadError(Exception):
     """Raised when a PDF cannot be opened/read during the parsing phase."""
@@ -52,6 +75,7 @@ class PdfMenuExtractionService:
         progress: ProgressReporter,
         *,
         concurrency: int = 8,
+        provider_concurrency: int | None = None,
         text_batch_size: int = 8,
         render_scale: float = 1.5,
         render_quality: int = 85,
@@ -60,6 +84,13 @@ class PdfMenuExtractionService:
         self._vision_factory = vision_extractor_factory
         self._progress = progress
         self._concurrency = concurrency
+        self._provider_concurrency = (
+            _default_provider_concurrency(concurrency)
+            if provider_concurrency is None
+            else provider_concurrency
+        )
+        if self._provider_concurrency < 1:
+            raise ValueError("provider_concurrency must be >= 1")
         self._text_batch_size = text_batch_size
         self._render_scale = render_scale
         self._render_quality = render_quality
@@ -127,15 +158,25 @@ class PdfMenuExtractionService:
         )
 
         semaphore = asyncio.Semaphore(self._concurrency)
+        provider_semaphore = _get_provider_semaphore(self._provider_concurrency)
         page_renderer = _LazyPageRenderer(
             request.storage_path,
             scale=self._render_scale,
             quality=self._render_quality,
         )
+        vision_extractor = _LazyVisionExtractor(self._vision_factory)
         try:
             tasks = [
                 asyncio.create_task(
-                    self._run_unit(unit, request, state, semaphore, page_renderer)
+                    self._run_unit(
+                        unit,
+                        request,
+                        state,
+                        semaphore,
+                        provider_semaphore,
+                        page_renderer,
+                        vision_extractor,
+                    )
                 )
                 for unit in work_units
             ]
@@ -181,13 +222,29 @@ class PdfMenuExtractionService:
         request: PdfJobRequest,
         state: "_ExtractionState",
         semaphore: asyncio.Semaphore,
+        provider_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
+        vision_extractor: "_LazyVisionExtractor",
     ) -> None:
         async with semaphore:
             if unit.kind == "text_batch":
-                await self._run_text_batch(unit, request, state, page_renderer)
+                await self._run_text_batch(
+                    unit,
+                    request,
+                    state,
+                    provider_semaphore,
+                    page_renderer,
+                    vision_extractor,
+                )
             elif unit.kind == "image_page":
-                await self._run_image_page(unit, request, state, page_renderer)
+                await self._run_image_page(
+                    unit,
+                    request,
+                    state,
+                    provider_semaphore,
+                    page_renderer,
+                    vision_extractor,
+                )
             else:  # skip
                 state.processed_pages += len(unit.page_numbers)
 
@@ -198,7 +255,9 @@ class PdfMenuExtractionService:
         unit: "_WorkUnit",
         request: PdfJobRequest,
         state: "_ExtractionState",
+        provider_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
+        vision_extractor: "_LazyVisionExtractor",
     ) -> None:
         """Extract a batch of text pages, with retry and per-page reclassification fallback."""
         batch_pages = [
@@ -216,7 +275,8 @@ class PdfMenuExtractionService:
                 await asyncio.sleep(delay)
             try:
                 extractor = self._text_factory()
-                raw = await extractor.extract(batch_pages)
+                async with provider_semaphore:
+                    raw = await extractor.extract(batch_pages)
                 state.model_name = state.model_name or extractor.model_name
                 break
             except TextExtractionError as exc:
@@ -255,7 +315,13 @@ class PdfMenuExtractionService:
                 logger.info("Reclassifying page %d through vision pipeline", pnum)
                 state.reclassified += 1
                 await self._run_vision_for_page(
-                    pnum, request, state, page_renderer, is_reclassified=True
+                    pnum,
+                    request,
+                    state,
+                    provider_semaphore,
+                    page_renderer,
+                    vision_extractor,
+                    is_reclassified=True,
                 )
             else:
                 parsed = _parse_items(page_raw_items, pnum)
@@ -271,11 +337,19 @@ class PdfMenuExtractionService:
         unit: "_WorkUnit",
         request: PdfJobRequest,
         state: "_ExtractionState",
+        provider_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
+        vision_extractor: "_LazyVisionExtractor",
     ) -> None:
         pnum = unit.page_numbers[0]
         await self._run_vision_for_page(
-            pnum, request, state, page_renderer, is_reclassified=False
+            pnum,
+            request,
+            state,
+            provider_semaphore,
+            page_renderer,
+            vision_extractor,
+            is_reclassified=False,
         )
         state.processed_pages += 1
 
@@ -284,7 +358,9 @@ class PdfMenuExtractionService:
         page_number: int,
         request: PdfJobRequest,
         state: "_ExtractionState",
+        provider_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
+        vision_extractor: "_LazyVisionExtractor",
         *,
         is_reclassified: bool,
     ) -> None:
@@ -299,8 +375,9 @@ class PdfMenuExtractionService:
                 # pypdfium2 uses a C library that is not thread-safe; keep rendering
                 # synchronous and reuse one open PdfDocument for the whole job.
                 image_bytes = page_renderer.render_page(page_number)
-                extractor = self._vision_factory()
-                raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
+                extractor = await vision_extractor.get()
+                async with provider_semaphore:
+                    raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
                 state.model_name = state.model_name or extractor.model_name
 
                 raw_items = raw.get("items") if isinstance(raw, dict) else []
@@ -392,6 +469,23 @@ class _LazyPageRenderer:
         if self._renderer is not None:
             self._renderer.__exit__(None, None, None)
             self._renderer = None
+
+
+class _LazyVisionExtractor:
+    """Create one vision extractor per PDF job, only if vision is needed."""
+
+    def __init__(self, factory: Callable[[], VisionExtractor]):
+        self._factory = factory
+        self._extractor: Optional[VisionExtractor] = None
+        self._lock = asyncio.Lock()
+
+    async def get(self) -> VisionExtractor:
+        if self._extractor is not None:
+            return self._extractor
+        async with self._lock:
+            if self._extractor is None:
+                self._extractor = self._factory()
+            return self._extractor
 
 
 def _build_work_units(

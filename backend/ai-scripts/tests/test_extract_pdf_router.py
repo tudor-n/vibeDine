@@ -305,3 +305,54 @@ def test_extract_pdf_factory_receives_request_data(client):
     )
     assert received[0].job_id == VALID_JOB_ID
     assert received[0].restaurant_id == VALID_RESTAURANT_ID
+
+
+def test_pdf_extraction_factory_passes_provider_concurrency(monkeypatch):
+    captured = {}
+
+    class _CapturingService:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setenv("PDF_EXTRACT_CONCURRENCY", "8")
+    monkeypatch.setenv("PDF_PROVIDER_MAX_CONCURRENCY", "2")
+    monkeypatch.setattr(router_module, "PdfMenuExtractionService", _CapturingService)
+    monkeypatch.setattr(router_module, "_build_text_extractor_factory", lambda: (lambda: object()))
+    monkeypatch.setattr(router_module, "_default_extractor_factory", lambda: object())
+
+    builder = router_module.get_pdf_extraction_service_factory()
+    service = builder(PdfJobRequest(**_valid_body()))
+
+    assert service is not None
+    assert captured["concurrency"] == 8
+    assert captured["provider_concurrency"] == 2
+
+
+@pytest.mark.parametrize(
+    ("work_concurrency", "expected_provider_concurrency"),
+    [
+        ("3", 3),
+        ("8", 4),
+    ],
+)
+def test_pdf_extraction_factory_defaults_provider_concurrency(
+    monkeypatch,
+    work_concurrency,
+    expected_provider_concurrency,
+):
+    captured = {}
+
+    class _CapturingService:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setenv("PDF_EXTRACT_CONCURRENCY", work_concurrency)
+    monkeypatch.delenv("PDF_PROVIDER_MAX_CONCURRENCY", raising=False)
+    monkeypatch.setattr(router_module, "PdfMenuExtractionService", _CapturingService)
+    monkeypatch.setattr(router_module, "_build_text_extractor_factory", lambda: (lambda: object()))
+    monkeypatch.setattr(router_module, "_default_extractor_factory", lambda: object())
+
+    builder = router_module.get_pdf_extraction_service_factory()
+    builder(PdfJobRequest(**_valid_body()))
+
+    assert captured["provider_concurrency"] == expected_provider_concurrency

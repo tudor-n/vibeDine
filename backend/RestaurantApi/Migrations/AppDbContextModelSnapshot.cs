@@ -458,6 +458,18 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("file_size_bytes");
 
+                    b.Property<DateTime?>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_at");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
                     b.Property<string>("OriginalFileName")
                         .IsRequired()
                         .HasColumnType("text")
@@ -471,6 +483,10 @@ namespace RestaurantApi.Migrations
                     b.Property<int>("ProcessedPages")
                         .HasColumnType("integer")
                         .HasColumnName("processed_pages");
+
+                    b.Property<int>("ProcessingAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("processing_attempts");
 
                     b.Property<string>("ProviderUsed")
                         .IsRequired()
@@ -508,6 +524,8 @@ namespace RestaurantApi.Migrations
                     b.HasIndex("RestaurantId");
 
                     b.HasIndex("Status", "CreatedAt");
+
+                    b.HasIndex("Status", "LeaseExpiresAt");
 
                     b.ToTable("menu_import_jobs", (string)null);
                 });

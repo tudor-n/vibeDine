@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using RestaurantApi.Controllers.Requests;
 using RestaurantApi.Data;
 using RestaurantApi.Models;
@@ -25,15 +26,18 @@ public class MenuImportController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IFileStorage _fileStorage;
     private readonly MenuImportOptions _options;
+    private readonly ILogger<MenuImportController> _logger;
 
     public MenuImportController(
         AppDbContext db,
         IFileStorage fileStorage,
-        IOptions<MenuImportOptions> options)
+        IOptions<MenuImportOptions> options,
+        ILogger<MenuImportController> logger)
     {
         _db = db;
         _fileStorage = fileStorage;
         _options = options.Value;
+        _logger = logger;
     }
 
     // POST /api/restaurants/{rid}/admin/menu/imports/pdf
@@ -104,9 +108,26 @@ public class MenuImportController : ControllerBase
         var job = await _db.MenuImportJobs.FirstOrDefaultAsync(j => j.Id == jobId, ct);
         if (job is null) return NotFound();
 
+        if (string.Equals(job.Status, "complete", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(job.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            return Ok();
+
+        var storageKey = job.StorageKey;
         job.Status = "cancelled";
+        job.LeaseId = null;
+        job.LeaseExpiresAt = null;
+        job.LastHeartbeatAt = null;
         job.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            await _fileStorage.DeleteAsync(storageKey, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete storage file for cancelled menu import job {JobId}", job.Id);
+        }
 
         return Ok();
     }
@@ -183,7 +204,7 @@ public class MenuImportInternalController : ControllerBase
     // POST /api/internal/menu-imports/{jobId}/progress
     [HttpPost("{jobId:guid}/progress")]
     [AllowAnonymous]
-    public async Task<IActionResult> ProgressCallback(Guid jobId, CancellationToken ct)
+    public async Task<IActionResult> ProgressCallback(Guid jobId, [FromQuery] Guid? leaseId, CancellationToken ct)
     {
         // Buffer the body so we can both HMAC-validate and deserialize it.
         Request.EnableBuffering();
@@ -219,9 +240,11 @@ public class MenuImportInternalController : ControllerBase
 
         if (job is null) return NotFound();
         if (IsTerminalStatus(job.Status)) return Ok();
+        if (leaseId != job.LeaseId) return Ok();
 
-        var isFailedPayload = string.Equals(payload.Status, "failed", StringComparison.OrdinalIgnoreCase);
-        var persistedStatus = string.Equals(payload.Status, "complete", StringComparison.OrdinalIgnoreCase)
+        // Progress callbacks are observational only. The lease-owning background
+        // worker is the single writer for terminal complete/failed states.
+        var persistedStatus = IsTerminalStatus(payload.Status)
             ? "extracting"
             : payload.Status;
 
@@ -233,20 +256,16 @@ public class MenuImportInternalController : ControllerBase
         job.TotalPages = payload.TotalPages;
         job.FailedPages = payload.FailedPages;
         job.UpdatedAt = now;
-        if (!string.IsNullOrEmpty(payload.ErrorMessage))
+        if (!string.IsNullOrWhiteSpace(payload.ErrorMessage))
+        {
             job.ErrorMessage = payload.ErrorMessage;
+        }
+        else if (!IsTerminalStatus(payload.Status))
+        {
+            job.ErrorMessage = null;
+        }
 
         await _db.SaveChangesAsync(ct);
-
-        if (isFailedPayload)
-        {
-            await _notifier.EmitFailedAsync(job.RestaurantId, job.Id, new
-            {
-                jobId = job.Id,
-                errorMessage = payload.ErrorMessage ?? "Import PDF eșuat.",
-            }, ct);
-            return Ok();
-        }
 
         // Emit throttled SignalR progress event
         await _notifier.EmitProgressAsync(job.RestaurantId, job.Id, new

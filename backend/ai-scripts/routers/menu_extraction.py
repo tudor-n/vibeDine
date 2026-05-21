@@ -77,6 +77,10 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
     Overridden in tests via app.dependency_overrides.
     """
     concurrency = int(os.environ.get("PDF_EXTRACT_CONCURRENCY", "8"))
+    provider_concurrency = int(os.environ.get(
+        "PDF_PROVIDER_MAX_CONCURRENCY",
+        str(min(4, concurrency)),
+    ))
     text_batch_size = int(os.environ.get("PDF_TEXT_BATCH_SIZE", "8"))
     render_scale = float(os.environ.get("PDF_RENDER_SCALE", "1.5"))
     render_quality = int(os.environ.get("PDF_RENDER_JPEG_QUALITY", "85"))
@@ -93,6 +97,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
             vision_extractor_factory=_default_extractor_factory,
             progress=reporter,
             concurrency=concurrency,
+            provider_concurrency=provider_concurrency,
             text_batch_size=text_batch_size,
             render_scale=render_scale,
             render_quality=render_quality,

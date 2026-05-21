@@ -45,6 +45,80 @@ class StubProgressReporter:
         self.events.append(event)
 
 
+class DelayedCountingVisionExtractor:
+    model_name = "delayed-counting"
+
+    def __init__(self):
+        self.active = 0
+        self.peak = 0
+        self.calls: list[int] = []
+        self._lock = asyncio.Lock()
+
+    async def extract(self, image_bytes: bytes, page_number: int) -> dict[str, Any]:
+        async with self._lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        await asyncio.sleep(0.05)
+        async with self._lock:
+            self.active -= 1
+        self.calls.append(page_number)
+        return {"items": [{"name": f"Vision {page_number}", "price": 10.0, "source_index": 0}]}
+
+
+class SharedVisionCallCounter:
+    def __init__(self):
+        self.active = 0
+        self.peak = 0
+        self.total_calls = 0
+        self._lock = asyncio.Lock()
+
+    async def start(self) -> None:
+        async with self._lock:
+            self.active += 1
+            self.total_calls += 1
+            self.peak = max(self.peak, self.active)
+
+    async def finish(self) -> None:
+        async with self._lock:
+            self.active -= 1
+
+
+class SharedDelayedCountingVisionExtractor:
+    model_name = "shared-delayed-counting"
+
+    def __init__(self, counter: SharedVisionCallCounter):
+        self._counter = counter
+
+    async def extract(self, image_bytes: bytes, page_number: int) -> dict[str, Any]:
+        await self._counter.start()
+        try:
+            await asyncio.sleep(0.05)
+        finally:
+            await self._counter.finish()
+        return {"items": [{"name": f"Vision {page_number}", "price": 10.0, "source_index": 0}]}
+
+
+class DelayedCountingTextExtractor:
+    model_name = "delayed-text"
+
+    def __init__(self):
+        self.active = 0
+        self.peak = 0
+        self._lock = asyncio.Lock()
+
+    async def extract(self, pages):
+        async with self._lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        await asyncio.sleep(0.05)
+        async with self._lock:
+            self.active -= 1
+        return {"items": [
+            {"name": f"Text {p.page_number}", "price": 11.0, "source_page": p.page_number, "source_index": 0}
+            for p in pages
+        ]}
+
+
 # ---------------------------------------------------------------------------
 # Helper factories
 # ---------------------------------------------------------------------------
@@ -188,6 +262,90 @@ async def test_scanned_3page_uses_vision_extractor():
     assert len(text_calls) == 0
     # Items come from vision
     assert len(result.items) > 0
+
+
+@pytest.mark.asyncio
+async def test_provider_concurrency_limits_vision_calls_even_when_page_concurrency_is_higher():
+    extractor = DelayedCountingVisionExtractor()
+    factory_calls = 0
+
+    def vision_factory():
+        nonlocal factory_calls
+        factory_calls += 1
+        return extractor
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=vision_factory,
+        progress=StubProgressReporter(),
+        concurrency=8,
+        provider_concurrency=2,
+    )
+
+    result = await service.run(_make_request(SCANNED_3PAGE))
+
+    assert len(result.items) == 3
+    assert extractor.peak <= 2
+    assert sorted(extractor.calls) == [0, 1, 2]
+    assert factory_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_concurrency_is_shared_across_concurrent_pdf_jobs():
+    counter = SharedVisionCallCounter()
+
+    service_a = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: SharedDelayedCountingVisionExtractor(counter),
+        progress=StubProgressReporter(),
+        concurrency=8,
+        provider_concurrency=1,
+    )
+    service_b = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: SharedDelayedCountingVisionExtractor(counter),
+        progress=StubProgressReporter(),
+        concurrency=8,
+        provider_concurrency=1,
+    )
+
+    result_a, result_b = await asyncio.gather(
+        service_a.run(_make_request(SCANNED_3PAGE)),
+        service_b.run(_make_request(SCANNED_3PAGE)),
+    )
+
+    assert len(result_a.items) == 3
+    assert len(result_b.items) == 3
+    assert counter.total_calls == 6
+    assert counter.peak == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_concurrency_limits_text_batches():
+    extractor = DelayedCountingTextExtractor()
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: extractor,
+        vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        progress=StubProgressReporter(),
+        concurrency=3,
+        text_batch_size=1,
+        provider_concurrency=1,
+    )
+
+    result = await service.run(_make_request(DIGITAL_3PAGE))
+
+    assert len(result.items) == 3
+    assert extractor.peak == 1
+
+
+def test_provider_concurrency_must_be_positive():
+    with pytest.raises(ValueError, match="provider_concurrency"):
+        PdfMenuExtractionService(
+            text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+            vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+            progress=StubProgressReporter(),
+            provider_concurrency=0,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -18,4 +18,8 @@ public class MenuImportJob : ITenantScoped
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
+    public Guid? LeaseId { get; set; }
+    public DateTime? LeaseExpiresAt { get; set; }
+    public DateTime? LastHeartbeatAt { get; set; }
+    public int ProcessingAttempts { get; set; }
 }

@@ -215,8 +215,13 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(j => j.CreatedAt).HasColumnName("created_at");
             e.Property(j => j.UpdatedAt).HasColumnName("updated_at");
             e.Property(j => j.CompletedAt).HasColumnName("completed_at");
+            e.Property(j => j.LeaseId).HasColumnName("lease_id");
+            e.Property(j => j.LeaseExpiresAt).HasColumnName("lease_expires_at");
+            e.Property(j => j.LastHeartbeatAt).HasColumnName("last_heartbeat_at");
+            e.Property(j => j.ProcessingAttempts).HasColumnName("processing_attempts");
             e.HasIndex(j => j.RestaurantId);
             e.HasIndex(j => new { j.Status, j.CreatedAt });
+            e.HasIndex(j => new { j.Status, j.LeaseExpiresAt });
         });
 
         // ── Tenancy tables ───────────────────────────────────────────────────

@@ -64,6 +64,9 @@ public class MenuImportJobEntityTests : IAsyncLifetime
         var jobId = Guid.NewGuid();
         var now = DateTime.UtcNow;
         var completed = now.AddSeconds(30);
+        var leaseId = Guid.NewGuid();
+        var leaseExpires = now.AddMinutes(2);
+        var heartbeat = now.AddSeconds(15);
 
         using var scope = _services.CreateScope();
         var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
@@ -89,6 +92,10 @@ public class MenuImportJobEntityTests : IAsyncLifetime
             CreatedAt = now,
             UpdatedAt = now,
             CompletedAt = completed,
+            LeaseId = leaseId,
+            LeaseExpiresAt = leaseExpires,
+            LastHeartbeatAt = heartbeat,
+            ProcessingAttempts = 1,
         };
 
         db.MenuImportJobs.Add(job);
@@ -122,6 +129,12 @@ public class MenuImportJobEntityTests : IAsyncLifetime
         loaded.UpdatedAt.Should().BeCloseTo(now, TimeSpan.FromSeconds(1));
         loaded.CompletedAt.Should().NotBeNull();
         loaded.CompletedAt!.Value.Should().BeCloseTo(completed, TimeSpan.FromSeconds(1));
+        loaded.LeaseId.Should().Be(leaseId);
+        loaded.LeaseExpiresAt.Should().NotBeNull();
+        loaded.LeaseExpiresAt!.Value.Should().BeCloseTo(leaseExpires, TimeSpan.FromSeconds(1));
+        loaded.LastHeartbeatAt.Should().NotBeNull();
+        loaded.LastHeartbeatAt!.Value.Should().BeCloseTo(heartbeat, TimeSpan.FromSeconds(1));
+        loaded.ProcessingAttempts.Should().Be(1);
     }
 
     // ── Test 2: TenantStamping ────────────────────────────────────────────────

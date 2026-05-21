@@ -51,12 +51,15 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private ServiceProvider BuildServiceProvider(IPdfExtractor pythonClient, FakeHubContext? hubContext = null)
+    private ServiceProvider BuildServiceProvider(
+        IPdfExtractor pythonClient,
+        FakeHubContext? hubContext = null,
+        FakeFileStorage? fileStorage = null)
     {
         var sc = new ServiceCollection();
         sc.AddScoped<ICurrentTenant, CurrentTenant>();
         sc.AddDbContext<AppDbContext>(opts => opts.UseNpgsql(_pg.GetConnectionString()));
-        sc.AddSingleton<IFileStorage>(new FakeFileStorage());
+        sc.AddSingleton<IFileStorage>(fileStorage ?? new FakeFileStorage());
         sc.AddSingleton<IHubContext<StaffHub>>(hubContext ?? new FakeHubContext());
         sc.AddSingleton<MenuImportProgressNotifier>();
         sc.AddSingleton<IPdfExtractor>(pythonClient);
@@ -67,6 +70,9 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
             HmacSecret = "test-secret-32chars-minimum-pad!!",
             CallbackBaseUrl = "http://localhost:9999",
             StaleAfterMinutes = 5,
+            LeaseDurationSeconds = 2,
+            HeartbeatIntervalSeconds = 1,
+            MaxProcessingAttempts = 2,
         }));
         return sc.BuildServiceProvider();
     }
@@ -125,6 +131,60 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         job.Status.Should().Be("complete");
         job.ResultJson.Should().NotBeNullOrEmpty();
         job.CompletedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Active_extraction_extends_lease_with_heartbeat()
+    {
+        ServiceProvider? sp = null;
+        DateTime? initialHeartbeat = null;
+        DateTime? observedHeartbeat = null;
+        var client = new SlowPythonClient(
+            TimeSpan.FromMilliseconds(1500),
+            onStarted: async payload =>
+            {
+                using var scope = sp!.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+                using var _ = tenant.SuppressResolution();
+                var job = await db.MenuImportJobs.IgnoreQueryFilters().SingleAsync(j => j.Id == payload.JobId);
+                initialHeartbeat = job.LastHeartbeatAt;
+            },
+            onBeforeReturn: async payload =>
+            {
+                using var scope = sp!.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+                using var _ = tenant.SuppressResolution();
+                var job = await db.MenuImportJobs.IgnoreQueryFilters().SingleAsync(j => j.Id == payload.JobId);
+                observedHeartbeat = job.LastHeartbeatAt;
+            });
+
+        sp = BuildServiceProvider(client);
+        await using var dispose = sp;
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        var rid = Guid.NewGuid();
+        var jobId = await SeedPendingJob(sp, rid, "heartbeat.pdf");
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        initialHeartbeat.Should().NotBeNull();
+        observedHeartbeat.Should().NotBeNull();
+        observedHeartbeat.Should().BeAfter(initialHeartbeat!.Value, "heartbeat should update metadata while extraction is still running");
+
+        using var checkScope = sp.CreateScope();
+        var db = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await db.MenuImportJobs.IgnoreQueryFilters().SingleAsync(j => j.Id == jobId, cts.Token);
+        job.Status.Should().Be("complete");
+        job.LastHeartbeatAt.Should().BeNull("terminal states clear lease metadata after completion");
+        job.ProcessingAttempts.Should().Be(1);
     }
 
     // ── Test 2: Cancellation — status flip aborts work ────────────────────────
@@ -269,10 +329,19 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
     [Fact]
     public async Task Stale_extracting_job_is_marked_failed_on_first_tick()
     {
+        var storage = new FakeFileStorage();
+        await using var sp = BuildServiceProvider(new FakePythonClient(), fileStorage: storage);
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
         var rid = Guid.NewGuid();
         var staleJobId = Guid.NewGuid();
+        var storageKey = $"{rid:N}/{staleJobId:N}.pdf";
 
-        using (var scope = _sp.CreateScope())
+        using (var scope = sp.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
@@ -284,11 +353,58 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
                 RestaurantId = rid,
                 Status = "extracting",
                 Phase = "parsing",
-                StorageKey = $"{rid:N}/{staleJobId:N}.pdf",
+                StorageKey = storageKey,
                 OriginalFileName = "stale.pdf",
                 FileSizeBytes = 100,
                 ProviderUsed = "gemini",
                 UpdatedAt = DateTime.UtcNow.AddMinutes(-10), // 10 minutes stale
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        using var checkScope = sp.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == staleJobId);
+
+        job.Status.Should().Be("failed");
+        job.ErrorMessage.Should().Contain("stalled");
+        storage.DeletedKeys.Should().Contain(storageKey);
+    }
+
+    [Fact]
+    public async Task Expired_extracting_job_with_attempts_remaining_is_reclaimed()
+    {
+        var rid = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        using (var scope = _sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+            using var _ = tenant.SuppressResolution();
+
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = rid,
+                Status = "extracting",
+                Phase = "parsing",
+                StorageKey = $"{rid:N}/{jobId:N}.pdf",
+                OriginalFileName = "expired-lease.pdf",
+                FileSizeBytes = 100,
+                ProviderUsed = "gemini",
+                UpdatedAt = now.AddMinutes(-10),
+                LeaseId = Guid.NewGuid(),
+                LeaseExpiresAt = now.AddMinutes(-1),
+                LastHeartbeatAt = now.AddMinutes(-10),
+                ProcessingAttempts = 1,
+                ErrorMessage = "Previous attempt failed",
             });
             await db.SaveChangesAsync();
         }
@@ -300,10 +416,125 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         using var checkScope = _sp.CreateScope();
         var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
         var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
-            .FirstAsync(j => j.Id == staleJobId);
+            .FirstAsync(j => j.Id == jobId);
+
+        job.Status.Should().Be("complete");
+        job.ErrorMessage.Should().BeNull();
+        job.ProcessingAttempts.Should().Be(2);
+        job.LeaseId.Should().BeNull();
+        job.LeaseExpiresAt.Should().BeNull();
+        job.LastHeartbeatAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Expired_extracting_retry_uses_current_failure_when_previous_attempt_had_progress_error()
+    {
+        await using var sp = BuildServiceProvider(new ThrowingPythonClient("provider timed out"));
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        var rid = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+            using var _ = tenant.SuppressResolution();
+
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = rid,
+                Status = "extracting",
+                Phase = "parsing",
+                StorageKey = $"{rid:N}/{jobId:N}.pdf",
+                OriginalFileName = "expired-retry-fails.pdf",
+                FileSizeBytes = 100,
+                ProviderUsed = "gemini",
+                UpdatedAt = now.AddMinutes(-10),
+                LeaseId = Guid.NewGuid(),
+                LeaseExpiresAt = now.AddMinutes(-1),
+                LastHeartbeatAt = now.AddMinutes(-10),
+                ProcessingAttempts = 1,
+                ErrorMessage = "Unreadable PDF",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        using var checkScope = sp.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+
+        job.Status.Should().Be("failed");
+        job.ErrorMessage.Should().Be("provider timed out");
+        job.ProcessingAttempts.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Expired_extracting_job_with_exhausted_attempts_is_marked_failed()
+    {
+        var storage = new FakeFileStorage();
+        await using var sp = BuildServiceProvider(new FakePythonClient(), fileStorage: storage);
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        var rid = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+            using var _ = tenant.SuppressResolution();
+
+            db.MenuImportJobs.Add(new MenuImportJob
+            {
+                Id = jobId,
+                RestaurantId = rid,
+                Status = "extracting",
+                Phase = "parsing",
+                StorageKey = $"{rid:N}/{jobId:N}.pdf",
+                OriginalFileName = "expired-exhausted.pdf",
+                FileSizeBytes = 100,
+                ProviderUsed = "gemini",
+                UpdatedAt = now.AddMinutes(-10),
+                LeaseId = Guid.NewGuid(),
+                LeaseExpiresAt = now.AddMinutes(-1),
+                LastHeartbeatAt = now.AddMinutes(-10),
+                ProcessingAttempts = 2,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        using var checkScope = sp.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
 
         job.Status.Should().Be("failed");
         job.ErrorMessage.Should().Contain("stalled");
+        job.LeaseId.Should().BeNull();
+        job.LeaseExpiresAt.Should().BeNull();
+        job.LastHeartbeatAt.Should().BeNull();
+        storage.DeletedKeys.Should().Contain($"{rid:N}/{jobId:N}.pdf");
     }
 
     // ── Test 5: Failed SignalR contract ─────────────────────────────────────
@@ -333,6 +564,56 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         payload.TryGetProperty("errorMessage", out var errorMessage).Should().BeTrue();
         errorMessage.GetString().Should().Be("extractor exploded");
         payload.TryGetProperty("error", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Failed_job_preserves_progress_error_message_when_extractor_throws_later()
+    {
+        var hub = new FakeHubContext();
+        var rid = Guid.NewGuid();
+        ServiceProvider? sp = null;
+        var client = new ProgressErrorThenThrowingPythonClient(
+            "Response status code does not indicate success: 400",
+            async jobId =>
+            {
+                using var scope = sp!.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+                using var _ = tenant.SuppressResolution();
+
+                var job = await db.MenuImportJobs.IgnoreQueryFilters()
+                    .FirstAsync(j => j.Id == jobId);
+                job.ErrorMessage = "Unreadable PDF";
+                job.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            });
+
+        sp = BuildServiceProvider(client, hub);
+        await using var dispose = sp;
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        var jobId = await SeedPendingJob(sp, rid, "progress_error_test.pdf");
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        using var checkScope = sp.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await checkDb.MenuImportJobs.IgnoreQueryFilters()
+            .FirstAsync(j => j.Id == jobId);
+        job.Status.Should().Be("failed");
+        job.ErrorMessage.Should().Be("Unreadable PDF");
+
+        var failed = hub.SentMessages.Should()
+            .ContainSingle(m => m.Method == "MenuImportFailed")
+            .Which;
+        var payload = JsonSerializer.SerializeToElement(failed.Args.Should().ContainSingle().Which);
+        payload.GetProperty("errorMessage").GetString().Should().Be("Unreadable PDF");
     }
 
     [Fact]
@@ -387,6 +668,80 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         hub.SentMessages.Should().NotContain(m => m.Method == "MenuImportFailed");
     }
 
+    [Fact]
+    public async Task Concurrent_service_instances_do_not_process_the_same_pending_job()
+    {
+        var client = new BlockingTrackingPythonClient();
+        await using var sp = BuildServiceProvider(client);
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        var rid = Guid.NewGuid();
+        var jobId = await SeedPendingJob(sp, rid, "lease-race.pdf");
+        var svc1 = CreateService(sp);
+        var svc2 = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+        var first = svc1.RunOnceForTestAsync(cts.Token);
+        await client.Entered.WaitAsync(cts.Token);
+        var second = svc2.RunOnceForTestAsync(cts.Token);
+
+        client.Release();
+        await Task.WhenAll(first, second);
+
+        client.Calls.Should().Be(1);
+
+        using var checkScope = sp.CreateScope();
+        var db = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await db.MenuImportJobs.IgnoreQueryFilters().SingleAsync(j => j.Id == jobId, cts.Token);
+        job.Status.Should().Be("complete");
+        job.LeaseId.Should().BeNull();
+        job.LeaseExpiresAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Worker_that_loses_lease_does_not_complete_or_delete_file()
+    {
+        ServiceProvider? sp = null;
+        var client = new LeaseStealingPythonClient(async jobId =>
+        {
+            using var scope = sp!.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+            using var _ = tenant.SuppressResolution();
+            var job = await db.MenuImportJobs.IgnoreQueryFilters().SingleAsync(j => j.Id == jobId);
+            job.LeaseId = Guid.NewGuid();
+            job.LeaseExpiresAt = DateTime.UtcNow.AddMinutes(2);
+            await db.SaveChangesAsync();
+        });
+
+        var storage = new FakeFileStorage();
+        var hub = new FakeHubContext();
+        sp = BuildServiceProvider(client, hub, storage);
+        await using var dispose = sp;
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+
+        var rid = Guid.NewGuid();
+        var jobId = await SeedPendingJob(sp, rid, "lost-lease.pdf");
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        using var checkScope = sp.CreateScope();
+        var dbCheck = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await dbCheck.MenuImportJobs.IgnoreQueryFilters().SingleAsync(j => j.Id == jobId, cts.Token);
+        job.Status.Should().Be("extracting");
+        storage.DeletedKeys.Should().BeEmpty();
+        hub.SentMessages.Should().NotContain(m => m.Method is "MenuImportCompleted" or "MenuImportFailed");
+    }
+
     // ── Fakes ─────────────────────────────────────────────────────────────────
 
     private sealed class FakePythonClient : IPdfExtractor
@@ -402,11 +757,29 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
     private sealed class SlowPythonClient : IPdfExtractor
     {
         private readonly TimeSpan _delay;
-        public SlowPythonClient(TimeSpan delay) => _delay = delay;
+        private readonly Func<PdfJobPayload, Task>? _onStarted;
+        private readonly Func<PdfJobPayload, Task>? _onBeforeReturn;
+
+        public SlowPythonClient(
+            TimeSpan delay,
+            Func<PdfJobPayload, Task>? onStarted = null,
+            Func<PdfJobPayload, Task>? onBeforeReturn = null)
+        {
+            _delay = delay;
+            _onStarted = onStarted;
+            _onBeforeReturn = onBeforeReturn;
+        }
 
         public async Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
         {
+            if (_onStarted is not null)
+                await _onStarted(payload);
+
             await Task.Delay(_delay, ct);
+
+            if (_onBeforeReturn is not null)
+                await _onBeforeReturn(payload);
+
             var json = JsonSerializer.SerializeToDocument(new { items = Array.Empty<object>() }).RootElement;
             return json;
         }
@@ -439,6 +812,24 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         }
     }
 
+    private sealed class ProgressErrorThenThrowingPythonClient : IPdfExtractor
+    {
+        private readonly string _message;
+        private readonly Func<Guid, Task> _recordProgressError;
+
+        public ProgressErrorThenThrowingPythonClient(string message, Func<Guid, Task> recordProgressError)
+        {
+            _message = message;
+            _recordProgressError = recordProgressError;
+        }
+
+        public async Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
+        {
+            await _recordProgressError(payload.JobId);
+            throw new InvalidOperationException(_message);
+        }
+    }
+
     private sealed class TrackingPythonClient : IPdfExtractor
     {
         public List<Guid> RecordedRestaurantIds { get; } = new();
@@ -453,15 +844,58 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         }
     }
 
+    private sealed class BlockingTrackingPythonClient : IPdfExtractor
+    {
+        private readonly TaskCompletionSource _entered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+        public Task Entered => _entered.Task;
+        public void Release() => _release.TrySetResult();
+
+        public async Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+                _entered.TrySetResult();
+
+            await _release.Task.WaitAsync(ct);
+            return JsonSerializer.SerializeToDocument(new { items = Array.Empty<object>() }).RootElement;
+        }
+    }
+
+    private sealed class LeaseStealingPythonClient : IPdfExtractor
+    {
+        private readonly Func<Guid, Task> _stealLease;
+
+        public LeaseStealingPythonClient(Func<Guid, Task> stealLease) => _stealLease = stealLease;
+
+        public async Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
+        {
+            await _stealLease(payload.JobId);
+            return JsonSerializer.SerializeToDocument(new { items = Array.Empty<object>() }).RootElement;
+        }
+    }
+
     private sealed class FakeFileStorage : IFileStorage
     {
+        public List<string> DeletedKeys { get; } = new();
+
         public Task<string> WriteAsync(Guid restaurantId, Guid jobId, string fileName, System.IO.Stream content, CancellationToken ct)
             => Task.FromResult($"{restaurantId:N}/{jobId:N}.pdf");
 
         public Task<System.IO.Stream> OpenAsync(string storageKey, CancellationToken ct)
             => Task.FromResult<System.IO.Stream>(new System.IO.MemoryStream());
 
-        public Task DeleteAsync(string storageKey, CancellationToken ct) => Task.CompletedTask;
+        public Task DeleteAsync(string storageKey, CancellationToken ct)
+        {
+            lock (DeletedKeys)
+                DeletedKeys.Add(storageKey);
+
+            return Task.CompletedTask;
+        }
 
         public string ResolveLocalPath(string storageKey) => $"C:\\fake\\{storageKey.Replace('/', '\\')}";
     }
