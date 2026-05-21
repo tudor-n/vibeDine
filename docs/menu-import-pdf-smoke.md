@@ -129,6 +129,8 @@ The output reports one line per run with page count, item count, failed pages, p
 
 For scanned PDFs, compare `--render-scale` and `--render-quality` values before changing production defaults. Lower values reduce rendered payload size and provider upload time, but they can also reduce OCR quality.
 
+Large PDF parsing and page rendering are offloaded from the Python event loop. Rendering still uses one PDFium worker per job, so page rasterization stays serial while progress callbacks and other requests can keep moving.
+
 Production uses the matching `PDF_RENDER_SCALE` and `PDF_RENDER_JPEG_QUALITY` environment variables. Keep `PDF_EXTRACT_CONCURRENCY`, `PDF_PROVIDER_MAX_CONCURRENCY`, `PDF_TEXT_BATCH_SIZE`, `PDF_RENDER_SCALE`, and `PDF_RENDER_JPEG_QUALITY` positive and finite; invalid values fail fast instead of letting a large import hang.
 
 To benchmark real providers, set the provider API key and opt in explicitly:

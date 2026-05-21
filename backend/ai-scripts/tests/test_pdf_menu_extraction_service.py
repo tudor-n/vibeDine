@@ -5,6 +5,8 @@ Uses FakeTextExtractor / FakeVisionExtractor and real fixture PDFs.
 A stub ProgressReporter records all events sent to it.
 """
 import asyncio
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
@@ -351,6 +353,43 @@ async def test_optional_timings_record_text_provider_work_without_rendering():
 
 
 @pytest.mark.asyncio
+async def test_pdf_parse_runs_off_event_loop_thread(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    event_loop_thread_id = threading.get_ident()
+    parse_thread_ids: list[int] = []
+
+    def fake_extract(path: str):
+        parse_thread_ids.append(threading.get_ident())
+        return [
+            PageContent(
+                page_number=0,
+                text="Pizza 10 Pasta 12 Salata 8",
+                text_density=0.01,
+                has_images=False,
+                width_pts=100.0,
+                height_pts=100.0,
+            )
+        ]
+
+    monkeypatch.setattr(service_module.pdf_text_extractor, "extract", fake_extract)
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": [
+            {"name": "Pizza", "price": 10.0, "source_page": 0, "source_index": 0},
+        ]}),
+        vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        progress=StubProgressReporter(),
+    )
+
+    result = await service.run(_make_request("fake-digital.pdf"))
+
+    assert [item.name for item in result.items] == ["Pizza"]
+    assert parse_thread_ids
+    assert all(thread_id != event_loop_thread_id for thread_id in parse_thread_ids)
+
+
+@pytest.mark.asyncio
 async def test_provider_concurrency_is_shared_across_concurrent_pdf_jobs():
     counter = SharedVisionCallCounter()
 
@@ -378,6 +417,180 @@ async def test_provider_concurrency_is_shared_across_concurrent_pdf_jobs():
     assert len(result_b.items) == 3
     assert counter.total_calls == 6
     assert counter.peak == 1
+
+
+@pytest.mark.asyncio
+async def test_pdf_render_runs_off_event_loop_thread_and_stays_serial(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    event_loop_thread_id = threading.get_ident()
+    render_thread_ids: list[int] = []
+    rendered_pages: list[int] = []
+    active_renders = 0
+    peak_renders = 0
+    lock = threading.Lock()
+
+    class _FakePageRenderer:
+        def __init__(self, path: str, *, scale: float = 1.5, quality: int = 85):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+        def render_page(self, page_number: int) -> bytes:
+            nonlocal active_renders, peak_renders
+            with lock:
+                active_renders += 1
+                peak_renders = max(peak_renders, active_renders)
+                render_thread_ids.append(threading.get_ident())
+            try:
+                time.sleep(0.02)
+                rendered_pages.append(page_number)
+                return f"page-{page_number}".encode()
+            finally:
+                with lock:
+                    active_renders -= 1
+
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path: [
+            PageContent(
+                page_number=0,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+            ),
+            PageContent(
+                page_number=1,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        service_module.pdf_renderer,
+        "PdfPageRenderer",
+        _FakePageRenderer,
+        raising=False,
+    )
+
+    class _PageVisionExtractor:
+        model_name = "page-vision"
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            return {"items": [
+                {"name": f"Vision {page_number}", "price": 10.0 + page_number, "source_index": 0},
+            ]}
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: _PageVisionExtractor(),
+        progress=StubProgressReporter(),
+        concurrency=2,
+        provider_concurrency=2,
+    )
+
+    result = await service.run(_make_request("fake-scanned.pdf"))
+
+    assert len(result.items) == 2
+    assert sorted(rendered_pages) == [0, 1]
+    assert peak_renders == 1
+    assert render_thread_ids
+    assert all(thread_id != event_loop_thread_id for thread_id in render_thread_ids)
+
+
+@pytest.mark.asyncio
+async def test_rendered_payloads_do_not_run_ahead_of_provider_slots(monkeypatch):
+    from services.pdf_text_extractor import PageContent
+
+    rendered_pages: list[int] = []
+    first_provider_pages: list[int] = []
+    provider_started = asyncio.Event()
+    release_provider = asyncio.Event()
+
+    class _FakePageRenderer:
+        def __init__(self, path: str, *, scale: float = 1.5, quality: int = 85):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+        def render_page(self, page_number: int) -> bytes:
+            rendered_pages.append(page_number)
+            return f"page-{page_number}".encode()
+
+    class _BlockingVisionExtractor:
+        model_name = "blocking-vision"
+
+        async def extract(self, image_bytes: bytes, page_number: int) -> dict:
+            if not first_provider_pages:
+                first_provider_pages.append(page_number)
+                provider_started.set()
+                await release_provider.wait()
+            return {"items": [
+                {"name": f"Vision {page_number}", "price": 10.0 + page_number, "source_index": 0},
+            ]}
+
+    monkeypatch.setattr(
+        service_module.pdf_text_extractor,
+        "extract",
+        lambda path: [
+            PageContent(
+                page_number=0,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+            ),
+            PageContent(
+                page_number=1,
+                text="",
+                text_density=0.0,
+                has_images=True,
+                width_pts=100.0,
+                height_pts=100.0,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        service_module.pdf_renderer,
+        "PdfPageRenderer",
+        _FakePageRenderer,
+        raising=False,
+    )
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: _BlockingVisionExtractor(),
+        progress=StubProgressReporter(),
+        concurrency=2,
+        provider_concurrency=1,
+    )
+
+    run_task = asyncio.create_task(service.run(_make_request("fake-scanned.pdf")))
+    await asyncio.wait_for(provider_started.wait(), timeout=1)
+    await asyncio.sleep(0.05)
+
+    assert len(rendered_pages) == 1
+
+    release_provider.set()
+    result = await asyncio.wait_for(run_task, timeout=1)
+
+    assert len(result.items) == 2
+    assert sorted(rendered_pages) == [0, 1]
 
 
 @pytest.mark.asyncio

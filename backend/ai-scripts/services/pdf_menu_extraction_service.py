@@ -12,6 +12,7 @@ import logging
 import math
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -166,7 +167,7 @@ class PdfMenuExtractionService:
 
         parse_started_at = time.perf_counter()
         try:
-            pages = pdf_text_extractor.extract(request.storage_path)
+            pages = await asyncio.to_thread(pdf_text_extractor.extract, request.storage_path)
         finally:
             _record_elapsed(self._metrics, "parse_seconds", parse_started_at)
         if not pages:
@@ -219,6 +220,7 @@ class PdfMenuExtractionService:
 
         semaphore = asyncio.Semaphore(self._concurrency)
         provider_semaphore = _get_provider_semaphore(self._provider_concurrency)
+        payload_semaphore = asyncio.Semaphore(self._provider_concurrency)
         page_renderer = _LazyPageRenderer(
             request.storage_path,
             scale=self._render_scale,
@@ -235,6 +237,7 @@ class PdfMenuExtractionService:
                         state,
                         semaphore,
                         provider_semaphore,
+                        payload_semaphore,
                         page_renderer,
                         vision_extractor,
                     )
@@ -243,7 +246,7 @@ class PdfMenuExtractionService:
             ]
             await asyncio.gather(*tasks)
         finally:
-            page_renderer.close()
+            await page_renderer.close()
 
         # Deduplicate
         deduped = dedup_items(state.items)
@@ -284,6 +287,7 @@ class PdfMenuExtractionService:
         state: "_ExtractionState",
         semaphore: asyncio.Semaphore,
         provider_semaphore: asyncio.Semaphore,
+        payload_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
         vision_extractor: "_LazyVisionExtractor",
     ) -> None:
@@ -294,6 +298,7 @@ class PdfMenuExtractionService:
                     request,
                     state,
                     provider_semaphore,
+                    payload_semaphore,
                     page_renderer,
                     vision_extractor,
                 )
@@ -303,6 +308,7 @@ class PdfMenuExtractionService:
                     request,
                     state,
                     provider_semaphore,
+                    payload_semaphore,
                     page_renderer,
                     vision_extractor,
                 )
@@ -317,6 +323,7 @@ class PdfMenuExtractionService:
         request: PdfJobRequest,
         state: "_ExtractionState",
         provider_semaphore: asyncio.Semaphore,
+        payload_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
         vision_extractor: "_LazyVisionExtractor",
     ) -> None:
@@ -384,6 +391,7 @@ class PdfMenuExtractionService:
                     request,
                     state,
                     provider_semaphore,
+                    payload_semaphore,
                     page_renderer,
                     vision_extractor,
                     is_reclassified=True,
@@ -403,6 +411,7 @@ class PdfMenuExtractionService:
         request: PdfJobRequest,
         state: "_ExtractionState",
         provider_semaphore: asyncio.Semaphore,
+        payload_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
         vision_extractor: "_LazyVisionExtractor",
     ) -> None:
@@ -412,6 +421,7 @@ class PdfMenuExtractionService:
             request,
             state,
             provider_semaphore,
+            payload_semaphore,
             page_renderer,
             vision_extractor,
             is_reclassified=False,
@@ -424,6 +434,7 @@ class PdfMenuExtractionService:
         request: PdfJobRequest,
         state: "_ExtractionState",
         provider_semaphore: asyncio.Semaphore,
+        payload_semaphore: asyncio.Semaphore,
         page_renderer: "_LazyPageRenderer",
         vision_extractor: "_LazyVisionExtractor",
         *,
@@ -438,17 +449,18 @@ class PdfMenuExtractionService:
                 delay = (_BACKOFF_MS[attempt - 1] + jitter) / 1000.0
                 await asyncio.sleep(delay)
             try:
-                # pypdfium2 uses a C library that is not thread-safe; keep rendering
-                # synchronous and reuse one open PdfDocument for the whole job.
-                if image_bytes is None:
-                    image_bytes = page_renderer.render_page(page_number)
-                extractor = await vision_extractor.get()
-                async with provider_semaphore:
-                    provider_started_at = time.perf_counter()
-                    try:
-                        raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
-                    finally:
-                        _record_elapsed(self._metrics, "vision_provider_seconds", provider_started_at)
+                async with payload_semaphore:
+                    # pypdfium2 uses a C library that is not thread-safe; keep rendering
+                    # serial and reuse one open PdfDocument for the whole job.
+                    if image_bytes is None:
+                        image_bytes = await page_renderer.render_page(page_number)
+                    extractor = await vision_extractor.get()
+                    async with provider_semaphore:
+                        provider_started_at = time.perf_counter()
+                        try:
+                            raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
+                        finally:
+                            _record_elapsed(self._metrics, "vision_provider_seconds", provider_started_at)
                 state.model_name = state.model_name or extractor.model_name
 
                 raw_items = raw.get("items") if isinstance(raw, dict) else []
@@ -533,8 +545,16 @@ class _LazyPageRenderer:
         self._quality = quality
         self._metrics = metrics
         self._renderer = None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pdf-page-renderer")
+        self._closed = False
 
-    def render_page(self, page_number: int) -> bytes:
+    async def render_page(self, page_number: int) -> bytes:
+        if self._closed:
+            raise RuntimeError("PDF page renderer is closed")
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._render_page_sync, page_number)
+
+    def _render_page_sync(self, page_number: int) -> bytes:
         render_started_at = time.perf_counter()
         try:
             if self._renderer is None:
@@ -550,7 +570,18 @@ class _LazyPageRenderer:
         finally:
             _record_elapsed(self._metrics, "render_seconds", render_started_at)
 
-    def close(self) -> None:
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if self._renderer is not None:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(self._executor, self._close_sync)
+        finally:
+            self._executor.shutdown(wait=True)
+
+    def _close_sync(self) -> None:
         if self._renderer is not None:
             self._renderer.__exit__(None, None, None)
             self._renderer = None
