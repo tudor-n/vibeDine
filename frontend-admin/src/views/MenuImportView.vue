@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, watch } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
 
 import ImportStepIndicator from '@/components/menu-import/ImportStepIndicator.vue'
 import StepUploadPhotos from '@/components/menu-import/StepUploadPhotos.vue'
@@ -29,23 +29,48 @@ watch(
   },
 )
 
-onBeforeUnmount(() => {
+const canDiscard = computed(
+  () =>
+    importStore.files.length > 0 ||
+    importStore.isScanning ||
+    importStore.pdfJob !== null ||
+    importStore.extractedItems.length > 0,
+)
+
+async function discardImport() {
+  if (!window.confirm('Renunți la importul curent? Toate fotografiile și progresul vor fi șterse.')) return
+  if (importStore.pdfJob && importStore.pdfJob.id) {
+    await importStore.cancelPdfImport()
+  }
   importStore.$reset()
-})
+}
 </script>
 
 <template>
-  <div class="max-w-5xl mx-auto">
-    <header class="mb-8">
-      <div class="eyebrow mb-3">meniu · import</div>
-      <h1 class="display-title text-[44px] md:text-[56px]">
-        Din hârtie<br />
-        <span class="text-accent">în vitrină.</span>
-      </h1>
-      <p class="text-ink-70 text-lg mt-4 max-w-2xl">
-        Trei pași: încarci fotografiile, mapezi secțiunile și revizuiești produsele. La final,
-        importul se face într-o singură tranzacție.
-      </p>
+  <div class="max-w-4xl mx-auto">
+    <RouterLink to="/menu" class="back-link">
+      <span aria-hidden="true">←</span>
+      <span>Înapoi la meniu</span>
+    </RouterLink>
+
+    <header class="page-head">
+      <div>
+        <div class="page-head-eyebrow">meniu · import</div>
+        <h1 class="page-head-title">
+          Din hârtie <span class="accent">în vitrină.</span>
+        </h1>
+      </div>
+      <div class="page-head-actions">
+        <button
+          v-if="canDiscard"
+          type="button"
+          class="btn-danger"
+          @click="discardImport"
+          title="Renunță la sesiunea curentă de import"
+        >
+          Renunță
+        </button>
+      </div>
     </header>
 
     <ImportStepIndicator :current="importStore.step" />
@@ -60,3 +85,21 @@ onBeforeUnmount(() => {
     <StepReviewItems v-else />
   </div>
 </template>
+
+<style scoped>
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink70);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  text-decoration: none;
+  margin-bottom: 14px;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.back-link:hover { color: var(--ink); transform: translateX(-2px); }
+</style>

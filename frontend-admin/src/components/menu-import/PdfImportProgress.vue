@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 // ── Props & emits ─────────────────────────────────────────────────────────────
 
@@ -14,6 +14,8 @@ interface Job {
   failedPages: number
   etaSeconds?: number
   errorMessage?: string
+  // Anchored on the store; survives navigation so the time-based curve doesn't restart.
+  startedAt: number
 }
 
 const props = defineProps<{ job: Job }>()
@@ -40,14 +42,115 @@ const fileSizeLabel = computed(() => {
   return `${(kb / 1024).toFixed(1)} MB`
 })
 
-// Progress bar fill (guard /0)
-const progressPct = computed(() => {
+// Real progress — used as the floor; the displayed bar can creep ahead of it
+// while we wait for the next real update, but never below it.
+const realProgressPct = computed(() => {
   if (!props.job.totalPages) return 0
   return Math.min(100, (props.job.processedPages / props.job.totalPages) * 100)
 })
 
+// Displayed progress: smoothly animated, with creep between real updates so the
+// bar never looks stalled. Snaps to 100% on completion, stays at 0 on failure.
+const displayedPct = ref(0)
+let creepTimer: ReturnType<typeof setInterval> | null = null
+
+// Cost model for PDF imports: parsing + OCR + AI extraction is dominated by
+// page count, but at the very start we only know file size. Rough rule of
+// thumb on commodity hardware: ~8s per MB end-to-end, clamped to a sane window.
+function estimatePdfDurationMs(): number {
+  const mb = props.job.fileSizeBytes / 1_000_000
+  const est = 6000 + mb * 8000
+  return Math.max(8000, Math.min(120_000, est))
+}
+
+// Same ease-out cubic + asymptote curve used by the photo scanner — fills
+// confidently to ~80% in the estimated window, then creeps toward 92%.
+function timeBasedTarget(elapsedMs: number, estimatedMs: number): number {
+  if (elapsedMs <= estimatedMs) {
+    const t = elapsedMs / estimatedMs
+    return 80 * (1 - Math.pow(1 - t, 3))
+  }
+  const over = elapsedMs - estimatedMs
+  const decay = Math.max(3000, estimatedMs * 0.6)
+  return 80 + 12 * (1 - Math.exp(-over / decay))
+}
+
+function isJobActive(): boolean {
+  const s = props.job.status
+  return s !== 'complete' && s !== 'failed' && s !== 'cancelled'
+}
+
+function stopCreep() {
+  if (creepTimer) {
+    clearInterval(creepTimer)
+    creepTimer = null
+  }
+}
+
+function startCreep() {
+  stopCreep()
+  // Anchor the curve to the store-owned startedAt so re-mounting (e.g. after
+  // navigating away and back) resumes at the right position instead of restarting.
+  const estimated = estimatePdfDurationMs()
+  const tick = () => {
+    if (props.job.status === 'complete') {
+      displayedPct.value = 100
+      stopCreep()
+      return
+    }
+    if (props.job.status === 'failed' || props.job.status === 'cancelled') {
+      stopCreep()
+      return
+    }
+    const real = realProgressPct.value
+    const elapsed = Date.now() - props.job.startedAt
+    const timeTarget = timeBasedTarget(elapsed, estimated)
+    // Never fall below real backend progress; never exceed real + 8% once real
+    // data lands. Time-based target acts as a floor while real is still 0.
+    const ceiling = props.job.totalPages
+      ? Math.min(96, Math.max(real + 8, timeTarget))
+      : Math.min(96, timeTarget)
+    const next = Math.max(real, Math.min(ceiling, timeTarget))
+    const jitter = (Math.random() - 0.5) * 0.4
+    displayedPct.value = Math.max(displayedPct.value, next + jitter)
+  }
+  // Compute once immediately so a remount snaps the bar to the right spot.
+  tick()
+  creepTimer = setInterval(tick, 150)
+}
+
+// React to real updates: snap floor up immediately (never let the bar look behind),
+// and ensure the creep loop is running while the job is active.
+watch(
+  () => [props.job.status, realProgressPct.value] as const,
+  ([status, real]) => {
+    if (status === 'complete') {
+      displayedPct.value = 100
+      stopCreep()
+      return
+    }
+    if (status === 'failed' || status === 'cancelled') {
+      stopCreep()
+      return
+    }
+    if (real > displayedPct.value) displayedPct.value = real
+    if (!creepTimer) startCreep()
+  },
+  { immediate: true },
+)
+
+onMounted(() => {
+  // If we navigated back into the import page while the PDF is still running,
+  // the watcher above won't fire (no status change), so kick off the creep loop manually.
+  if (isJobActive() && !creepTimer) startCreep()
+})
+
+onBeforeUnmount(() => stopCreep())
+
+const progressPct = computed(() => displayedPct.value)
+
 const progressCounter = computed(() => {
-  if (!props.job.totalPages) return 'în pornire'
+  if (!props.job.totalPages) return `${Math.round(displayedPct.value)}%`
   return `${props.job.processedPages} / ${props.job.totalPages}`
 })
 
@@ -111,53 +214,56 @@ const dots = computed<DotState[]>(() => {
 </script>
 
 <template>
-  <article class="card-paper pdf-progress" role="region" aria-label="Progres import PDF">
+  <article class="pdf-progress" role="region" aria-label="Progres import PDF">
 
-    <!-- ── Header row ───────────────────────────────────────────────────── -->
+    <!-- File header -->
     <div class="header-row">
-      <span class="eyebrow">Import Meniu PDF</span>
+      <div class="file-icon" aria-hidden="true">PDF</div>
+      <div class="file-section">
+        <div class="file-name">{{ job.fileName }}</div>
+        <div class="file-meta">{{ fileMeta }}</div>
+      </div>
       <button
         v-if="showCancel"
         type="button"
-        class="cancel-btn"
+        class="btn-danger cancel-btn"
         data-testid="cancel-btn"
         aria-label="Anulează importul"
         @click="emit('cancel')"
       >
-        <span aria-hidden="true">✕</span> Anulează
+        Anulează
       </button>
     </div>
 
-    <!-- ── File meta ────────────────────────────────────────────────────── -->
-    <div class="file-section">
-      <div class="display-title file-name">{{ job.fileName }}</div>
-      <div class="file-meta">{{ fileMeta }}</div>
-    </div>
-
-    <!-- ── Progress bar ─────────────────────────────────────────────────── -->
-    <div class="progress-row">
+    <!-- Progress bar -->
+    <div class="progress-section">
+      <div class="progress-head">
+        <span class="field-label">{{ statusLine }}</span>
+        <span class="progress-counter">{{ progressCounter }}</span>
+      </div>
       <div class="progress-track" role="progressbar"
-           :aria-valuenow="job.processedPages"
+           :aria-valuenow="Math.round(progressPct)"
            :aria-valuemin="0"
-           :aria-valuemax="job.totalPages || 1"
+           :aria-valuemax="100"
            :aria-label="job.totalPages ? `${job.processedPages} din ${job.totalPages} pagini procesate` : 'Import PDF în curs de pornire'">
         <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
       </div>
-      <span class="progress-counter">{{ progressCounter }}</span>
     </div>
 
-    <!-- ── Phase / ETA line ─────────────────────────────────────────────── -->
-    <div class="phase-line eyebrow">{{ statusLine }}</div>
-
-    <!-- ── Error state ──────────────────────────────────────────────────── -->
-    <div v-if="isFailed" class="error-box" role="alert">
-      <span class="eyebrow error-label">⚠ Eroare</span>
-      <p class="error-message">{{ job.errorMessage }}</p>
+    <!-- Error state -->
+    <div v-if="isFailed" class="alert alert-error" role="alert">
+      <span class="alert-icon" aria-hidden="true">⚠</span>
+      <div class="alert-body">
+        <div class="alert-title">Eroare</div>
+        <p class="error-message">{{ job.errorMessage }}</p>
+      </div>
     </div>
 
-    <!-- ── Dot grid ─────────────────────────────────────────────────────── -->
-    <template v-else>
-      <div class="section-label eyebrow">Pagini</div>
+    <!-- Dot grid (compact, only when reasonable) -->
+    <details v-else-if="job.totalPages > 0 && job.totalPages <= 80" class="page-details">
+      <summary class="page-details-summary">
+        <span class="field-label">Pagini · {{ job.processedPages }}/{{ job.totalPages }}</span>
+      </summary>
       <div class="dot-grid" aria-hidden="true">
         <span
           v-for="(state, idx) in dots"
@@ -167,231 +273,152 @@ const dots = computed<DotState[]>(() => {
           data-testid="page-dot"
         ></span>
       </div>
-
-      <!-- Legend -->
-      <div class="legend" aria-hidden="true">
-        <span class="legend-item">
-          <span class="dot dot-done legend-dot"></span> gata
-        </span>
-        <span class="legend-item">
-          <span class="dot dot-inProgress legend-dot"></span> în lucru
-        </span>
-        <span class="legend-item">
-          <span class="dot dot-pending legend-dot"></span> în așteptare
-        </span>
-        <span class="legend-item">
-          <span class="dot dot-failed legend-dot"></span> eșuat
-        </span>
-      </div>
-    </template>
+    </details>
 
   </article>
 </template>
 
 <style scoped>
-/* ── Card container ──────────────────────────────────────────────────────── */
 .pdf-progress {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 28px;
+  padding: 20px;
+  border: 1px solid var(--ink12);
+  border-radius: 16px;
+  background: var(--paperHi);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 }
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
 .header-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.file-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--ink06);
+  border: 1px solid var(--ink12);
+  display: grid;
+  place-items: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink70);
+  letter-spacing: 0.1em;
+}
+
+.file-section { min-width: 0; }
+.file-name {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-meta {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ink40);
+  margin-top: 2px;
+}
+
+.cancel-btn {
+  padding: 8px 14px;
+  min-height: 0;
+  font-size: 12px;
+}
+
+.progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.progress-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-
-/* Cancel button — mirrors .pill-btn-ink but compact */
-.cancel-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: none;
-  background: var(--ink);
-  color: var(--paperHi);
-  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 12px;
+.progress-counter {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: transform 0.15s ease, opacity 0.15s ease;
-  flex-shrink: 0;
+  color: var(--ink);
 }
-.cancel-btn:hover  { transform: translateY(-1px); }
-.cancel-btn:active { transform: scale(0.97); }
-.cancel-btn:focus-visible {
-  outline: var(--ring-width) solid var(--accent);
-  outline-offset: var(--ring-offset);
-}
-
-/* ── File meta ───────────────────────────────────────────────────────────── */
-.file-section { display: flex; flex-direction: column; gap: 4px; }
-
-.file-name {
-  font-size: 22px;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  word-break: break-all;
-}
-
-.file-meta {
-  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 13px;
-  color: var(--ink40);
-}
-
-/* ── Progress bar ────────────────────────────────────────────────────────── */
-.progress-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
 .progress-track {
-  flex: 1;
-  height: 10px;
-  background: var(--paperHi);
-  border: 1px solid var(--ink12);
+  height: 8px;
+  background: var(--ink06);
   border-radius: 999px;
   overflow: hidden;
 }
-
 .progress-fill {
   height: 100%;
   background: var(--accent);
   border-radius: 999px;
   transition: width 250ms cubic-bezier(0.34, 1.4, 0.64, 1);
-  transform-origin: left center;
-}
-
-.progress-counter {
-  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink70);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* ── Phase line ──────────────────────────────────────────────────────────── */
-.phase-line {
-  color: var(--ink70);
-  font-size: 12px;
-}
-
-/* ── Error box ───────────────────────────────────────────────────────────── */
-.error-box {
-  padding: 16px 18px;
-  border-radius: 14px;
-  background: var(--accentSoft);
-  border: 1px solid var(--accentBorder);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.error-label {
-  color: var(--accent);
-  font-size: 11px;
 }
 
 .error-message {
-  margin: 0;
-  font-size: 14px;
+  margin: 4px 0 0;
+  font-size: 13px;
   color: var(--accent);
   line-height: 1.45;
 }
 
-/* ── Section label ───────────────────────────────────────────────────────── */
-.section-label {
-  color: var(--ink40);
-  font-size: 11px;
-  margin-bottom: -8px; /* tighten gap to grid */
+.page-details {
+  margin-top: -4px;
 }
-
-/* ── Dot grid ────────────────────────────────────────────────────────────── */
-.dot-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: block;
-  flex-shrink: 0;
-}
-
-.dot-done {
-  background: var(--accent);
-}
-
-.dot-inProgress {
-  background: radial-gradient(circle at 35% 50%, var(--accent) 45%, var(--paperHi) 46%);
-  border: 1px solid var(--accentBorder);
-  animation: pulse-soft 1.6s ease-in-out infinite;
-}
-
-.dot-pending {
-  background: var(--paperHi);
-  border: 1px solid var(--ink12);
-}
-
-.dot-failed {
-  background: var(--accentBorder);
-  border: 1px solid var(--accent);
-}
-
-/* ── In-progress pulse ───────────────────────────────────────────────────── */
-@keyframes pulse-soft {
-  0%, 100% { opacity: 0.6; }
-  50%       { opacity: 1.0; }
-}
-
-/* ── Legend ──────────────────────────────────────────────────────────────── */
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-}
-
-.legend-item {
+.page-details-summary {
+  cursor: pointer;
+  list-style: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  padding: 2px 0;
+}
+.page-details-summary::-webkit-details-marker { display: none; }
+.page-details-summary::before {
+  content: '▸';
+  font-size: 10px;
   color: var(--ink40);
+  transition: transform 0.15s ease;
+}
+.page-details[open] .page-details-summary::before { transform: rotate(90deg); }
+
+.dot-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-done { background: var(--accent); }
+.dot-inProgress {
+  background: var(--accent);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+.dot-pending { background: var(--ink12); }
+.dot-failed { background: var(--accentBorder); border: 1px solid var(--accent); }
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.15); }
 }
 
-.legend-dot {
-  width: 8px;
-  height: 8px;
-  /* override animation in legend — static */
-  animation: none !important;
-}
-
-/* ── Reduced motion ──────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .progress-fill {
-    transition: none;
-  }
-  .dot-inProgress {
-    animation: none;
-    opacity: 0.8;
-  }
+  .progress-fill { transition: none; }
+  .dot-inProgress { animation: none; opacity: 0.8; }
 }
 </style>
