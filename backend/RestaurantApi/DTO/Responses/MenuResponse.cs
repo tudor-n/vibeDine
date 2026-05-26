@@ -5,7 +5,16 @@ public class MenuCategoryResponse
     public Guid Id {get; set;}
     public string Name {get;set;}=string.Empty;
     public int SortOrder{get;set;}
+    public List<MenuSubcategoryResponse> Subcategories { get; set; } = new();
     public List<MenuProductResponse> Products {get; set;} = [];
+}
+
+public class MenuSubcategoryResponse
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public int? SortOrder { get; set; }
+    public string? ImageUrl { get; set; }
 }
 
 public class MenuProductResponse
@@ -15,6 +24,7 @@ public class MenuProductResponse
     public string? Description {get;set;}
     public decimal Price{get;set;}
     public string? ImageUrl{get;set;}
+    public Guid? SubcategoryId { get; set; }
 }
 
 public class AdminCategoryResponse
@@ -37,6 +47,15 @@ public class AdminProductResponse
     public string? ImageUrl { get; set; }
     public bool IsAvailable { get; set; }
     public int SortOrder { get; set; }
+    public Guid? SubcategoryId { get; set; }
+}
+
+public class AdminMenuSubcategory
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public int? SortOrder { get; set; }
+    public string? ImageUrl { get; set; }
 }
 
 public class AdminMenuCategory
@@ -45,6 +64,7 @@ public class AdminMenuCategory
     public string Name { get; set; } = string.Empty;
     public int? SortOrder { get; set; }
     public string? ImageUrl { get; set; }
+    public List<AdminMenuSubcategory> Subcategories { get; set; } = new();
     public List<AdminProductResponse> Products { get; set; } = new();
 }
 

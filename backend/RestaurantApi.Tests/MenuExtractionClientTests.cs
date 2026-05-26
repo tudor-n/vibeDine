@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading;
@@ -80,5 +81,130 @@ public class MenuExtractionClientTests : IAsyncLifetime
 
         var act = async () => await client.ExtractAsync(photos, CancellationToken.None);
         await act.Should().ThrowAsync<HttpRequestException>();
+    }
+
+    [Fact]
+    public async Task Forwards_locale_as_form_field()
+    {
+        _python
+            .Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody("""
+                { "items": [], "failed_pages": [], "model": "fake", "schema_version": 2 }
+                """));
+
+        var client = new MenuExtractionClient(_httpClient);
+        var photos = new List<(string FileName, string ContentType, byte[] Bytes)>
+        {
+            ("p0.png", "image/png", new byte[] { 1, 2, 3 }),
+        };
+
+        var result = await client.ExtractAsync(photos, CancellationToken.None, locale: "fr-FR");
+        result.Model.Should().Be("fake");
+
+        // Inspect what was actually sent by WireMock.
+        var log = _python.LogEntries.Single();
+        var body = log.RequestMessage.Body ?? string.Empty;
+        body.Should().MatchRegex("name=\"?locale\"?");
+        body.Should().Contain("fr-FR");
+    }
+
+    [Fact]
+    public async Task Defaults_locale_to_ro_RO_when_not_specified()
+    {
+        _python
+            .Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody("""
+                { "items": [], "failed_pages": [], "model": "fake", "schema_version": 2 }
+                """));
+
+        var client = new MenuExtractionClient(_httpClient);
+        var photos = new List<(string FileName, string ContentType, byte[] Bytes)>
+        {
+            ("p0.png", "image/png", new byte[] { 1, 2, 3 }),
+        };
+
+        var result = await client.ExtractAsync(photos, CancellationToken.None);
+        result.Model.Should().Be("fake");
+
+        var log = _python.LogEntries.Single();
+        var body = log.RequestMessage.Body ?? string.Empty;
+        body.Should().MatchRegex("name=\"?locale\"?");
+        body.Should().Contain("ro-RO");
+    }
+
+    [Fact]
+    public async Task Passes_hierarchy_through_as_opaque_json()
+    {
+        _python
+            .Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody("""
+                {
+                  "items": [
+                    { "name": "Margherita", "price": 28.0, "source_page": 0, "source_index": 0,
+                      "description": null, "category_hint": "Pizza", "confidence": 0.9 }
+                  ],
+                  "failed_pages": [],
+                  "model": "fake",
+                  "schema_version": 2,
+                  "hierarchy": {
+                    "source": "ai",
+                    "categories": [
+                      { "name": "Pizza", "sort_order": 0, "subcategories": [],
+                        "direct_item_refs": [{ "source_page": 0, "source_index": 0, "confidence": 0.9 }] }
+                    ],
+                    "uncategorized_item_refs": [],
+                    "model_notes": null
+                  }
+                }
+                """));
+
+        var client = new MenuExtractionClient(_httpClient);
+        var photos = new List<(string FileName, string ContentType, byte[] Bytes)>
+        {
+            ("p0.png", "image/png", new byte[] { 1, 2, 3 }),
+        };
+
+        var result = await client.ExtractAsync(photos, CancellationToken.None);
+
+        result.Items.Should().HaveCount(1);
+        result.Hierarchy.Should().NotBeNull();
+        var hierarchy = result.Hierarchy!.Value;
+        hierarchy.GetProperty("source").GetString().Should().Be("ai");
+        // snake_case is preserved through to the frontend (mirrors PDF flow)
+        var categories = hierarchy.GetProperty("categories");
+        categories.GetArrayLength().Should().Be(1);
+        categories[0].GetProperty("name").GetString().Should().Be("Pizza");
+        categories[0].GetProperty("direct_item_refs").GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Hierarchy_is_null_when_python_omits_it()
+    {
+        _python
+            .Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody("""
+                { "items": [], "failed_pages": [], "model": "fake", "schema_version": 1 }
+                """));
+
+        var client = new MenuExtractionClient(_httpClient);
+        var photos = new List<(string FileName, string ContentType, byte[] Bytes)>
+        {
+            ("p0.png", "image/png", new byte[] { 1 }),
+        };
+
+        var result = await client.ExtractAsync(photos, CancellationToken.None);
+        result.Hierarchy.Should().BeNull();
     }
 }

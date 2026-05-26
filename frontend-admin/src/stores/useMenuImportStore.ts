@@ -9,11 +9,27 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { MENU_VALIDATION } from '@shared/types/menu-validation'
 import type {
   BulkCreateCategoryItem,
+  BulkCreateHierarchyRequest,
   BulkCreateProductItem,
   BulkCreateProductsRequest,
   ExtractedMenuItem,
   FailedPage,
+  ItemRef,
+  MenuHierarchy,
+  OrganizedCategory,
+  OrganizedSubcategory,
 } from '@shared/types/menu-import'
+
+// Internal in-store shape: each category / subcategory carries a stable tempId
+// so duplicate names cannot collide and rename is trivial. This shape only
+// exists in the store — the wire shape (OrganizedCategory / OrganizedSubcategory)
+// is unaffected.
+type EditableSubcategory = OrganizedSubcategory & { tempId: string }
+type EditableCategory = Omit<OrganizedCategory, 'subcategories'> & {
+  tempId: string
+  subcategories: EditableSubcategory[]
+}
+type EditableHierarchy = Omit<MenuHierarchy, 'categories'> & { categories: EditableCategory[] }
 
 export type ImportMode = 'photos' | 'pdf'
 
@@ -147,6 +163,11 @@ function writePdfPersisted(state: PersistedPdfState | null) {
   }
 }
 
+export type HierarchyMoveTarget =
+  | { kind: 'subcategory'; categoryName: string; subcategoryName: string }
+  | { kind: 'direct'; categoryName: string }
+  | { kind: 'uncategorized' }
+
 export const useMenuImportStore = defineStore('menuImport', () => {
   const toast = useToast()
 
@@ -164,6 +185,44 @@ export const useMenuImportStore = defineStore('menuImport', () => {
   const categoryMapping = reactive<Record<string, MappedCategory>>({})
   const unassignedMapping = ref<MappedCategory | null>(null)
   const reviewItems = ref<ReviewItem[]>([])
+
+  // ── Hierarchy state (AI categorization v2) ─────────────────────────────────
+  // tempIds live on each node in the editable clone (see EditableHierarchy)
+  // so duplicate names can't collide and renames don't need to update keys.
+  const hierarchy = ref<EditableHierarchy | null>(null)
+
+  // Skipped items by `${page}:${idx}` — excluded from the payload and the tree.
+  const skippedItemKeys = reactive(new Set<string>())
+
+  function refKey(ref: { sourcePage: number; sourceIndex: number }): string {
+    return `${ref.sourcePage}:${ref.sourceIndex}`
+  }
+
+  function skipItem(ref: { sourcePage: number; sourceIndex: number }) {
+    skippedItemKeys.add(refKey(ref))
+  }
+
+  function unskipItem(ref: { sourcePage: number; sourceIndex: number }) {
+    skippedItemKeys.delete(refKey(ref))
+  }
+
+  function isSkipped(ref: { sourcePage: number; sourceIndex: number }): boolean {
+    return skippedItemKeys.has(refKey(ref))
+  }
+
+  function updateExtractedItem(
+    ref: { sourcePage: number; sourceIndex: number },
+    patch: Partial<Pick<ExtractedMenuItem, 'name' | 'price' | 'description'>>,
+  ) {
+    const idx = extractedItems.value.findIndex(
+      (it) => it.sourcePage === ref.sourcePage && it.sourceIndex === ref.sourceIndex,
+    )
+    if (idx === -1) return
+    const target = extractedItems.value[idx]
+    if (patch.name !== undefined) target.name = patch.name
+    if (patch.price !== undefined) target.price = patch.price
+    if (patch.description !== undefined) target.description = patch.description
+  }
 
   // ── PDF mode state ─────────────────────────────────────────────────────────
   const mode = ref<ImportMode>('photos')
@@ -230,6 +289,19 @@ export const useMenuImportStore = defineStore('menuImport', () => {
       const result = await menuImportApi.scan(files.value)
       extractedItems.value = result.items
       failedPages.value = result.failedPages
+
+      // New pipeline: if the backend already produced a hierarchy, skip the hint-mapping
+      // step entirely and jump straight to hierarchy review. Mirrors hydrateCompletedPdfJob.
+      if (result.hierarchy) {
+        hydrateHierarchy(result.hierarchy)
+        detectedHints.value = []
+        for (const k of Object.keys(categoryMapping)) delete categoryMapping[k]
+        unassignedMapping.value = null
+        step.value = 3
+        await idbDel(IDB_KEY_PHOTOS)
+        return
+      }
+
       detectedHints.value = Array.from(
         new Set(result.items.map((it) => it.categoryHint).filter((h): h is string => !!h)),
       )
@@ -419,6 +491,15 @@ export const useMenuImportStore = defineStore('menuImport', () => {
 
     extractedItems.value = job.result.items
     failedPages.value = job.result.failedPages
+
+    // New pipeline: if the backend already produced a hierarchy, skip the hint-mapping
+    // step entirely and jump straight to hierarchy review.
+    if (job.result.hierarchy) {
+      hydrateHierarchy(job.result.hierarchy)
+      step.value = 3
+      mode.value = 'photos'
+      return true
+    }
 
     // Mirror the scan() logic: seed detectedHints & categoryMapping
     const hints = Array.from(
@@ -751,6 +832,194 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     pdfHub.value = null
   }
 
+  // ── Hierarchy actions ──────────────────────────────────────────────────────
+
+  function hydrateHierarchy(input: MenuHierarchy) {
+    const clone = JSON.parse(JSON.stringify(input)) as MenuHierarchy // deep clone — safer than structuredClone for Pinia reactivity
+    const editable: EditableHierarchy = {
+      ...clone,
+      categories: clone.categories.map((c) => ({
+        ...c,
+        tempId: makeId(),
+        subcategories: c.subcategories.map((s) => ({
+          ...s,
+          tempId: makeId(),
+        })),
+      })),
+    }
+    hierarchy.value = editable
+  }
+
+  function moveItem(ref: ItemRef, target: HierarchyMoveTarget) {
+    if (!hierarchy.value) return
+    const sameRef = (r: ItemRef) => r.sourcePage === ref.sourcePage && r.sourceIndex === ref.sourceIndex
+    // Remove from current location
+    for (const c of hierarchy.value.categories) {
+      for (const s of c.subcategories) {
+        s.itemRefs = s.itemRefs.filter((r) => !sameRef(r))
+      }
+      c.directItemRefs = c.directItemRefs.filter((r) => !sameRef(r))
+    }
+    hierarchy.value.uncategorizedItemRefs = hierarchy.value.uncategorizedItemRefs.filter(
+      (r) => !sameRef(r),
+    )
+    // Insert in target
+    const refClone: ItemRef = {
+      sourcePage: ref.sourcePage,
+      sourceIndex: ref.sourceIndex,
+      confidence: ref.confidence ?? 0.5,
+    }
+    if (target.kind === 'uncategorized') {
+      hierarchy.value.uncategorizedItemRefs.push(refClone)
+      return
+    }
+    const cat = hierarchy.value.categories.find((c) => c.name === target.categoryName)
+    if (!cat) return
+    if (target.kind === 'direct') {
+      cat.directItemRefs.push(refClone)
+      return
+    }
+    const sub = cat.subcategories.find((s) => s.name === target.subcategoryName)
+    if (sub) sub.itemRefs.push(refClone)
+  }
+
+  function renameCategory(oldName: string, newName: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === oldName)
+    if (!cat) return
+    cat.name = newName
+  }
+
+  function renameSubcategory(categoryName: string, oldName: string, newName: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    const sub = cat.subcategories.find((s) => s.name === oldName)
+    if (!sub) return
+    sub.name = newName
+  }
+
+  function addSubcategory(categoryName: string, name: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    cat.subcategories.push({
+      name,
+      sortOrder: cat.subcategories.length,
+      itemRefs: [],
+      tempId: makeId(),
+    })
+  }
+
+  function removeSubcategory(categoryName: string, name: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    const sub = cat.subcategories.find((s) => s.name === name)
+    if (!sub) return
+    // Items go to parent's directItemRefs (no data loss)
+    cat.directItemRefs.push(...sub.itemRefs)
+    cat.subcategories = cat.subcategories.filter((s) => s.name !== name)
+  }
+
+  function addCategory(name: string) {
+    if (!hierarchy.value) return
+    hierarchy.value.categories.push({
+      name,
+      sortOrder: hierarchy.value.categories.length,
+      subcategories: [],
+      directItemRefs: [],
+      tempId: makeId(),
+    })
+  }
+
+  function removeCategory(categoryName: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    // Items go to uncategorized (no data loss)
+    const orphans = [
+      ...cat.directItemRefs,
+      ...cat.subcategories.flatMap((s) => s.itemRefs),
+    ]
+    hierarchy.value.uncategorizedItemRefs.push(...orphans)
+    hierarchy.value.categories = hierarchy.value.categories.filter((c) => c.name !== categoryName)
+  }
+
+  function buildHierarchyPayload(): BulkCreateHierarchyRequest {
+    if (!hierarchy.value) return { categories: [], products: [] }
+
+    // Drop empty subcategories — the backend would otherwise create unreachable empty
+    // subcategory rows. Direct items on the parent category are kept regardless.
+    const categories = hierarchy.value.categories.map((c) => ({
+      tempId: c.tempId,
+      name: c.name,
+      sortOrder: c.sortOrder,
+      subcategories: c.subcategories
+        .filter((s) => s.itemRefs.length > 0)
+        .map((s) => ({
+          tempId: s.tempId,
+          name: s.name,
+          sortOrder: s.sortOrder,
+        })),
+    }))
+
+    const itemByKey = new Map(
+      extractedItems.value.map((it) => [`${it.sourcePage}:${it.sourceIndex}`, it]),
+    )
+
+    const products: BulkCreateHierarchyRequest['products'] = []
+    let order = 0
+    for (const c of hierarchy.value.categories) {
+      for (const s of c.subcategories) {
+        if (s.itemRefs.length === 0) continue // mirrors the filter above
+        for (const ref of s.itemRefs) {
+          if (skippedItemKeys.has(refKey(ref))) continue
+          const it = itemByKey.get(`${ref.sourcePage}:${ref.sourceIndex}`)
+          if (!it) continue
+          products.push({
+            name: it.name,
+            price: it.price,
+            description: it.description ?? null,
+            categoryTempId: c.tempId,
+            subcategoryTempId: s.tempId,
+            sortOrder: order++,
+            isAvailable: true,
+          })
+        }
+      }
+      for (const ref of c.directItemRefs) {
+        if (skippedItemKeys.has(refKey(ref))) continue
+        const it = itemByKey.get(`${ref.sourcePage}:${ref.sourceIndex}`)
+        if (!it) continue
+        products.push({
+          name: it.name,
+          price: it.price,
+          description: it.description ?? null,
+          categoryTempId: c.tempId,
+          subcategoryTempId: null,
+          sortOrder: order++,
+          isAvailable: true,
+        })
+      }
+    }
+
+    return { categories, products }
+  }
+
+  async function importHierarchy() {
+    isImporting.value = true
+    importError.value = null
+    try {
+      await menuImportApi.bulkCreateHierarchy(buildHierarchyPayload())
+    } catch (err) {
+      importError.value = err instanceof Error ? err.message : 'Import failed.'
+      throw err
+    } finally {
+      isImporting.value = false
+    }
+  }
+
   function $reset() {
     step.value = 1
     files.value = []
@@ -765,6 +1034,8 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     for (const k of Object.keys(categoryMapping)) delete categoryMapping[k]
     unassignedMapping.value = null
     reviewItems.value = []
+    hierarchy.value = null
+    skippedItemKeys.clear()
     mode.value = 'photos'
     pdfJob.value = null
     void idbDel(IDB_KEY_PHOTOS)
@@ -787,6 +1058,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     categoryMapping,
     unassignedMapping,
     reviewItems,
+    hierarchy,
     // PDF state
     mode,
     pdfJob,
@@ -808,6 +1080,23 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     validateRow,
     buildBulkPayload,
     importAll,
+    // Hierarchy actions
+    hydrateHierarchy,
+    moveItem,
+    renameCategory,
+    renameSubcategory,
+    addSubcategory,
+    removeSubcategory,
+    addCategory,
+    removeCategory,
+    buildHierarchyPayload,
+    importHierarchy,
+    // Per-item edit / skip
+    skippedItemKeys,
+    isSkipped,
+    updateExtractedItem,
+    skipItem,
+    unskipItem,
     // PDF actions
     startPdfImport,
     cancelPdfImport,

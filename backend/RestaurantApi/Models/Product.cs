@@ -11,6 +11,9 @@ public class Product : ITenantScoped {
     public Guid CategoryId { get; set; }
     public Category Category { get; set; } = null!;
 
+    public Guid? SubcategoryId { get; set; }
+    public Subcategory? Subcategory { get; set; }
+
     [Required]
     public string Name { get; set; } = string.Empty;
 

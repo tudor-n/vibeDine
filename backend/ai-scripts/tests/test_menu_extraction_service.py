@@ -21,7 +21,7 @@ async def test_single_page_success():
     )
     result = await service.extract([b"\x00"])
     assert result.model == "fake-x"
-    assert result.schema_version == 1
+    assert result.schema_version == 2
     assert len(result.items) == 2
     assert result.items[0].source_page == 0
     assert result.items[0].category_hint == "APERITIVE"

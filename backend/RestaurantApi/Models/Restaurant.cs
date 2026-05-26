@@ -22,6 +22,8 @@ public class Restaurant
 
     public string Currency { get; set; } = "RON";
 
+    public string Locale { get; set; } = "ro-RO";
+
     public bool IsActive { get; set; } = true;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

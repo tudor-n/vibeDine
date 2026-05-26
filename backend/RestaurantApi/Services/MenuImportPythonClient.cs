@@ -36,4 +36,5 @@ public sealed record PdfJobPayload(
     string StoragePath,
     string ProgressCallbackUrl,
     string HmacSecret,
-    string Provider = "gemini");
+    string Provider = "gemini",
+    string Locale = "ro-RO");

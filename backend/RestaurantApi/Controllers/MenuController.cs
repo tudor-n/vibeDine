@@ -28,6 +28,17 @@ public class MenuController: ControllerBase
             Id=category.Id,
             Name=category.Name,
             SortOrder=category.SortOrder?? 0,
+            Subcategories = _context.Subcategories
+                .Where(s => s.CategoryId == category.Id)
+                .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
+                .Select(s => new MenuSubcategoryResponse
+                {
+                    Id = s.Id,
+                    Name = s.Name,
+                    SortOrder = s.SortOrder,
+                    ImageUrl = s.ImageUrl
+                })
+                .ToList(),
             Products=category.Products
 
             .Where(product => product.IsAvailable==true)
@@ -38,10 +49,11 @@ public class MenuController: ControllerBase
                 Name=product.Name,
                 Description= product.Description,
                 Price=product.Price,
-                ImageUrl=product.ImageUrl
+                ImageUrl=product.ImageUrl,
+                SubcategoryId = product.SubcategoryId
             }).ToList()
         }).ToListAsync();
-  
+
      return Ok(new { categories = availableProducts });
     }
 

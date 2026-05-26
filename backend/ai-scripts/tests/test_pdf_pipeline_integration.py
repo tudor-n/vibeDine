@@ -20,6 +20,12 @@ from uuid import UUID
 import pytest
 
 from models.menu_extraction import ProgressEvent, PdfJobRequest
+from models.menu_organizer import (
+    ItemRef,
+    OrganizedCategory,
+    OrganizerResult,
+)
+from services.menu_organizer import FakeMenuOrganizer, MenuOrganizerError
 from services.pdf_menu_extraction_service import PdfMenuExtractionService
 from services.text_extractor import FakeTextExtractor, TextExtractionError
 from services.vision_extractor import FakeVisionExtractor, VisionExtractionError
@@ -362,3 +368,94 @@ async def test_progress_events_include_parsing_and_finalizing():
 
     assert "parsing" in phases, f"Expected 'parsing' phase in events; got {phases}"
     assert "finalizing" in phases, f"Expected 'finalizing' phase in events; got {phases}"
+
+
+# ---------------------------------------------------------------------------
+# F.1 — pipeline includes hierarchy from organizer (happy path)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_pipeline_includes_hierarchy_from_organizer():
+    """When organizer returns an AI result, MenuExtractionResponse.hierarchy mirrors it."""
+    reporter = RecordingProgressReporter()
+
+    # Two pizza items on page 0, both hinted "Pizza" — single text batch.
+    def text_factory():
+        return FakeTextExtractor(canned_response={"items": [
+            {"name": "Margherita", "price": 25.0, "source_page": 0,
+             "source_index": 0, "category_hint": "Pizza"},
+            {"name": "Capricciosa", "price": 30.0, "source_page": 0,
+             "source_index": 1, "category_hint": "Pizza"},
+            # provide items for pages 1 and 2 too so no reclassification kicks in
+            {"name": "Filler 1", "price": 5.0, "source_page": 1,
+             "source_index": 0, "category_hint": "Pizza"},
+            {"name": "Filler 2", "price": 6.0, "source_page": 2,
+             "source_index": 0, "category_hint": "Pizza"},
+        ]})
+
+    canned = OrganizerResult(
+        source="ai",
+        categories=[OrganizedCategory(
+            name="Pizza",
+            sort_order=0,
+            subcategories=[],
+            direct_item_refs=[
+                ItemRef(source_page=0, source_index=0, confidence=0.9),
+                ItemRef(source_page=0, source_index=1, confidence=0.9),
+            ],
+        )],
+        uncategorized_item_refs=[],
+    )
+    organizer = FakeMenuOrganizer(canned=canned)
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=text_factory,
+        vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        progress=reporter,
+        organizer_factory=lambda: organizer,
+    )
+
+    result = await service.run(_request(DIGITAL_3PAGE))
+
+    assert result.schema_version == 2
+    assert result.hierarchy is not None
+    assert result.hierarchy.source == "ai"
+    assert len(result.hierarchy.categories) >= 1
+    assert result.hierarchy.categories[0].name == "Pizza"
+
+
+# ---------------------------------------------------------------------------
+# F.2 — pipeline falls back to hint when organizer raises
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_pipeline_falls_back_to_hint_when_organizer_raises():
+    """If the organizer raises MenuOrganizerError, hierarchy falls back to hint grouping."""
+    reporter = RecordingProgressReporter()
+
+    def text_factory():
+        return FakeTextExtractor(canned_response={"items": [
+            {"name": "Margherita", "price": 25.0, "source_page": 0,
+             "source_index": 0, "category_hint": "Pizza"},
+            {"name": "Filler 1", "price": 5.0, "source_page": 1,
+             "source_index": 0, "category_hint": "Pizza"},
+            {"name": "Filler 2", "price": 6.0, "source_page": 2,
+             "source_index": 0, "category_hint": "Pizza"},
+        ]})
+
+    organizer = FakeMenuOrganizer(raises=MenuOrganizerError("boom"))
+
+    service = PdfMenuExtractionService(
+        text_extractor_factory=text_factory,
+        vision_extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        progress=reporter,
+        organizer_factory=lambda: organizer,
+    )
+
+    result = await service.run(_request(DIGITAL_3PAGE))
+
+    assert result.schema_version == 2
+    assert result.hierarchy is not None
+    assert result.hierarchy.source == "hint-fallback"
+    assert len(result.hierarchy.categories) >= 1
+    assert result.hierarchy.categories[0].name.lower() == "pizza"

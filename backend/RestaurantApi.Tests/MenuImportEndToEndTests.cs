@@ -393,4 +393,75 @@ public class MenuImportEndToEndTests : IAsyncLifetime
     // Manual check: POST a file > 110 MB; expect 413 Request Entity Too Large.
     // See docs/menu-import-pdf-smoke.md → "Negative tests".
     // ──────────────────────────────────────────────────────────────────────────
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Test 10: HappyPath_persists_hierarchy_on_completed_job_result
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task HappyPath_persists_hierarchy_on_completed_job_result()
+    {
+        // Configure fake to return a canonical hierarchy payload alongside items.
+        _fake.Hierarchy = new
+        {
+            source = "ai",
+            categories = new[]
+            {
+                new
+                {
+                    name = "Pizza",
+                    sort_order = 0,
+                    subcategories = Array.Empty<object>(),
+                    direct_item_refs = Array.Empty<object>(),
+                },
+            },
+            uncategorized_item_refs = Array.Empty<object>(),
+            model_notes = (string?)null,
+        };
+
+        // Upload a minimal valid PDF.
+        var resp = await _clientA.PostAsync(
+            $"/api/restaurants/{_restA}/admin/menu/imports/pdf",
+            MenuImportTestFixtures.ValidPdfMultipart("hierarchy.pdf"));
+        resp.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        var created = await resp.Content.ReadFromJsonAsync<StartPdfImportResponse>();
+        created.Should().NotBeNull();
+        created!.JobId.Should().NotBeEmpty();
+
+        // Drive one background tick — FakePdfExtractor returns synchronously.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await TickBackgroundServiceAsync(cts.Token);
+
+        // GET the job and inspect the response shape against the actual JSON.
+        var getResp = await _clientA.GetAsync(
+            $"/api/restaurants/{_restA}/admin/menu/imports/{created.JobId}");
+        getResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var rawJson = await getResp.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(rawJson);
+        var jobJson = doc.RootElement;
+
+        // The job envelope (ASP.NET) is camelCase: "status", "result", etc.
+        jobJson.GetProperty("status").GetString().Should().Be("complete");
+
+        // The "result" property is a JsonElement deserialized from a JSONB blob
+        // that Python produces with snake_case keys. ASP.NET preserves raw keys
+        // when serializing JsonElement, so the inner keys remain snake_case.
+        var result = jobJson.GetProperty("result");
+        result.GetProperty("schema_version").GetInt32().Should().Be(2);
+
+        var hierarchy = result.GetProperty("hierarchy");
+        hierarchy.GetProperty("source").GetString().Should().Be("ai");
+
+        var categories = hierarchy.GetProperty("categories");
+        categories.GetArrayLength().Should().Be(1);
+        categories[0].GetProperty("name").GetString().Should().Be("Pizza");
+
+        // Locale must have been threaded into the Python payload.
+        _fake.Calls.Should().NotBeEmpty();
+        var lastCall = _fake.Calls[^1];
+        lastCall.Locale.Should().Be("ro-RO");
+        lastCall.RestaurantId.Should().Be(_restA);
+    }
 }

@@ -7,10 +7,11 @@ from typing import Callable, List
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from models.menu_extraction import MenuExtractionResponse, PdfJobRequest
 from services.menu_extraction_service import MenuExtractionService
+from services.menu_organizer import resolve_organizer
 from services.pdf_menu_extraction_service import PdfMenuExtractionService, PdfReadError
 from services.progress_reporter import ProgressReporter
 from services.text_extractor import ClaudeTextExtractor, GeminiTextExtractor, TextExtractor
@@ -67,18 +68,22 @@ def _default_extractor_factory() -> VisionExtractor:
 
 def get_extraction_service() -> MenuExtractionService:
     """FastAPI dependency. Overridden in tests via app.dependency_overrides."""
-    return MenuExtractionService(extractor_factory=_default_extractor_factory)
+    return MenuExtractionService(
+        extractor_factory=_default_extractor_factory,
+        organizer_factory=resolve_organizer,
+    )
 
 
 @router.post("/extract", response_model=MenuExtractionResponse)
 async def extract_menu(
     photos: List[UploadFile] = File(default=[]),
+    locale: str = Form("ro-RO"),
     service: MenuExtractionService = Depends(get_extraction_service),
 ) -> MenuExtractionResponse:
     if not photos:
         raise HTTPException(status_code=400, detail="At least one photo is required.")
     image_bytes_list = [await p.read() for p in photos]
-    return await service.extract(image_bytes_list)
+    return await service.extract(image_bytes_list, locale=locale)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +152,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
             render_scale=render_scale,
             render_quality=render_quality,
             max_embedded_image_bytes=max_embedded_image_bytes,
+            organizer_factory=resolve_organizer,
         )
 
     return builder

@@ -1,8 +1,14 @@
 import type {
+  BulkCreateHierarchyRequest,
+  BulkCreateHierarchyResponse,
   BulkCreateProductsRequest,
   ExtractedMenuItem,
   FailedPage,
+  ItemRef,
+  MenuHierarchy,
   MenuScanResponse,
+  OrganizedCategory,
+  OrganizedSubcategory,
 } from '@shared/types/menu-import'
 import type { AdminProduct } from '@shared/types/models'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -26,6 +32,7 @@ export interface MenuImportJobResponse {
     failedPages: FailedPage[]
     model: string
     schemaVersion: number
+    hierarchy?: MenuHierarchy
   }
   errorMessage?: string
   createdAt: string
@@ -86,6 +93,55 @@ function normalizeFailedPage(value: unknown): FailedPage {
   }
 }
 
+function normalizeItemRef(value: unknown): ItemRef {
+  const raw = asRecord(value) ?? {}
+  return {
+    sourcePage: Number(raw.sourcePage ?? raw.source_page ?? 0),
+    sourceIndex: Number(raw.sourceIndex ?? raw.source_index ?? 0),
+    confidence: Number(raw.confidence ?? 0),
+  }
+}
+
+function normalizeOrganizedSubcategory(value: unknown): OrganizedSubcategory {
+  const raw = asRecord(value) ?? {}
+  const itemRefsRaw = raw.itemRefs ?? raw.item_refs
+  const itemRefs = Array.isArray(itemRefsRaw) ? itemRefsRaw : []
+  return {
+    name: typeof raw.name === 'string' ? raw.name : '',
+    sortOrder: Number(raw.sortOrder ?? raw.sort_order ?? 0),
+    itemRefs: itemRefs.map(normalizeItemRef),
+  }
+}
+
+function normalizeOrganizedCategory(value: unknown): OrganizedCategory {
+  const raw = asRecord(value) ?? {}
+  const subRaw = Array.isArray(raw.subcategories) ? raw.subcategories : []
+  const directRaw = raw.directItemRefs ?? raw.direct_item_refs
+  const directItemRefs = Array.isArray(directRaw) ? directRaw : []
+  return {
+    name: typeof raw.name === 'string' ? raw.name : '',
+    sortOrder: Number(raw.sortOrder ?? raw.sort_order ?? 0),
+    subcategories: subRaw.map(normalizeOrganizedSubcategory),
+    directItemRefs: directItemRefs.map(normalizeItemRef),
+  }
+}
+
+function normalizeHierarchy(value: unknown): MenuHierarchy | undefined {
+  const raw = asRecord(value)
+  if (!raw) return undefined
+  const source = raw.source === 'ai' || raw.source === 'hint-fallback' ? raw.source : 'hint-fallback'
+  const categoriesRaw = Array.isArray(raw.categories) ? raw.categories : []
+  const uncategorizedRaw = raw.uncategorizedItemRefs ?? raw.uncategorized_item_refs
+  const uncategorized = Array.isArray(uncategorizedRaw) ? uncategorizedRaw : []
+  const modelNotes = (raw.modelNotes ?? raw.model_notes) as string | null | undefined
+  return {
+    source,
+    categories: categoriesRaw.map(normalizeOrganizedCategory),
+    uncategorizedItemRefs: uncategorized.map(normalizeItemRef),
+    modelNotes: typeof modelNotes === 'string' ? modelNotes : null,
+  }
+}
+
 function normalizeScanResponse(value: unknown): MenuScanResponse | undefined {
   const raw = asRecord(value)
   if (!raw) return undefined
@@ -97,6 +153,7 @@ function normalizeScanResponse(value: unknown): MenuScanResponse | undefined {
     failedPages: failedPages.map(normalizeFailedPage),
     model: typeof raw.model === 'string' ? raw.model : '',
     schemaVersion: Number(raw.schemaVersion ?? raw.schema_version ?? 1),
+    hierarchy: normalizeHierarchy(raw.hierarchy),
   }
 }
 
@@ -122,16 +179,25 @@ function scopedAdmin(suffix: string): { url: string; authHeader: Record<string, 
   }
 }
 
-async function scan(files: File[]): Promise<MenuScanResponse> {
+async function scan(files: File[], locale: string = 'ro-RO'): Promise<MenuScanResponse> {
   const form = new FormData()
   for (const file of files) form.append('photos', file, file.name)
+  form.append('locale', locale)
   const { url, authHeader } = scopedAdmin('/admin/menu/scan')
   const res = await fetch(url, { method: 'POST', body: form, headers: authHeader })
   if (!res.ok) {
     const body = await res.json().catch(() => undefined)
     throw makeError(`scan failed: HTTP ${res.status}`, res.status, body)
   }
-  return (await res.json()) as MenuScanResponse
+  const raw = (await res.json()) as unknown
+  // The backend forwards `hierarchy` as the opaque snake_case blob from Python.
+  // normalizeScanResponse handles both snake_case and camelCase variants.
+  return normalizeScanResponse(raw) ?? {
+    items: [],
+    failedPages: [],
+    model: '',
+    schemaVersion: 1,
+  }
 }
 
 async function bulkCreate(payload: BulkCreateProductsRequest): Promise<AdminProduct[]> {
@@ -146,6 +212,20 @@ async function bulkCreate(payload: BulkCreateProductsRequest): Promise<AdminProd
     throw makeError(`bulk-create failed: HTTP ${res.status}`, res.status, body)
   }
   return (await res.json()) as AdminProduct[]
+}
+
+async function bulkCreateHierarchy(payload: BulkCreateHierarchyRequest): Promise<BulkCreateHierarchyResponse> {
+  const { url, authHeader } = scopedAdmin('/admin/menu/bulk-create-hierarchy')
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => undefined)
+    throw makeError(`bulk-create-hierarchy failed: HTTP ${res.status}`, res.status, body)
+  }
+  return (await res.json()) as BulkCreateHierarchyResponse
 }
 
 async function startPdfImport(file: File): Promise<StartPdfImportResponse> {
@@ -179,4 +259,4 @@ async function cancelImportJob(jobId: string): Promise<void> {
   }
 }
 
-export const menuImportApi = { scan, bulkCreate, startPdfImport, getImportJob, cancelImportJob }
+export const menuImportApi = { scan, bulkCreate, bulkCreateHierarchy, startPdfImport, getImportJob, cancelImportJob }
