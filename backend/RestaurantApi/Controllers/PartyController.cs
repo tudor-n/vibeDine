@@ -26,6 +26,13 @@ public class PartyController : ControllerBase
     // party doesn't haunt today's panel.
     private static readonly TimeSpan StaleGuestAfter = TimeSpan.FromHours(3);
 
+    // A guest whose cart is still EMPTY and who hasn't been heard from for this
+    // long almost certainly scanned and walked away. Their seat is reclaimed much
+    // sooner than StaleGuestAfter so abandoned scans don't hold "Guest N" slots
+    // hostage all afternoon. Guests with items in their cart keep the full
+    // 3-hour grace — never destroy a composed cart over a locked phone.
+    private static readonly TimeSpan AbandonedEmptyAfter = TimeSpan.FromMinutes(10);
+
     // How fresh a guest's heartbeat must be to count as "at the table". The
     // customer app polls /party every ~15s and that poll carries its guestId
     // (the heartbeat); 75s tolerates browsers throttling hidden tabs to one
@@ -64,12 +71,11 @@ public class PartyController : ControllerBase
         var isNewGuest = guest is null;
         if (guest is null)
         {
-            var seated = await _db.TableGuests.CountAsync(g => g.TableId == table.Id);
             guest = new TableGuest
             {
                 TableId = table.Id,
                 RestaurantId = table.RestaurantId,
-                DisplayName = $"Guest {seated + 1}",
+                DisplayName = $"Guest {await NextFreeGuestNumberAsync(table.Id)}",
             };
             _db.TableGuests.Add(guest);
         }
@@ -239,18 +245,51 @@ public class PartyController : ControllerBase
         });
     }
 
+    // Guest numbers recycle: seats vanish when their owner submits (see
+    // CustomerController.SubmitOrder) or gets swept below, so the next scanner
+    // takes the lowest hole — a fresh table starts back at "Guest 1" instead of
+    // the numbers climbing all day. Numbers come from the live rows' names (not
+    // a count) so a freed middle seat is refilled without duplicating a name
+    // still in use. Two phones joining in the same instant could both grab the
+    // same number; like the OrderNumber sequence, that race is tolerated.
+    private async Task<int> NextFreeGuestNumberAsync(Guid tableId)
+    {
+        var names = await _db.TableGuests
+            .Where(g => g.TableId == tableId)
+            .Select(g => g.DisplayName)
+            .ToListAsync();
+
+        var taken = new HashSet<int>();
+        foreach (var name in names)
+        {
+            if (name is not null && name.StartsWith("Guest ")
+                && int.TryParse(name.AsSpan("Guest ".Length), out var n))
+                taken.Add(n);
+        }
+
+        var slot = 1;
+        while (taken.Contains(slot)) slot++;
+        return slot;
+    }
+
     // Submit already frees a guest's seat the moment their order leaves for the
     // kitchen (CustomerController.SubmitOrder), so the only seats left to reap
-    // here are phones that scanned but never sent anything. An in-flight order
-    // (pending_dispatch..ready) protects the seat regardless of idle time.
+    // here are phones that scanned but never sent anything: empty carts go after
+    // AbandonedEmptyAfter, non-empty carts after StaleGuestAfter. An in-flight
+    // order (pending_dispatch..ready) protects the seat regardless of idle time.
     private async Task PurgeStaleGuestsAsync(Guid tableId)
     {
-        var cutoff = DateTime.UtcNow - StaleGuestAfter;
+        var now = DateTime.UtcNow;
+        var staleCutoff = now - StaleGuestAfter;
+        var abandonedCutoff = now - AbandonedEmptyAfter;
         var inFlight = new[] { "pending_dispatch", "submitted", "preparing", "ready" };
 
         var staleIds = await _db.TableGuests
-            .Where(g => g.TableId == tableId && g.LastSeenAt < cutoff)
+            .Where(g => g.TableId == tableId)
             .Where(g => !_db.Orders.Any(o => o.GuestId == g.Id && inFlight.Contains(o.Status)))
+            .Where(g => g.LastSeenAt < staleCutoff
+                || (g.LastSeenAt < abandonedCutoff
+                    && !_db.Orders.Any(o => o.GuestId == g.Id && o.Status == "draft" && o.Items.Any())))
             .Select(g => g.Id)
             .ToListAsync();
         if (staleIds.Count == 0) return;
