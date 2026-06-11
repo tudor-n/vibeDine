@@ -104,8 +104,20 @@ export function useWebSocket() {
               helpCallStore.clearCooldown()
             }
 
-            // Someone new scanned in at this table — refresh the party panel.
+            // Someone new scanned in at this table — refresh the party panel and
+            // pop a short toast on the phones already seated (never for our own
+            // join; the store also suppresses it while our join is in flight).
             if (data.target === 'PartyMemberJoined') {
+              guestStore.refreshParty(sessionStore.qrToken)
+              const payload = data.arguments[0] as { guestId?: string; displayName?: string }
+              if (payload?.guestId && payload.displayName && payload.guestId !== guestStore.guestId) {
+                guestStore.announceJoin(payload.displayName)
+              }
+            }
+
+            // A guest's order went to the kitchen (or their seat was reclaimed) —
+            // drop them from the party panel.
+            if (data.target === 'PartyMemberLeft') {
               guestStore.refreshParty(sessionStore.qrToken)
             }
 

@@ -107,8 +107,12 @@ export const apiClient = {
     return res;
   },
 
-  getParty: (qrToken: string) =>
-    fetcher<{ partyMembers: PartyMember[] }>(`/api/tables/${qrToken}/party`),
+  // guestId rides along as a presence heartbeat: it keeps this phone's seat
+  // "fresh" server-side, so polling the party also signals "I'm still here".
+  getParty: (qrToken: string, guestId?: string | null) =>
+    fetcher<{ partyMembers: PartyMember[] }>(
+      `/api/tables/${qrToken}/party${guestId ? `?guestId=${guestId}` : ''}`,
+    ),
 
   mergeParty: (qrToken: string, initiatorGuestId: string) =>
     fetcher<MergePartyResponse>(`/api/tables/${qrToken}/merge`, {

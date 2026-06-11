@@ -21,6 +21,19 @@ namespace RestaurantApi.Controllers;
 [Route("api")]
 public class PartyController : ControllerBase
 {
+    // A guest idle past this with nothing in flight is presumed gone; their seat
+    // (and leftover empty draft) is reclaimed on the next scan so yesterday's
+    // party doesn't haunt today's panel.
+    private static readonly TimeSpan StaleGuestAfter = TimeSpan.FromHours(3);
+
+    // How fresh a guest's heartbeat must be to count as "at the table". The
+    // customer app polls /party every ~15s and that poll carries its guestId
+    // (the heartbeat); 75s tolerates browsers throttling hidden tabs to one
+    // timer tick per minute without making present guests flicker. Phones that
+    // stop beating (tab closed, customer left) drop out of the panel within
+    // about a minute, even though their row waits for the lazy sweep.
+    private static readonly TimeSpan PresenceWindow = TimeSpan.FromSeconds(75);
+
     private readonly AppDbContext _db;
     private readonly IHubContext<CustomerHub> _customerHub;
 
@@ -39,6 +52,8 @@ public class PartyController : ControllerBase
         var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken);
         if (table is null)
             return NotFound(new { message = "Invalid QR Code. Table not found." });
+
+        await PurgeStaleGuestsAsync(table.Id);
 
         // Resolve the guest only if the passed id actually belongs to THIS table —
         // a stored id from another table (or a forged one) starts a fresh slot here.
@@ -113,11 +128,23 @@ public class PartyController : ControllerBase
     // GET /api/tables/{qrToken}/party — every phone polls/refetches this to render
     // the party panel (who's at the table + each cart's running total).
     [HttpGet("tables/{qrToken:guid}/party")]
-    public async Task<IActionResult> Party(Guid qrToken)
+    public async Task<IActionResult> Party(Guid qrToken, [FromQuery] Guid? guestId)
     {
         var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken);
         if (table is null)
             return NotFound(new { message = "Table not found." });
+
+        // The poll doubles as a presence heartbeat: the calling phone passes its
+        // guestId so its seat stays inside the PresenceWindow while the tab lives.
+        if (guestId is Guid gid && gid != Guid.Empty)
+        {
+            var me = await _db.TableGuests.FirstOrDefaultAsync(g => g.Id == gid && g.TableId == table.Id);
+            if (me is not null)
+            {
+                me.LastSeenAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
 
         return Ok(new { partyMembers = await BuildPartyAsync(table.Id) });
     }
@@ -140,6 +167,9 @@ public class PartyController : ControllerBase
         if (initiator is null)
             return BadRequest(new { message = "Guest is not seated at this table." });
 
+        // Merging is activity — it proves this phone is still at the table.
+        initiator.LastSeenAt = DateTime.UtcNow;
+
         await using var tx = await _db.Database.BeginTransactionAsync();
 
         var target = await _db.Orders
@@ -147,10 +177,17 @@ public class PartyController : ControllerBase
         if (target is null)
             return Conflict(new { message = "Your order is no longer an open draft." });
 
-        // Every OTHER still-open draft at this table (submitted orders are left
-        // alone — those guests already chose to pay separately).
+        // Every OTHER still-open draft at this table whose owner is still present
+        // (submitted orders are left alone — those guests already chose to pay
+        // separately). Drafts of absent guests stay out too: a stale seat the
+        // sweep hasn't reclaimed yet must not inject surprise items into the
+        // combined bill — and the panel the initiator just looked at didn't
+        // show those guests either.
+        var presentCutoff = DateTime.UtcNow - PresenceWindow;
         var sources = await _db.Orders
-            .Where(o => o.TableId == table.Id && o.Status == "draft" && o.Id != target.Id)
+            .Where(o => o.TableId == table.Id && o.Status == "draft" && o.Id != target.Id
+                && o.GuestId != null
+                && _db.TableGuests.Any(g => g.Id == o.GuestId && g.LastSeenAt >= presentCutoff))
             .ToListAsync();
 
         var mergedIds = sources.Select(s => s.Id).ToList();
@@ -202,11 +239,45 @@ public class PartyController : ControllerBase
         });
     }
 
-    // Each guest's current order summary for the party panel.
+    // Submit already frees a guest's seat the moment their order leaves for the
+    // kitchen (CustomerController.SubmitOrder), so the only seats left to reap
+    // here are phones that scanned but never sent anything. An in-flight order
+    // (pending_dispatch..ready) protects the seat regardless of idle time.
+    private async Task PurgeStaleGuestsAsync(Guid tableId)
+    {
+        var cutoff = DateTime.UtcNow - StaleGuestAfter;
+        var inFlight = new[] { "pending_dispatch", "submitted", "preparing", "ready" };
+
+        var staleIds = await _db.TableGuests
+            .Where(g => g.TableId == tableId && g.LastSeenAt < cutoff)
+            .Where(g => !_db.Orders.Any(o => o.GuestId == g.Id && inFlight.Contains(o.Status)))
+            .Select(g => g.Id)
+            .ToListAsync();
+        if (staleIds.Count == 0) return;
+
+        // Abandoned drafts (and their items) go with the seat; submitted/merged
+        // orders stay — they're kitchen history, not party state.
+        await _db.OrderItems
+            .Where(i => _db.Orders.Any(o => o.Id == i.OrderId && o.Status == "draft"
+                && o.GuestId != null && staleIds.Contains(o.GuestId.Value)))
+            .ExecuteDeleteAsync();
+        await _db.Orders
+            .Where(o => o.Status == "draft" && o.GuestId != null && staleIds.Contains(o.GuestId.Value))
+            .ExecuteDeleteAsync();
+        await _db.TableGuests
+            .Where(g => staleIds.Contains(g.Id))
+            .ExecuteDeleteAsync();
+    }
+
+    // Each guest's current order summary for the party panel. Only guests heard
+    // from within the PresenceWindow are listed: a row can outlive the person
+    // (the sweep is lazy), but the panel must only show phones that are actually
+    // still here and beating.
     private async Task<List<object>> BuildPartyAsync(Guid tableId)
     {
+        var presentCutoff = DateTime.UtcNow - PresenceWindow;
         var guests = await _db.TableGuests
-            .Where(g => g.TableId == tableId)
+            .Where(g => g.TableId == tableId && g.LastSeenAt >= presentCutoff)
             .OrderBy(g => g.CreatedAt)
             .ToListAsync();
 

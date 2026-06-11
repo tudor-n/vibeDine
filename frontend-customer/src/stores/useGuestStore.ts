@@ -33,6 +33,13 @@ export const useGuestStore = defineStore('guest', () => {
   // OrderingView watches this to switch to the "merged" screen.
   const mergedInto = ref<{ initiatorDisplayName: string } | null>(null)
 
+  // Transient "X joined your table" banner for the phones already seated.
+  // `key` forces the toast to re-animate when two joins land back-to-back.
+  const joinNotice = ref<{ name: string; key: number } | null>(null)
+  let joinInFlight = false
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null
+  let noticeKey = 0
+
   const otherMembersWithItems = computed(() =>
     partyMembers.value.filter(
       (m) => m.guestId !== guestId.value && m.status === 'draft' && m.itemCount > 0,
@@ -42,23 +49,43 @@ export const useGuestStore = defineStore('guest', () => {
   const canMerge = computed(() => otherMembersWithItems.value.length > 0)
 
   async function join(qrToken: string): Promise<JoinTableResponse> {
-    const res = await apiClient.joinTable(qrToken, readStoredGuestId(qrToken))
-    guestId.value = res.guestId
-    displayName.value = res.displayName
-    partyMembers.value = res.partyMembers
-    mergedInto.value = null
+    // Our own join also broadcasts PartyMemberJoined, and that push can outrun
+    // the HTTP response (guestId still holds the old value) — suppress toasts
+    // until the response has landed so a phone never announces itself.
+    joinInFlight = true
     try {
-      sessionStorage.setItem(storageKey(qrToken), res.guestId)
-    } catch {
-      // private mode / disabled storage — in-memory identity still works
+      const res = await apiClient.joinTable(qrToken, readStoredGuestId(qrToken))
+      guestId.value = res.guestId
+      displayName.value = res.displayName
+      partyMembers.value = res.partyMembers
+      mergedInto.value = null
+      try {
+        sessionStorage.setItem(storageKey(qrToken), res.guestId)
+      } catch {
+        // private mode / disabled storage — in-memory identity still works
+      }
+      return res
+    } finally {
+      joinInFlight = false
     }
-    return res
+  }
+
+  // Pop the "X joined" toast; it dismisses itself after a few seconds.
+  function announceJoin(name: string) {
+    if (joinInFlight) return
+    joinNotice.value = { name, key: ++noticeKey }
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => {
+      joinNotice.value = null
+      noticeTimer = null
+    }, 3000)
   }
 
   async function refreshParty(qrToken: string | null) {
     if (!qrToken) return
     try {
-      const res = await apiClient.getParty(qrToken)
+      // Passing our guestId makes every refresh double as a presence heartbeat.
+      const res = await apiClient.getParty(qrToken, guestId.value)
       partyMembers.value = res.partyMembers
     } catch {
       // transient — the panel just keeps its previous snapshot
@@ -91,6 +118,7 @@ export const useGuestStore = defineStore('guest', () => {
     partyMembers,
     mergeInFlight,
     mergedInto,
+    joinNotice,
     otherMembersWithItems,
     canMerge,
     join,
@@ -98,5 +126,6 @@ export const useGuestStore = defineStore('guest', () => {
     merge,
     markMerged,
     clearMerged,
+    announceJoin,
   }
 })

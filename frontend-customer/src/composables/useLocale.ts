@@ -129,6 +129,8 @@ const ro: Dict = {
   'party.merge': 'Unește notele',
   'party.merging': 'Se unește…',
   'party.mergeHint': 'Adună toate coșurile într-o singură notă.',
+  'party.joinedToast': '{name} s-a alăturat mesei tale',
+  'party.joinedToastHint': 'La final puteți uni comenzile într-o singură notă.',
 
   'merged.title': 'Notele au fost unite',
   'merged.body': 'Produsele tale sunt acum în comanda lui {name}. {name} se ocupă de notă pentru toată masa.',
@@ -258,6 +260,8 @@ const en: Dict = {
   'party.merge': 'Merge our bills',
   'party.merging': 'Merging…',
   'party.mergeHint': 'Pull everyone’s carts into one single bill.',
+  'party.joinedToast': '{name} just joined your table',
+  'party.joinedToastHint': 'You can merge your orders into one bill at the end.',
 
   'merged.title': 'Bills merged',
   'merged.body': "Your items are now in {name}'s order. {name} will handle the bill for the table.",

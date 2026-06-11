@@ -66,6 +66,42 @@ public class CustomerController : ControllerBase
 
         await _context.SaveChangesAsync();
 
+        // This guest's round is done — free their seat so the party panel (and
+        // the next phone that scans the QR) only shows people still composing an
+        // order. Guests whose drafts were merged into this order leave too: their
+        // phones are parked on the merged screen and they re-join as fresh guests
+        // when they start another round. Anyone who already opened a new draft
+        // (e.g. a merged guest who tapped "start a separate order") keeps their seat.
+        if (order.GuestId is Guid ownerGuestId)
+        {
+            var candidateIds = await _context.Orders
+                .Where(o => o.MergedIntoOrderId == order.Id && o.GuestId != null)
+                .Select(o => o.GuestId!.Value)
+                .ToListAsync();
+            candidateIds.Add(ownerGuestId);
+
+            var stillDrafting = await _context.Orders
+                .Where(o => o.TableId == order.TableId && o.Status == "draft"
+                            && o.GuestId != null && candidateIds.Contains(o.GuestId.Value))
+                .Select(o => o.GuestId!.Value)
+                .ToListAsync();
+
+            var leavingIds = candidateIds.Except(stillDrafting).ToList();
+            if (leavingIds.Count > 0)
+            {
+                var removed = await _context.TableGuests
+                    .Where(g => g.TableId == order.TableId && leavingIds.Contains(g.Id))
+                    .ExecuteDeleteAsync();
+
+                if (removed > 0)
+                {
+                    await _customerHub.Clients
+                        .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
+                        .SendAsync("PartyMemberLeft", new { guestIds = leavingIds });
+                }
+            }
+        }
+
         var dealCreated = await _flashDealService.EvaluateEligibilityAsync(orderId);
 
         if (!dealCreated)
@@ -219,6 +255,13 @@ public class CustomerController : ControllerBase
         // drafts participate in the party panel; legacy table-wide drafts skip it.
         if (order.GuestId is not null)
         {
+            // Cart activity proves the phone is still at the table — keep its
+            // seat inside the presence window even if the periodic /party
+            // heartbeat is failing or throttled.
+            await _context.TableGuests
+                .Where(g => g.Id == order.GuestId.Value)
+                .ExecuteUpdateAsync(s => s.SetProperty(g => g.LastSeenAt, DateTime.UtcNow));
+
             await _customerHub.Clients
                 .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
                 .SendAsync("PartyMemberUpdated", new { guestId = order.GuestId });
