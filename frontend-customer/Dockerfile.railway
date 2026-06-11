@@ -1,8 +1,12 @@
+# Build context must be the REPO ROOT (not frontend-customer/): the app imports
+# @shared/* which aliases to ../shared at the repo root.
+# On Railway: leave Root Directory empty and set RAILWAY_DOCKERFILE_PATH=frontend-customer/Dockerfile.railway
 FROM node:20-alpine AS build
-WORKDIR /app
-COPY package.json package-lock.json ./
+WORKDIR /app/frontend-customer
+COPY frontend-customer/package.json frontend-customer/package-lock.json ./
 RUN npm ci
-COPY . .
+COPY shared/ /app/shared/
+COPY frontend-customer/ ./
 # Vite bakes VITE_* vars into the bundle at build time. Railway passes service
 # variables to Docker builds only if they are declared as ARGs.
 ARG VITE_API_URL
@@ -14,7 +18,7 @@ RUN npm run build-only
 FROM node:20-alpine
 WORKDIR /app
 RUN npm install -g serve@14
-COPY --from=build /app/dist ./dist
+COPY --from=build /app/frontend-customer/dist ./dist
 EXPOSE 3000
 # -s = SPA fallback: every path (e.g. /<qrToken>) serves index.html
 CMD ["serve", "-s", "dist", "-l", "tcp://0.0.0.0:3000"]
