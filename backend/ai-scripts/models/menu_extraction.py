@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from models.menu_organizer import OrganizerResult
+
 
 class ExtractedMenuItem(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -23,7 +25,8 @@ class MenuExtractionResponse(BaseModel):
     items: List[ExtractedMenuItem]
     failed_pages: List[FailedPage] = []
     model: str
-    schema_version: int = 1
+    schema_version: int = 2
+    hierarchy: Optional[OrganizerResult] = None
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +52,7 @@ class PdfJobRequest(BaseModel):
     progress_callback_url: str = Field(min_length=1)
     hmac_secret: str = Field(min_length=8)
     provider: str = "gemini"
+    locale: str = "ro-RO"
 
 
 class ProgressEvent(BaseModel):

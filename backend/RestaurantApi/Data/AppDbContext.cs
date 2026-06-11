@@ -17,6 +17,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     }
 
     public DbSet<Category> Categories => Set<Category>();
+    public DbSet<Subcategory> Subcategories => Set<Subcategory>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
@@ -49,12 +50,31 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.HasIndex(c => c.RestaurantId);
         });
 
+        modelBuilder.Entity<Subcategory>(e =>
+        {
+            e.ToTable("subcategories");
+            e.Property(s => s.Id).HasColumnName("id");
+            e.Property(s => s.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(s => s.CategoryId).HasColumnName("category_id");
+            e.Property(s => s.Name).HasColumnName("name");
+            e.Property(s => s.SortOrder).HasColumnName("sort_order");
+            e.Property(s => s.ImageUrl).HasColumnName("image_url");
+            e.HasIndex(s => s.RestaurantId);
+            e.HasIndex(s => new { s.RestaurantId, s.CategoryId, s.Name }).IsUnique();
+
+            e.HasOne(s => s.Category)
+             .WithMany()
+             .HasForeignKey(s => s.CategoryId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<Product>(e =>
         {
             e.ToTable("products");
             e.Property(p => p.Id).HasColumnName("id");
             e.Property(p => p.RestaurantId).HasColumnName("restaurant_id");
             e.Property(p => p.CategoryId).HasColumnName("category_id");
+            e.Property(p => p.SubcategoryId).HasColumnName("subcategory_id");
             e.Property(p => p.Name).HasColumnName("name");
             e.Property(p => p.Description).HasColumnName("description");
             e.Property(p => p.Price).HasColumnName("price");
@@ -66,6 +86,11 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.HasOne(p => p.Category)
              .WithMany(c => c.Products)
              .HasForeignKey(p => p.CategoryId);
+
+            e.HasOne(p => p.Subcategory)
+             .WithMany(s => s.Products)
+             .HasForeignKey(p => p.SubcategoryId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<RestaurantTable>(e =>
@@ -246,6 +271,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(r => r.Address).HasColumnName("address");
             e.Property(r => r.Timezone).HasColumnName("timezone");
             e.Property(r => r.Currency).HasColumnName("currency");
+            e.Property(r => r.Locale).HasColumnName("locale").HasDefaultValue("ro-RO");
             e.Property(r => r.IsActive).HasColumnName("is_active");
             e.Property(r => r.CreatedAt).HasColumnName("created_at");
             e.HasIndex(r => r.OrganizationId);
@@ -326,6 +352,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         // comparison yields no rows (fail-closed). SuppressResolution() bypasses
         // it for deliberate cross-tenant work (seeding, org-owner listings).
         modelBuilder.Entity<Category>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<Subcategory>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Product>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<RestaurantTable>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Order>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);

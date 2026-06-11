@@ -1,5 +1,5 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
+using System.Text.Json;
 using RestaurantApi.DTOs.Responses;
 
 namespace RestaurantApi.Services;
@@ -20,7 +20,8 @@ public class MenuExtractionClient
 
     public async Task<MenuScanResponse> ExtractAsync(
         IReadOnlyList<(string FileName, string ContentType, byte[] Bytes)> photos,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string locale = "ro-RO")
     {
         using var form = new MultipartFormDataContent();
         foreach (var p in photos)
@@ -29,13 +30,19 @@ public class MenuExtractionClient
             content.Headers.ContentType = new MediaTypeHeaderValue(p.ContentType);
             form.Add(content, "photos", p.FileName);
         }
+        form.Add(new StringContent(locale), "locale");
 
         using var response = await _http.PostAsync("/menu/extract", form, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var parsed = await response.Content.ReadFromJsonAsync<PythonExtractResponse>(
-            SnakeCaseJson, cancellationToken: cancellationToken);
-        if (parsed is null) throw new InvalidOperationException("Empty response from /menu/extract.");
+        // Read the raw JSON so we can both (a) strongly-type the items/pages we care about
+        // and (b) pass `hierarchy` through opaquely — its snake_case field names are
+        // already handled by the frontend's normalizeScanResponse (mirrors the PDF flow).
+        var rawJson = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (rawJson.Length == 0) throw new InvalidOperationException("Empty response from /menu/extract.");
+
+        var parsed = JsonSerializer.Deserialize<PythonExtractResponse>(rawJson, SnakeCaseJson)
+            ?? throw new InvalidOperationException("Empty response from /menu/extract.");
 
         var items = parsed.Items
             .Select(i => new ExtractedMenuItemResponse(
@@ -46,7 +53,20 @@ public class MenuExtractionClient
             .Select(f => new FailedPageResponse(f.SourcePage, f.Reason))
             .ToList();
 
-        return new MenuScanResponse(items, failed, parsed.Model, parsed.SchemaVersion);
+        // Re-extract `hierarchy` as an opaque JsonElement so its snake_case keys survive
+        // unchanged through to the frontend (same approach as MenuImportController.MapToResponse).
+        JsonElement? hierarchy = null;
+        using (var doc = JsonDocument.Parse(rawJson))
+        {
+            if (doc.RootElement.TryGetProperty("hierarchy", out var hierarchyElement)
+                && hierarchyElement.ValueKind != JsonValueKind.Null
+                && hierarchyElement.ValueKind != JsonValueKind.Undefined)
+            {
+                hierarchy = hierarchyElement.Clone();
+            }
+        }
+
+        return new MenuScanResponse(items, failed, parsed.Model, parsed.SchemaVersion, hierarchy);
     }
 
     // Internal mirror of Python's snake_case shape — deserialized with SnakeCaseJson options.
