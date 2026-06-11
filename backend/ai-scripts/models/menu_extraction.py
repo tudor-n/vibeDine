@@ -1,4 +1,5 @@
 from typing import List, Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -23,3 +24,39 @@ class MenuExtractionResponse(BaseModel):
     failed_pages: List[FailedPage] = []
     model: str
     schema_version: int = 1
+
+
+# ---------------------------------------------------------------------------
+# Packet D additions
+# ---------------------------------------------------------------------------
+
+PdfPageKind = Literal["text", "image", "skip"]
+
+
+class BatchTextExtractionPage(BaseModel):
+    page_number: int = Field(ge=0)
+    text: str = Field(max_length=200_000)
+
+
+class BatchTextExtractionInput(BaseModel):
+    pages: List[BatchTextExtractionPage]
+
+
+class PdfJobRequest(BaseModel):
+    job_id: UUID
+    restaurant_id: UUID
+    storage_path: str = Field(min_length=1)
+    progress_callback_url: str = Field(min_length=1)
+    hmac_secret: str = Field(min_length=8)
+    provider: str = "gemini"
+
+
+class ProgressEvent(BaseModel):
+    job_id: UUID
+    status: Literal["pending", "extracting", "complete", "failed", "cancelled"]
+    phase: Literal["parsing", "classifying", "extracting", "finalizing"]
+    processed_pages: int = Field(ge=0)
+    total_pages: int = Field(ge=0)
+    failed_pages: int = Field(ge=0)
+    eta_seconds: Optional[float] = None
+    error_message: Optional[str] = None

@@ -32,6 +32,10 @@ services:
       Jwt__Audience: "smart-restaurant"
       Jwt__AccessTokenMinutes: "60"
       Jwt__RefreshTokenDays: "30"
+      # PDF menu import
+      MenuImport__HmacSecret: "dev-menu-import-hmac-secret-32chars-minimum"
+      MenuImport__CallbackBaseUrl: "http://backend-api:5000"
+      MenuImport__StorageRoot: "/menu-imports"
       # Email confirmation
       App__AdminBaseUrl: "http://localhost:3001"
       Smtp__Host: "mailpit"
@@ -47,6 +51,7 @@ services:
         condition: service_started
     volumes:
       - ./backend/RestaurantApi:/src
+      - menu_imports:/menu-imports
 
   mailpit:
     image: axllent/mailpit:latest
@@ -60,8 +65,13 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/ai-scripts:/app
-    env_file:                           
-      - ./backend/ai-scripts/.env       
+      - menu_imports:/menu-imports
+    env_file:
+      - path: ./backend/ai-scripts/.env
+        required: false
+    environment:
+      MENU_IMPORT_STORAGE_ROOT: "/menu-imports"
+      MENU_IMPORT_CALLBACK_HOSTS: "backend-api,localhost,127.0.0.1"
 
   frontend-customer:
     build: ./frontend-customer
@@ -89,6 +99,7 @@ services:
 
 volumes:
   pgdata:
+  menu_imports:
 
 networks:
   default:

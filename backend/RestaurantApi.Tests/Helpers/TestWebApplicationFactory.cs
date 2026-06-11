@@ -23,6 +23,10 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             {
                 ["ConnectionStrings:Default"] = PostgresConnectionString,
                 ["AiService:BaseUrl"] = PythonAiBaseUrl,
+                // Provide a dummy 32-byte JWT key so the startup guard passes in test environments
+                ["Jwt:Key"] = "test-only-key-do-not-use-in-production!!",
+                ["Jwt:Issuer"] = "test-issuer",
+                ["Jwt:Audience"] = "test-audience",
             });
         });
         builder.ConfigureServices(services =>

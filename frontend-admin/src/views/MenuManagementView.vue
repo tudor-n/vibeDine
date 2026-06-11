@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, reactive } from 'vue'
+import { onMounted, ref, computed, reactive, watch, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
+import BrandSelect from '@/components/BrandSelect.vue'
 import { useMenuManagementStore } from '@/stores/useMenuManagementStore'
 import { useToast } from '@/composables/useToast'
 import type { AdminMenuCategoryNode, AdminProduct } from '@shared/types/models'
@@ -196,6 +197,108 @@ function toggleCollapsed(id: string) {
     collapsed.value[id] = !collapsed.value[id]
 }
 
+// ---------- Toolbar: search, filter, collapse-all ----------
+const searchQuery = ref('')
+type ProductFilter = 'all' | 'active' | 'hidden'
+const productFilter = ref<ProductFilter>('all')
+
+const hasInitialisedCollapse = ref(false)
+watch(
+    () => store.categories,
+    (cats) => {
+        if (hasInitialisedCollapse.value || cats.length === 0) return
+        const shouldCollapseByDefault = cats.length >= 4
+        for (const c of cats) {
+            if (!(c.id in collapsed.value)) collapsed.value[c.id] = shouldCollapseByDefault
+        }
+        hasInitialisedCollapse.value = true
+    },
+    { immediate: true },
+)
+
+function matchesSearch(p: AdminProduct, q: string): boolean {
+    if (!q) return true
+    const needle = q.toLowerCase()
+    return (
+        p.name.toLowerCase().includes(needle) ||
+        (p.description?.toLowerCase().includes(needle) ?? false)
+    )
+}
+
+function matchesFilter(p: AdminProduct): boolean {
+    if (productFilter.value === 'active') return p.isAvailable
+    if (productFilter.value === 'hidden') return !p.isAvailable
+    return true
+}
+
+const visibleCategories = computed(() => {
+    const q = searchQuery.value.trim()
+    const hasQuery = q.length > 0
+    return store.categories
+        .map((cat) => {
+            const filteredProducts = cat.products.filter(
+                (p) => matchesSearch(p, q) && matchesFilter(p),
+            )
+            const matchesCategoryName = hasQuery && cat.name.toLowerCase().includes(q.toLowerCase())
+            return {
+                cat,
+                products: filteredProducts,
+                matchesCategoryName,
+            }
+        })
+        .filter((entry) => {
+            if (!hasQuery && productFilter.value === 'all') return true
+            return entry.products.length > 0 || entry.matchesCategoryName
+        })
+})
+
+const filteredProductCount = computed(() =>
+    visibleCategories.value.reduce((sum, e) => sum + e.products.length, 0),
+)
+
+const hiddenProductCount = computed(() =>
+    store.categories.reduce(
+        (sum, c) => sum + c.products.filter((p) => !p.isAvailable).length,
+        0,
+    ),
+)
+
+function hiddenCountFor(cat: AdminMenuCategoryNode): number {
+    return cat.products.filter((p) => !p.isAvailable).length
+}
+
+const isFiltering = computed(
+    () => searchQuery.value.trim().length > 0 || productFilter.value !== 'all',
+)
+
+function clearFilters() {
+    searchQuery.value = ''
+    productFilter.value = 'all'
+}
+
+function collapseAll() {
+    for (const c of store.categories) collapsed.value[c.id] = true
+}
+function expandAll() {
+    for (const c of store.categories) collapsed.value[c.id] = false
+}
+const allCollapsed = computed(
+    () =>
+        store.categories.length > 0 &&
+        store.categories.every((c) => collapsed.value[c.id]),
+)
+
+watch(isFiltering, (filtering) => {
+    if (filtering) expandAll()
+})
+
+async function jumpToCategory(id: string) {
+    if (collapsed.value[id]) collapsed.value[id] = false
+    await nextTick()
+    const el = document.getElementById(`cat-${id}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 // ---------- Drag and drop ----------
 type DragState = {
     categoryId: string
@@ -266,63 +369,114 @@ function formatPrice(n: number) {
 
 <template>
     <div class="max-w-6xl mx-auto relative">
-        <!-- Status row -->
-        <div class="flex items-center justify-between mb-8">
-            <div class="tag-pill">
-                <span
-                    class="live-dot"
-                    style="background: var(--lime); box-shadow: 0 0 10px var(--lime);"
-                ></span>
-                <span>meniu · editor</span>
-            </div>
-            <div class="tag-pill">
-                {{ store.totalCategories }} categorii ·
-                {{ store.availableProducts }}/{{ store.totalProducts }} produse active
-            </div>
-        </div>
-
-        <header
-            class="mb-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6"
-        >
-            <div class="max-w-2xl">
-                <div class="eyebrow mb-4">Bucătărie · catalog</div>
-                <h1 class="display-title text-[56px] md:text-[68px]">
-                    Meniul<br />
-                    <span class="text-accent">curții.</span>
+        <!-- Compact unified header -->
+        <header class="page-head">
+            <div>
+                <div class="page-head-eyebrow">Bucătărie · catalog</div>
+                <h1 class="page-head-title">
+                    Meniul <span class="accent">curții.</span>
                 </h1>
-                <p class="text-ink-70 text-lg mt-5 leading-relaxed">
-                    Adaugă, editează sau ascunde categorii și produse. Descrierea
-                    fiecărui fel include modul de preparare și gramajul vizibil în sală.
-                </p>
+                <div class="stats-inline">
+                    <span class="stat-inline">
+                        <strong>{{ store.totalCategories }}</strong> categorii
+                    </span>
+                    <span class="stats-inline-sep" aria-hidden="true">·</span>
+                    <span class="stat-inline">
+                        <strong>{{ store.availableProducts }}</strong> active
+                    </span>
+                    <template v-if="hiddenProductCount > 0">
+                        <span class="stats-inline-sep" aria-hidden="true">·</span>
+                        <span class="stat-inline stat-inline-warn">
+                            <strong>{{ hiddenProductCount }}</strong> ascunse
+                        </span>
+                    </template>
+                </div>
             </div>
 
-            <div class="flex flex-wrap gap-3 items-end">
+            <div class="page-head-actions">
                 <RouterLink
                     to="/menu/import"
-                    class="pill-btn pill-btn-ghost whitespace-nowrap"
+                    class="btn-ghost whitespace-nowrap"
                 >
-                    <span>📷</span>
-                    <span>Importă din fotografie</span>
+                    <span aria-hidden="true">⊕</span>
+                    <span>Importă</span>
                 </RouterLink>
-
-                <button
-                    class="pill-btn whitespace-nowrap"
-                    @click="openCreateCategory"
-                >
-                    <span>+</span>
+                <button class="pill-btn whitespace-nowrap" @click="openCreateCategory">
+                    <span aria-hidden="true">+</span>
                     <span>Adaugă categorie</span>
                 </button>
             </div>
         </header>
 
+        <!-- Sticky toolbar: search + filter + collapse -->
+        <div class="toolbar card-paper">
+            <div class="toolbar-search">
+                <span class="toolbar-search-icon" aria-hidden="true">⌕</span>
+                <input
+                    v-model="searchQuery"
+                    type="text"
+                    class="toolbar-search-input"
+                    placeholder="Caută produs sau categorie…"
+                />
+                <button
+                    v-if="searchQuery"
+                    class="toolbar-search-clear"
+                    type="button"
+                    @click="searchQuery = ''"
+                    aria-label="Șterge căutarea"
+                >
+                    ×
+                </button>
+            </div>
+
+            <div class="toolbar-filters" role="tablist" aria-label="Filtrează produsele">
+                <button
+                    class="filter-chip"
+                    :class="{ 'filter-chip-active': productFilter === 'all' }"
+                    @click="productFilter = 'all'"
+                    type="button"
+                >Toate</button>
+                <button
+                    class="filter-chip"
+                    :class="{ 'filter-chip-active': productFilter === 'active' }"
+                    @click="productFilter = 'active'"
+                    type="button"
+                >Active</button>
+                <button
+                    class="filter-chip"
+                    :class="{ 'filter-chip-active': productFilter === 'hidden' }"
+                    @click="productFilter = 'hidden'"
+                    type="button"
+                >Ascunse</button>
+            </div>
+
+            <div class="toolbar-actions">
+                <button
+                    class="pill-btn pill-btn-ghost text-sm"
+                    type="button"
+                    @click="allCollapsed ? expandAll() : collapseAll()"
+                    :disabled="store.categories.length === 0"
+                >
+                    {{ allCollapsed ? 'Extinde tot' : 'Restrânge tot' }}
+                </button>
+            </div>
+        </div>
+
         <div
-            v-if="store.error"
-            class="card-paper p-5 mb-6"
-            style="border-color: var(--accentBorder); background: var(--accentSoft);"
+            v-if="isFiltering"
+            class="filter-status"
         >
-            <span class="font-mono text-xs uppercase tracking-[0.18em] text-accent font-bold">
-                ⚠ {{ store.error }}
+            <span class="font-mono text-xs uppercase tracking-[0.18em] text-ink-70">
+                {{ filteredProductCount }} produse găsite
             </span>
+            <button class="pill-btn pill-btn-ghost text-sm" type="button" @click="clearFilters">
+                Resetează filtrele
+            </button>
+        </div>
+
+        <div v-if="store.error" class="alert alert-error mb-4">
+            <span class="alert-icon" aria-hidden="true">⚠</span>
+            <div class="alert-body">{{ store.error }}</div>
         </div>
 
         <!-- Skeleton state -->
@@ -343,156 +497,208 @@ function formatPrice(n: number) {
             Nicio categorie încă. Apasă „Adaugă categorie" pentru a începe.
         </div>
 
-        <!-- Category list -->
-        <div v-else class="space-y-6">
-            <section
-                v-for="cat in store.categories"
-                :key="cat.id"
-                class="card-paper p-6 relative"
-            >
-                <!-- Category header -->
-                <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
-                    <div class="flex items-center gap-4 min-w-0 flex-1">
+        <!-- No-results state -->
+        <div
+            v-else-if="visibleCategories.length === 0"
+            class="empty-state"
+        >
+            <div class="empty-state-icon" aria-hidden="true">∅</div>
+            <div class="text-ink text-base mb-1">Niciun rezultat pentru filtrele curente</div>
+            <p class="text-ink-70 text-sm mb-3">Schimbă căutarea sau resetează filtrele pentru a vedea toate produsele.</p>
+            <button class="btn-ghost" type="button" @click="clearFilters">
+                Resetează filtrele
+            </button>
+        </div>
+
+        <!-- Two-column layout: jump nav + categories -->
+        <div v-else class="menu-layout">
+            <!-- Category quick-jump (sticky on desktop) -->
+            <aside class="cat-nav" aria-label="Navigare categorii">
+                <div class="cat-nav-title eyebrow">categorii</div>
+                <ul class="cat-nav-list">
+                    <li v-for="entry in visibleCategories" :key="entry.cat.id">
+                        <button
+                            type="button"
+                            class="cat-nav-item"
+                            @click="jumpToCategory(entry.cat.id)"
+                        >
+                            <span class="cat-nav-name">{{ entry.cat.name }}</span>
+                            <span class="cat-nav-count">{{ entry.products.length }}</span>
+                        </button>
+                    </li>
+                </ul>
+            </aside>
+
+            <!-- Category list -->
+            <div class="menu-main space-y-5">
+                <section
+                    v-for="entry in visibleCategories"
+                    :key="entry.cat.id"
+                    :id="`cat-${entry.cat.id}`"
+                    class="card-paper p-5 relative scroll-mt-24"
+                >
+                    <!-- Category header -->
+                    <div
+                        class="cat-header"
+                        :class="{ 'cat-header-collapsed': collapsed[entry.cat.id] }"
+                    >
+                        <button
+                            class="cat-toggle"
+                            type="button"
+                            @click="toggleCollapsed(entry.cat.id)"
+                            :aria-expanded="!collapsed[entry.cat.id]"
+                            :aria-label="collapsed[entry.cat.id] ? 'Extinde categoria' : 'Restrânge categoria'"
+                        >
+                            <span class="cat-toggle-icon" aria-hidden="true">
+                                {{ collapsed[entry.cat.id] ? '▸' : '▾' }}
+                            </span>
+                        </button>
+
                         <div
                             class="cat-thumb"
-                            :style="cat.imageUrl ? `background-image: url('${cat.imageUrl}');` : ''"
-                            :aria-label="cat.imageUrl ? 'imagine categorie' : 'fără imagine'"
+                            :style="entry.cat.imageUrl ? `background-image: url('${entry.cat.imageUrl}');` : ''"
+                            :aria-label="entry.cat.imageUrl ? 'imagine categorie' : 'fără imagine'"
                         >
-                            <span v-if="!cat.imageUrl" class="font-mono text-xs text-ink-40">·</span>
+                            <span v-if="!entry.cat.imageUrl" class="font-mono text-xs text-ink-40">·</span>
                         </div>
-                        <div class="min-w-0">
-                            <div class="eyebrow mb-1">
-                                categorie · ordine
-                                {{ cat.sortOrder ?? '—' }}
-                            </div>
-                            <h2 class="display-title text-2xl md:text-3xl truncate">
-                                {{ cat.name }}
+
+                        <div class="cat-meta min-w-0 flex-1">
+                            <h2 class="display-title text-xl md:text-2xl truncate">
+                                {{ entry.cat.name }}
                             </h2>
-                            <div class="text-ink-70 text-sm mt-1">
-                                {{ cat.products.length }} produse
+                            <div class="cat-meta-line">
+                                <span class="font-mono text-xs text-ink-70">
+                                    {{ entry.cat.products.length }} produse
+                                </span>
+                                <span v-if="hiddenCountFor(entry.cat) > 0" class="cat-hidden-pill">
+                                    {{ hiddenCountFor(entry.cat) }} ascunse
+                                </span>
+                                <span class="font-mono text-xs text-ink-40">
+                                    · ordine {{ entry.cat.sortOrder ?? '—' }}
+                                </span>
                             </div>
+                        </div>
+
+                        <div class="cat-actions">
+                            <button
+                                class="btn-ghost btn-add-product"
+                                @click="openCreateProduct(entry.cat.id)"
+                                title="Adaugă produs"
+                            >
+                                + Produs
+                            </button>
+                            <button
+                                class="icon-btn"
+                                @click="openEditCategory(entry.cat)"
+                                title="Editează categoria"
+                                aria-label="Editează categoria"
+                            >✎</button>
+                            <button
+                                class="icon-btn icon-btn-danger"
+                                :disabled="entry.cat.products.length > 0"
+                                :title="entry.cat.products.length > 0 ? 'Categoria conține produse' : 'Șterge categoria'"
+                                :aria-label="entry.cat.products.length > 0 ? 'Nu se poate șterge' : 'Șterge categoria'"
+                                @click="deleteCategory(entry.cat)"
+                            >🗑</button>
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <button
-                            class="pill-btn pill-btn-ghost"
-                            @click="toggleCollapsed(cat.id)"
+                    <!-- Product list -->
+                    <div v-if="!collapsed[entry.cat.id]" class="mt-4">
+                        <div
+                            v-if="entry.cat.products.length === 0"
+                            class="card-white p-5 text-ink-70 italic text-sm"
                         >
-                            {{ collapsed[cat.id] ? 'Arată' : 'Restrânge' }}
-                        </button>
-                        <button
-                            class="pill-btn pill-btn-ghost"
-                            @click="openEditCategory(cat)"
+                            Nicio variantă încă. Apasă „+ Produs" pentru a adăuga.
+                        </div>
+                        <div
+                            v-else-if="entry.products.length === 0"
+                            class="card-white p-5 text-ink-70 italic text-sm"
                         >
-                            Editează
-                        </button>
-                        <button
-                            class="pill-btn pill-btn-danger"
-                            :disabled="cat.products.length > 0"
-                            :title="cat.products.length > 0 ? 'Categoria conține produse' : ''"
-                            @click="deleteCategory(cat)"
-                        >
-                            Șterge
-                        </button>
-                        <button
-                            class="pill-btn"
-                            @click="openCreateProduct(cat.id)"
-                        >
-                            + Produs
-                        </button>
-                    </div>
-                </div>
+                            Niciun produs nu corespunde filtrelor curente.
+                        </div>
 
-                <!-- Product table -->
-                <div v-if="!collapsed[cat.id]">
-                    <div
-                        v-if="cat.products.length === 0"
-                        class="card-white p-5 text-ink-70 italic text-sm"
-                    >
-                        Nicio variantă încă. Apasă „+ Produs" pentru a adăuga.
-                    </div>
-
-                    <div v-else class="grid gap-3">
-                        <article
-                            v-for="(p, pIdx) in cat.products"
-                            :key="p.id"
-                            class="card-white p-4 flex gap-3 items-start prod-row"
-                            :class="{
-                                'prod-row-dragging': dragState?.productId === p.id,
-                                'prod-row-drop-target': dragOverProductId === p.id && dragState && dragState.productId !== p.id,
-                            }"
-                            :style="p.isAvailable ? '' : 'opacity: 0.55;'"
-                            @dragover="onDragOver($event, cat.id, p.id)"
-                            @dragleave="onDragLeave(p.id)"
-                            @drop="onDrop($event, cat.id, p.id)"
-                        >
-                            <div
-                                class="drag-handle shrink-0"
-                                draggable="true"
-                                title="Trage pentru a reordona"
-                                @dragstart="onDragStart($event, cat.id, p.id)"
-                                @dragend="onDragEnd"
+                        <div v-else class="grid gap-2">
+                            <article
+                                v-for="(p, pIdx) in entry.products"
+                                :key="p.id"
+                                class="card-white p-3 flex gap-3 items-start prod-row"
+                                :class="{
+                                    'prod-row-dragging': dragState?.productId === p.id,
+                                    'prod-row-drop-target': dragOverProductId === p.id && dragState && dragState.productId !== p.id,
+                                    'prod-row-hidden': !p.isAvailable,
+                                }"
+                                @dragover="onDragOver($event, entry.cat.id, p.id)"
+                                @dragleave="onDragLeave(p.id)"
+                                @drop="onDrop($event, entry.cat.id, p.id)"
                             >
-                                <span aria-hidden="true">⋮⋮</span>
-                            </div>
-
-                            <div
-                                class="prod-thumb"
-                                :style="p.imageUrl ? `background-image: url('${p.imageUrl}');` : ''"
-                            >
-                                <span v-if="!p.imageUrl" class="font-mono text-[10px] text-ink-40">no img</span>
-                            </div>
-
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2 flex-wrap mb-1">
-                                    <h3 class="font-semibold text-ink text-base truncate">
-                                        {{ p.name }}
-                                    </h3>
-                                    <span
-                                        class="tag-pill text-[10px]"
-                                        :style="p.isAvailable ? 'background: var(--lime); color: var(--onLime); border-color: var(--ink12);' : ''"
-                                    >
-                                        {{ p.isAvailable ? 'activ' : 'ascuns' }}
-                                    </span>
-                                    <span class="font-mono text-[10px] text-ink-40">
-                                        #{{ pIdx + 1 }}
-                                    </span>
-                                </div>
-                                <p
-                                    v-if="p.description"
-                                    class="text-ink-70 text-sm leading-relaxed line-clamp-3"
+                                <div
+                                    class="drag-handle shrink-0"
+                                    draggable="true"
+                                    title="Trage pentru a reordona"
+                                    @dragstart="onDragStart($event, entry.cat.id, p.id)"
+                                    @dragend="onDragEnd"
                                 >
-                                    {{ p.description }}
-                                </p>
-                                <p v-else class="text-ink-40 text-sm italic">
-                                    fără descriere — adaugă modul de preparare și gramajul
-                                </p>
-                            </div>
+                                    <span aria-hidden="true">⋮⋮</span>
+                                </div>
 
-                            <div class="flex flex-col items-end gap-2 shrink-0">
-                                <div class="font-mono text-base font-bold text-ink">
-                                    {{ formatPrice(p.price) }}
+                                <div
+                                    class="prod-thumb"
+                                    :style="p.imageUrl ? `background-image: url('${p.imageUrl}');` : ''"
+                                >
+                                    <span v-if="!p.imageUrl" class="font-mono text-[10px] text-ink-40">no img</span>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <button
-                                        class="pill-btn pill-btn-ghost text-sm"
-                                        @click="openEditProduct(p)"
+
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap mb-1">
+                                        <h3 class="font-semibold text-ink text-base truncate">
+                                            {{ p.name }}
+                                        </h3>
+                                        <span
+                                            v-if="!p.isAvailable"
+                                            class="tag-pill text-[10px]"
+                                        >
+                                            ascuns
+                                        </span>
+                                        <span class="font-mono text-[10px] text-ink-40">
+                                            #{{ pIdx + 1 }}
+                                        </span>
+                                    </div>
+                                    <p
+                                        v-if="p.description"
+                                        class="text-ink-70 text-sm leading-snug line-clamp-2"
                                     >
-                                        Editează
-                                    </button>
-                                    <button
-                                        class="pill-btn pill-btn-ghost text-sm"
-                                        @click="toggleAvailability(p)"
-                                    >
-                                        {{ p.isAvailable ? 'Ascunde' : 'Reactivează' }}
-                                    </button>
+                                        {{ p.description }}
+                                    </p>
+                                    <p v-else class="text-ink-40 text-sm italic">
+                                        fără descriere
+                                    </p>
                                 </div>
-                            </div>
-                        </article>
+
+                                <div class="flex flex-col items-end gap-2 shrink-0">
+                                    <div class="font-mono text-base font-bold text-ink">
+                                        {{ formatPrice(p.price) }}
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <button
+                                            class="icon-btn"
+                                            @click="openEditProduct(p)"
+                                            title="Editează produsul"
+                                            aria-label="Editează produsul"
+                                        >✎</button>
+                                        <button
+                                            class="icon-btn"
+                                            @click="toggleAvailability(p)"
+                                            :title="p.isAvailable ? 'Ascunde produsul' : 'Reactivează produsul'"
+                                            :aria-label="p.isAvailable ? 'Ascunde produsul' : 'Reactivează produsul'"
+                                        >{{ p.isAvailable ? '◐' : '●' }}</button>
+                                    </div>
+                                </div>
+                            </article>
+                        </div>
                     </div>
-                </div>
-            </section>
+                </section>
+            </div>
         </div>
 
         <!-- Category modal -->
@@ -580,15 +786,15 @@ function formatPrice(n: number) {
                     </div>
 
                     <form @submit.prevent="submitProductForm" class="space-y-4">
-                        <label class="field">
+                        <div class="field">
                             <span class="field-label">Categorie</span>
-                            <select v-model="productForm.categoryId" class="field-input" required>
-                                <option value="" disabled>— alege categoria —</option>
-                                <option v-for="c in store.categories" :key="c.id" :value="c.id">
-                                    {{ c.name }}
-                                </option>
-                            </select>
-                        </label>
+                            <BrandSelect
+                                v-model="productForm.categoryId"
+                                :options="store.categories.map(c => ({ value: c.id, label: c.name }))"
+                                placeholder="— alege categoria —"
+                                aria-label="Categorie"
+                            />
+                        </div>
 
                         <label class="field">
                             <span class="field-label">Nume</span>
@@ -629,13 +835,18 @@ function formatPrice(n: number) {
                                     required
                                 />
                             </label>
-                            <label class="field">
+                            <div class="field">
                                 <span class="field-label">Disponibil</span>
-                                <select v-model="productForm.isAvailable" class="field-input">
-                                    <option :value="true">Da · vizibil în meniu</option>
-                                    <option :value="false">Nu · ascuns</option>
-                                </select>
-                            </label>
+                                <BrandSelect
+                                    :model-value="productForm.isAvailable ? 'true' : 'false'"
+                                    :options="[
+                                        { value: 'true', label: 'Da · vizibil în meniu' },
+                                        { value: 'false', label: 'Nu · ascuns' },
+                                    ]"
+                                    aria-label="Disponibilitate"
+                                    @update:model-value="(v) => productForm.isAvailable = v === 'true'"
+                                />
+                            </div>
                         </div>
 
                         <label class="field">
@@ -728,10 +939,10 @@ function formatPrice(n: number) {
     background: var(--paperHi);
     color: var(--ink);
     border: 1px solid var(--ink12);
-    border-radius: 24px;
-    padding: 28px;
+    border-radius: 18px;
+    padding: 22px;
     width: 100%;
-    max-width: 560px;
+    max-width: 520px;
     box-shadow: var(--shadow-soft);
     max-height: calc(100vh - 40px);
     overflow-y: auto;
@@ -848,5 +1059,352 @@ textarea.field-input {
 }
 .drag-handle:active {
     cursor: grabbing;
+}
+
+/* ── Inline header stats (replaces chip strip) ─────────────────────── */
+.stats-inline {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--ink70);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+.stat-inline strong {
+    color: var(--ink);
+    font-weight: 700;
+    margin-right: 4px;
+}
+.stat-inline-warn strong { color: var(--accent); }
+.stats-inline-sep { color: var(--ink40); }
+
+/* ── Empty state ───────────────────────────────────────────────────── */
+.empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    border: 1px dashed var(--ink12);
+    border-radius: 16px;
+    background: var(--paperHi);
+}
+.empty-state-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--ink06);
+    color: var(--ink40);
+    display: grid;
+    place-items: center;
+    font-size: 22px;
+    margin: 0 auto 12px;
+}
+
+/* ── Sticky toolbar ────────────────────────────────────────────────── */
+.toolbar {
+    position: sticky;
+    top: 12px;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    background: color-mix(in srgb, var(--paperHi) 92%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 14px;
+}
+@media (max-width: 720px) {
+    .toolbar {
+        grid-template-columns: 1fr;
+        position: static;
+    }
+}
+.toolbar-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.toolbar-search-icon {
+    position: absolute;
+    left: 14px;
+    color: var(--ink40);
+    font-size: 16px;
+    pointer-events: none;
+}
+.toolbar-search-input {
+    width: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    border: 1px solid var(--ink12);
+    border-radius: 999px;
+    padding: 9px 36px 9px 36px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.toolbar-search-input:focus {
+    outline: none;
+    border-color: var(--ink);
+    background: var(--paperHi);
+}
+.toolbar-search-clear {
+    position: absolute;
+    right: 10px;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: var(--ink06);
+    color: var(--ink);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 16px;
+    line-height: 1;
+}
+.toolbar-search-clear:hover {
+    background: var(--ink12);
+}
+.toolbar-filters {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--paper);
+    border: 1px solid var(--ink12);
+    border-radius: 999px;
+    gap: 2px;
+}
+.filter-chip {
+    border: none;
+    background: transparent;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ink70);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.filter-chip:hover {
+    color: var(--ink);
+}
+.filter-chip-active {
+    background: var(--ink);
+    color: var(--paperHi);
+}
+.toolbar-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.filter-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 0 4px;
+}
+
+/* ── Two-column layout (jump nav + content) ────────────────────────── */
+.menu-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+}
+@media (max-width: 960px) {
+    .menu-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.cat-nav {
+    position: sticky;
+    top: 80px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    padding: 14px;
+    border: 1px solid var(--ink12);
+    border-radius: 16px;
+    background: var(--paperHi);
+}
+@media (max-width: 960px) {
+    .cat-nav {
+        position: static;
+        max-height: none;
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        overflow-y: visible;
+        padding: 10px;
+    }
+    .cat-nav-title {
+        display: none;
+    }
+    .cat-nav-list {
+        display: flex !important;
+        gap: 6px;
+        flex-direction: row !important;
+    }
+}
+.cat-nav-title {
+    margin-bottom: 10px;
+}
+.cat-nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.cat-nav-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+    white-space: nowrap;
+}
+@media (max-width: 960px) {
+    .cat-nav-item {
+        background: var(--paper);
+        border: 1px solid var(--ink12);
+    }
+}
+.cat-nav-item:hover {
+    background: var(--ink06);
+}
+.cat-nav-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cat-nav-count {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ink40);
+    flex-shrink: 0;
+}
+
+/* ── Category header (denser) ──────────────────────────────────────── */
+.cat-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.cat-toggle {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--ink06);
+    color: var(--ink);
+    border: none;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    flex-shrink: 0;
+    transition: background 0.12s ease;
+}
+.cat-toggle:hover {
+    background: var(--ink12);
+}
+.cat-toggle-icon {
+    line-height: 1;
+}
+.cat-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.cat-meta-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.cat-hidden-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--accentSoft);
+    color: var(--accent);
+    border: 1px solid var(--accentBorder);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+}
+.cat-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+.btn-add-product {
+    padding: 8px 14px;
+    font-size: 13px;
+    min-height: 34px;
+}
+.icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid var(--ink12);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 14px;
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+.icon-btn:hover {
+    background: var(--ink06);
+}
+.icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.icon-btn-danger {
+    color: var(--accent);
+    border-color: var(--accentBorder);
+}
+.icon-btn-danger:hover:not(:disabled) {
+    background: var(--accentSoft);
+}
+
+.prod-row-hidden {
+    opacity: 0.55;
+}
+
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.scroll-mt-24 {
+    scroll-margin-top: 96px;
 }
 </style>
