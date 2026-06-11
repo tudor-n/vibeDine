@@ -31,7 +31,8 @@ public class MenuScanController : ControllerBase
     [RequestSizeLimit(MaxFiles * MaxFileBytes + 1024 * 1024)]  // 1 MB slack for form overhead
     public async Task<IActionResult> Scan(
         [FromForm(Name = "photos")] List<IFormFile>? photos,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromForm(Name = "locale")] string locale = "ro-RO")
     {
         if (photos is null || photos.Count == 0)
             return BadRequest(new { message = "At least one photo is required." });
@@ -59,7 +60,7 @@ public class MenuScanController : ControllerBase
         MenuScanResponse result;
         try
         {
-            result = await _extractor.ExtractAsync(prepared, cancellationToken);
+            result = await _extractor.ExtractAsync(prepared, cancellationToken, locale);
         }
         catch (HttpRequestException ex)
         {

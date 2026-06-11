@@ -26,8 +26,16 @@ from models.menu_extraction import (
     PdfJobRequest,
     ProgressEvent,
 )
+from models.menu_organizer import OrganizerResult
 from services import pdf_text_extractor, page_classifier, pdf_renderer
 from services.dedup import dedup_items
+from services.menu_organizer import (
+    MenuOrganizer,
+    MenuOrganizerError,
+    OrganizerOptions,
+    build_hint_fallback,
+    resolve_organizer,
+)
 from services.page_classifier import PageKind
 from services.progress_reporter import ProgressReporter
 from services.text_extractor import TextExtractionError, TextExtractor
@@ -164,6 +172,7 @@ class PdfMenuExtractionService:
         render_quality: int = 85,
         max_embedded_image_bytes: int = pdf_text_extractor.DEFAULT_MAX_EMBEDDED_IMAGE_BYTES,
         metrics: PdfExtractionTimings | None = None,
+        organizer_factory: Callable[[], "MenuOrganizer | None"] | None = None,
     ):
         self._text_factory = text_extractor_factory
         self._vision_factory = vision_extractor_factory
@@ -201,6 +210,7 @@ class PdfMenuExtractionService:
         self._render_quality = render_quality
         self._max_embedded_image_bytes = max_embedded_image_bytes
         self._metrics = metrics
+        self._organizer_factory = organizer_factory or resolve_organizer
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -314,6 +324,9 @@ class PdfMenuExtractionService:
         # Deduplicate
         deduped = dedup_items(state.items)
 
+        # Organize into a Category -> Subcategory -> Item hierarchy
+        hierarchy = await self._run_organizer(deduped, request)
+
         # Determine model name
         model_name = state.model_name or "unknown"
 
@@ -336,8 +349,48 @@ class PdfMenuExtractionService:
             items=deduped,
             failed_pages=state.failed_pages,
             model=model_name,
-            schema_version=1,
+            schema_version=2,
+            hierarchy=hierarchy,
         )
+
+    # ------------------------------------------------------------------
+    # Organizer (post-dedup hierarchy)
+    # ------------------------------------------------------------------
+
+    async def _run_organizer(
+        self,
+        items: list[ExtractedMenuItem],
+        request: PdfJobRequest,
+    ) -> OrganizerResult:
+        opts = OrganizerOptions(locale=request.locale)
+        organizer = self._organizer_factory()
+        started = time.perf_counter()
+        if organizer is None or not items:
+            result = build_hint_fallback(items, opts)
+        else:
+            semaphore = _get_provider_semaphore(self._provider_concurrency)
+            try:
+                async with semaphore:
+                    result = await organizer.organize(items, opts)
+            except MenuOrganizerError as exc:
+                logger.warning("Organizer failed, falling back to hint-fallback: %s", exc)
+                result = build_hint_fallback(items, opts)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        cat_count = len(result.categories)
+        sub_count = sum(len(c.subcategories) for c in result.categories)
+        low_conf = sum(
+            1 for c in result.categories
+            for ref in (
+                *[r for s in c.subcategories for r in s.item_refs],
+                *c.direct_item_refs,
+            )
+            if ref.confidence < 0.7
+        )
+        logger.info(
+            "Organizer outcome: source=%s items=%d categories=%d subcategories=%d low_confidence=%d elapsed_ms=%d",
+            result.source, len(items), cat_count, sub_count, low_conf, elapsed_ms,
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Work unit execution

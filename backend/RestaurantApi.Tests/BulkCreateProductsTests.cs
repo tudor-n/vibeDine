@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using RestaurantApi.Data;
 using RestaurantApi.DTOs.Requests;
 using RestaurantApi.Models;
+using RestaurantApi.Tenancy;
 using RestaurantApi.Tests.Helpers;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -22,26 +23,36 @@ public class BulkCreateProductsTests : IAsyncLifetime
         .WithImage("postgres:16-alpine")
         .Build();
 
-    private TestWebApplicationFactory _factory = null!;
+    private MenuImportTestFactory _factory = null!;
     private HttpClient _client = null!;
+    private Guid _restaurantId;
     private Guid _existingCategoryId;
 
     public async Task InitializeAsync()
     {
         await _pg.StartAsync();
-        _factory = new TestWebApplicationFactory
+        _factory = new MenuImportTestFactory
         {
             PostgresConnectionString = _pg.GetConnectionString(),
-            PythonAiBaseUrl = "http://localhost:0",
         };
-        _client = _factory.CreateClient();
 
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.MigrateAsync();
-        var cat = new Category { Id = Guid.NewGuid(), Name = "Aperitive", SortOrder = 0 };
-        db.Categories.Add(cat);
-        await db.SaveChangesAsync();
+        using (var migrateScope = _factory.Services.CreateScope())
+        {
+            var migrateDb = migrateScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await migrateDb.Database.MigrateAsync();
+        }
+
+        var (restA, _, clientA, _) = await MenuImportTestFixtures.SeedTwoTenantsAsync(_factory);
+        _restaurantId = restA;
+        _client = clientA;
+
+        using var seedScope = _factory.Services.CreateScope();
+        var tenant = seedScope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+        tenant.SetRestaurant(_restaurantId);
+        var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var cat = new Category { Id = Guid.NewGuid(), RestaurantId = _restaurantId, Name = "Aperitive", SortOrder = 0 };
+        seedDb.Categories.Add(cat);
+        await seedDb.SaveChangesAsync();
         _existingCategoryId = cat.Id;
     }
 
@@ -50,6 +61,16 @@ public class BulkCreateProductsTests : IAsyncLifetime
         _client.Dispose();
         _factory.Dispose();
         await _pg.DisposeAsync();
+    }
+
+    private string BulkUrl => $"/api/restaurants/{_restaurantId}/admin/menu/products/bulk";
+
+    /// <summary>Tenant-scoped DbContext for assertions (query filters need the restaurant set).</summary>
+    private AppDbContext TenantDb(IServiceScope scope)
+    {
+        var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+        tenant.SetRestaurant(_restaurantId);
+        return scope.ServiceProvider.GetRequiredService<AppDbContext>();
     }
 
     [Fact]
@@ -67,11 +88,11 @@ public class BulkCreateProductsTests : IAsyncLifetime
                 new(tempId, "Deserturi"),
             });
 
-        var resp = await _client.PostAsJsonAsync("/api/admin/menu/products/bulk", request);
+        var resp = await _client.PostAsJsonAsync(BulkUrl, request);
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = TenantDb(scope);
         (await db.Categories.CountAsync()).Should().Be(2);
         (await db.Products.CountAsync()).Should().Be(2);
         var dessertCat = await db.Categories.SingleAsync(c => c.Name == "Deserturi");
@@ -90,11 +111,11 @@ public class BulkCreateProductsTests : IAsyncLifetime
             },
             NewCategories: new List<BulkCreateCategoryItem> { new(tempId, "Should not be created") });
 
-        var resp = await _client.PostAsJsonAsync("/api/admin/menu/products/bulk", request);
+        var resp = await _client.PostAsJsonAsync(BulkUrl, request);
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = TenantDb(scope);
         (await db.Categories.CountAsync()).Should().Be(1);  // only seed
         (await db.Products.CountAsync()).Should().Be(0);
     }
@@ -107,7 +128,7 @@ public class BulkCreateProductsTests : IAsyncLifetime
             Items: new List<BulkCreateProductItem> { new("Ciorbă", 18.00m, bogusId) },
             NewCategories: new List<BulkCreateCategoryItem>());
 
-        var resp = await _client.PostAsJsonAsync("/api/admin/menu/products/bulk", request);
+        var resp = await _client.PostAsJsonAsync(BulkUrl, request);
         resp.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var body = await resp.Content.ReadFromJsonAsync<Dictionary<string, object>>();
         body.Should().ContainKey("missingCategoryIds");
@@ -121,11 +142,11 @@ public class BulkCreateProductsTests : IAsyncLifetime
             Items: new List<BulkCreateProductItem> { new("Salată", 12.00m, tempId) },
             NewCategories: new List<BulkCreateCategoryItem> { new(tempId, "  APERITIVE  ") }); // normalises to "aperitive"
 
-        var resp = await _client.PostAsJsonAsync("/api/admin/menu/products/bulk", request);
+        var resp = await _client.PostAsJsonAsync(BulkUrl, request);
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = TenantDb(scope);
         (await db.Categories.CountAsync()).Should().Be(1);  // existing "Aperitive" reused
         var product = await db.Products.SingleAsync();
         product.CategoryId.Should().Be(_existingCategoryId);

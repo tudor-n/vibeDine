@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import math
 import os
+import shutil
 from pathlib import Path
 from typing import Callable, List
 from urllib.parse import urlparse
+from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from models.menu_extraction import MenuExtractionResponse, PdfJobRequest
 from services.menu_extraction_service import MenuExtractionService
+from services.menu_organizer import resolve_organizer
 from services.pdf_menu_extraction_service import PdfMenuExtractionService, PdfReadError
 from services.progress_reporter import ProgressReporter
 from services.text_extractor import ClaudeTextExtractor, GeminiTextExtractor, TextExtractor
@@ -67,18 +70,22 @@ def _default_extractor_factory() -> VisionExtractor:
 
 def get_extraction_service() -> MenuExtractionService:
     """FastAPI dependency. Overridden in tests via app.dependency_overrides."""
-    return MenuExtractionService(extractor_factory=_default_extractor_factory)
+    return MenuExtractionService(
+        extractor_factory=_default_extractor_factory,
+        organizer_factory=resolve_organizer,
+    )
 
 
 @router.post("/extract", response_model=MenuExtractionResponse)
 async def extract_menu(
     photos: List[UploadFile] = File(default=[]),
+    locale: str = Form("ro-RO"),
     service: MenuExtractionService = Depends(get_extraction_service),
 ) -> MenuExtractionResponse:
     if not photos:
         raise HTTPException(status_code=400, detail="At least one photo is required.")
     image_bytes_list = [await p.read() for p in photos]
-    return await service.extract(image_bytes_list)
+    return await service.extract(image_bytes_list, locale=locale)
 
 
 # ---------------------------------------------------------------------------
@@ -147,26 +154,10 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
             render_scale=render_scale,
             render_quality=render_quality,
             max_embedded_image_bytes=max_embedded_image_bytes,
+            organizer_factory=resolve_organizer,
         )
 
     return builder
-
-
-def _validate_storage_path(storage_path: str) -> str:
-    root = Path(
-        os.environ.get("MENU_IMPORT_STORAGE_ROOT", _DEFAULT_STORAGE_ROOT)
-    ).expanduser().resolve(strict=False)
-    candidate = Path(storage_path).expanduser()
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    resolved = candidate.resolve(strict=False)
-
-    if not _is_relative_to(resolved, root):
-        raise HTTPException(
-            status_code=400,
-            detail="storage_path must be under MENU_IMPORT_STORAGE_ROOT",
-        )
-    return str(resolved)
 
 
 def _validate_progress_callback_url(callback_url: str) -> None:
@@ -210,27 +201,47 @@ def _normalize_host(entry: str) -> str:
     return value
 
 
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
-
-
 @router.post("/extract-pdf", response_model=MenuExtractionResponse)
 async def extract_pdf(
-    request: PdfJobRequest,
+    file: UploadFile = File(...),
+    job_id: UUID = Form(...),
+    restaurant_id: UUID = Form(...),
+    progress_callback_url: str = Form(..., min_length=1),
+    hmac_secret: str = Form(..., min_length=8),
+    provider: str = Form("gemini"),
+    locale: str = Form("ro-RO"),
     factory: Callable[[PdfJobRequest], PdfMenuExtractionService] = Depends(
         get_pdf_extraction_service_factory
     ),
 ) -> MenuExtractionResponse:
-    request = request.model_copy(
-        update={"storage_path": _validate_storage_path(request.storage_path)}
-    )
-    _validate_progress_callback_url(request.progress_callback_url)
-    service = factory(request)
+    """The PDF arrives as a multipart upload — the caller shares no filesystem
+    with this service. It is spooled to a temp file under
+    MENU_IMPORT_STORAGE_ROOT for the extraction pipeline and removed after."""
+    _validate_progress_callback_url(progress_callback_url)
+
+    storage_root = Path(
+        os.environ.get("MENU_IMPORT_STORAGE_ROOT", _DEFAULT_STORAGE_ROOT)
+    ).expanduser()
+    storage_root.mkdir(parents=True, exist_ok=True)
+    storage_path = storage_root / f"{job_id}-{uuid4().hex}.pdf"
+
     try:
-        return await service.run(request)
-    except PdfReadError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with storage_path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+
+        request = PdfJobRequest(
+            job_id=job_id,
+            restaurant_id=restaurant_id,
+            storage_path=str(storage_path),
+            progress_callback_url=progress_callback_url,
+            hmac_secret=hmac_secret,
+            provider=provider,
+            locale=locale,
+        )
+        service = factory(request)
+        try:
+            return await service.run(request)
+        except PdfReadError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        storage_path.unlink(missing_ok=True)

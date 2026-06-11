@@ -164,8 +164,8 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         await using var dispose = sp;
         using (var scope = sp.CreateScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
+            var migrateDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await migrateDb.Database.MigrateAsync();
         }
 
         var rid = Guid.NewGuid();
@@ -675,8 +675,8 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         await using var sp = BuildServiceProvider(client);
         using (var scope = sp.CreateScope())
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
+            var migrateDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await migrateDb.Database.MigrateAsync();
         }
 
         var rid = Guid.NewGuid();
@@ -739,7 +739,7 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         var job = await dbCheck.MenuImportJobs.IgnoreQueryFilters().SingleAsync(j => j.Id == jobId, cts.Token);
         job.Status.Should().Be("extracting");
         storage.DeletedKeys.Should().BeEmpty();
-        hub.SentMessages.Should().NotContain(m => m.Method is "MenuImportCompleted" or "MenuImportFailed");
+        hub.SentMessages.Should().NotContain(m => m.Method == "MenuImportCompleted" || m.Method == "MenuImportFailed");
     }
 
     // ── Fakes ─────────────────────────────────────────────────────────────────

@@ -9,6 +9,13 @@ from models.menu_extraction import (
     FailedPage,
     MenuExtractionResponse,
 )
+from services.menu_organizer import (
+    MenuOrganizer,
+    MenuOrganizerError,
+    OrganizerOptions,
+    build_hint_fallback,
+    resolve_organizer,
+)
 from services.vision_extractor import VisionExtractionError, VisionExtractor
 
 
@@ -18,12 +25,23 @@ logger = logging.getLogger(__name__)
 class MenuExtractionService:
     """Coordinates per-page vision-LLM calls and merges the results into one response."""
 
-    def __init__(self, extractor_factory: Callable[[], VisionExtractor]):
+    def __init__(
+        self,
+        extractor_factory: Callable[[], VisionExtractor],
+        organizer_factory: Callable[[], "MenuOrganizer | None"] | None = None,
+    ):
         # Factory rather than instance so each page can be retried in isolation
         # and so tests can produce different fakes per page.
         self._extractor_factory = extractor_factory
+        # Default to resolve_organizer (env-driven) so production stays wired
+        # without explicit injection; tests pass their own factory.
+        self._organizer_factory = organizer_factory or resolve_organizer
 
-    async def extract(self, image_bytes_list: List[bytes]) -> MenuExtractionResponse:
+    async def extract(
+        self,
+        image_bytes_list: List[bytes],
+        locale: str = "ro-RO",
+    ) -> MenuExtractionResponse:
         tasks = [self._extract_one(idx, b) for idx, b in enumerate(image_bytes_list)]
         per_page = await asyncio.gather(*tasks)
 
@@ -37,11 +55,26 @@ class MenuExtractionService:
             if not model_name and page_model:
                 model_name = page_model
 
+        opts = OrganizerOptions(locale=locale)
+        organizer = self._organizer_factory()
+        if organizer is None or not items:
+            hierarchy = build_hint_fallback(items, opts)
+        else:
+            try:
+                hierarchy = await organizer.organize(items, opts)
+            except MenuOrganizerError:
+                logger.warning(
+                    "Photo organizer failed, falling back to hints",
+                    exc_info=True,
+                )
+                hierarchy = build_hint_fallback(items, opts)
+
         return MenuExtractionResponse(
             items=items,
             failed_pages=failed,
             model=model_name or "unknown",
-            schema_version=1,
+            schema_version=2,
+            hierarchy=hierarchy,
         )
 
     async def _extract_one(

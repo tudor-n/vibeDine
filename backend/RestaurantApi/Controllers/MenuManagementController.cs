@@ -35,6 +35,17 @@ public class MenuManagementController : ControllerBase
                 Name = c.Name,
                 SortOrder = c.SortOrder,
                 ImageUrl = c.ImageUrl,
+                Subcategories = _db.Subcategories
+                    .Where(s => s.CategoryId == c.Id)
+                    .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
+                    .Select(s => new AdminMenuSubcategory
+                    {
+                        Id = s.Id,
+                        Name = s.Name,
+                        SortOrder = s.SortOrder,
+                        ImageUrl = s.ImageUrl
+                    })
+                    .ToList(),
                 Products = c.Products
                     .OrderBy(p => p.SortOrder).ThenBy(p => p.Name)
                     .Select(p => new AdminProductResponse
@@ -47,7 +58,8 @@ public class MenuManagementController : ControllerBase
                         Price = p.Price,
                         ImageUrl = p.ImageUrl,
                         IsAvailable = p.IsAvailable ?? false,
-                        SortOrder = p.SortOrder
+                        SortOrder = p.SortOrder,
+                        SubcategoryId = p.SubcategoryId
                     })
                     .ToList()
             })
@@ -517,6 +529,146 @@ public class MenuManagementController : ControllerBase
         _logger.LogInformation("Bulk-created {Products} products across {Categories} categories",
             created.Count, created.Select(r => r.CategoryId).Distinct().Count());
         return Ok(created);
+    }
+
+    [HttpPost("bulk-create-hierarchy")]
+    public async Task<IActionResult> BulkCreateHierarchy(
+        [FromBody] BulkCreateHierarchyRequest request,
+        CancellationToken ct)
+    {
+        // Null-guard: System.Text.Json will overwrite the DTO's default `new()` with `null`
+        // when the client posts an explicit `null` for these fields.
+        var categories = request.Categories ?? new();
+        var products = request.Products ?? new();
+
+        if (categories.Count == 0 && products.Count == 0)
+            return BadRequest(new { message = "At least one category or product is required." });
+
+        var catTempIds = categories.Select(c => c.TempId).ToList();
+        if (catTempIds.Any(string.IsNullOrWhiteSpace))
+            return BadRequest(new { message = "Every category needs a tempId." });
+        if (catTempIds.Distinct().Count() != catTempIds.Count)
+            return BadRequest(new { message = "Duplicate category tempId." });
+
+        var subTempIds = categories.SelectMany(c => (c.Subcategories ?? new()).Select(s => s.TempId)).ToList();
+        if (subTempIds.Any(string.IsNullOrWhiteSpace))
+            return BadRequest(new { message = "Every subcategory needs a tempId." });
+        if (subTempIds.Distinct().Count() != subTempIds.Count)
+            return BadRequest(new { message = "Duplicate subcategory tempId." });
+
+        // Category + subcategory name validation runs BEFORE product validation so that
+        // a product correctly referencing a category with an invalid name surfaces the
+        // category-name error rather than masquerading as a product error.
+        foreach (var c in categories)
+        {
+            var nv = ProductValidator.ValidateName(c.Name);
+            if (!nv.IsValid) return BadRequest(new { field = "category.name", message = nv.Error });
+            foreach (var s in (c.Subcategories ?? new()))
+            {
+                var sv = ProductValidator.ValidateName(s.Name);
+                if (!sv.IsValid) return BadRequest(new { field = "subcategory.name", message = sv.Error });
+            }
+        }
+
+        var subToCat = new Dictionary<string, string>();
+        foreach (var c in categories)
+            foreach (var s in (c.Subcategories ?? new()))
+                subToCat[s.TempId] = c.TempId;
+
+        var catTempSet = catTempIds.ToHashSet();
+        foreach (var p in products)
+        {
+            if (!catTempSet.Contains(p.CategoryTempId))
+                return BadRequest(new { message = $"Product references unknown categoryTempId '{p.CategoryTempId}'." });
+            if (p.SubcategoryTempId is not null)
+            {
+                if (!subToCat.TryGetValue(p.SubcategoryTempId, out var parent) || parent != p.CategoryTempId)
+                    return BadRequest(new { message = $"Subcategory '{p.SubcategoryTempId}' does not belong to category '{p.CategoryTempId}'." });
+            }
+            var nv = ProductValidator.ValidateName(p.Name);
+            if (!nv.IsValid) return BadRequest(new { field = "name", message = nv.Error });
+            var pv = ProductValidator.ValidatePrice(p.Price);
+            if (!pv.IsValid) return BadRequest(new { field = "price", message = pv.Error });
+            var dv = ProductValidator.ValidateDescription(p.Description);
+            if (!dv.IsValid) return BadRequest(new { field = "description", message = dv.Error });
+        }
+
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        var catTempToId = new Dictionary<string, Guid>();
+        foreach (var c in categories)
+        {
+            var entity = new Category
+            {
+                Id = Guid.NewGuid(),
+                Name = c.Name.Trim(),
+                SortOrder = c.SortOrder
+            };
+            _db.Categories.Add(entity);
+            catTempToId[c.TempId] = entity.Id;
+        }
+        await _db.SaveChangesAsync(ct);
+
+        var subTempToId = new Dictionary<string, Guid>();
+        foreach (var c in categories)
+        {
+            foreach (var s in (c.Subcategories ?? new()))
+            {
+                var entity = new Subcategory
+                {
+                    Id = Guid.NewGuid(),
+                    CategoryId = catTempToId[c.TempId],
+                    Name = s.Name.Trim(),
+                    SortOrder = s.SortOrder
+                };
+                _db.Subcategories.Add(entity);
+                subTempToId[s.TempId] = entity.Id;
+            }
+        }
+        if (subTempToId.Count > 0) await _db.SaveChangesAsync(ct);
+
+        // SortOrder is assigned per (categoryId, subcategoryId) bucket based on input order.
+        // The DTO's SortOrder field is ignored — callers who omit it would otherwise collide at 0.
+        var sortOrderByBucket = new Dictionary<(Guid CategoryId, Guid? SubcategoryId), int>();
+        var createdProducts = new List<CreatedHierarchyProduct>();
+        foreach (var p in products)
+        {
+            var entity = new Product
+            {
+                Id = Guid.NewGuid(),
+                CategoryId = catTempToId[p.CategoryTempId],
+                SubcategoryId = p.SubcategoryTempId is null ? null : subTempToId[p.SubcategoryTempId],
+                Name = p.Name.Trim(),
+                Description = p.Description ?? string.Empty,
+                Price = p.Price,
+                IsAvailable = p.IsAvailable,
+            };
+            var bucketKey = (entity.CategoryId, entity.SubcategoryId);
+            var nextOrder = sortOrderByBucket.GetValueOrDefault(bucketKey, 0);
+            entity.SortOrder = nextOrder;
+            sortOrderByBucket[bucketKey] = nextOrder + 1;
+            _db.Products.Add(entity);
+            createdProducts.Add(new CreatedHierarchyProduct
+            {
+                Id = entity.Id,
+                Name = entity.Name,
+                CategoryId = entity.CategoryId,
+                SubcategoryId = entity.SubcategoryId
+            });
+        }
+        if (createdProducts.Count > 0) await _db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        _logger.LogInformation(
+            "Bulk-created hierarchy: {Categories} categories, {Subcategories} subcategories, {Products} products",
+            catTempToId.Count, subTempToId.Count, createdProducts.Count);
+
+        return Ok(new BulkCreateHierarchyResponse
+        {
+            CreatedCategories = catTempToId.Select(kv => new TempIdMap { TempId = kv.Key, Id = kv.Value }).ToList(),
+            CreatedSubcategories = subTempToId.Select(kv => new TempIdMap { TempId = kv.Key, Id = kv.Value }).ToList(),
+            CreatedProducts = createdProducts
+        });
     }
 
     private static string NormalizeCategoryName(string raw)

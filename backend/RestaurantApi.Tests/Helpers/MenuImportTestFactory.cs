@@ -29,6 +29,7 @@ public class MenuImportTestFactory : WebApplicationFactory<Program>
     private const string TestAudience = "test-audience";
 
     public string PostgresConnectionString { get; set; } = string.Empty;
+    public string PythonAiBaseUrl { get; set; } = "http://localhost:0";
     public string HmacSecret { get; set; } = "dev-hmac-secret-32chars-minimum-pad-1234";
     public string StorageRoot { get; set; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "menu-import-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -48,7 +49,7 @@ public class MenuImportTestFactory : WebApplicationFactory<Program>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = PostgresConnectionString,
-                ["AiService:BaseUrl"] = "http://localhost:0",
+                ["AiService:BaseUrl"] = PythonAiBaseUrl,
                 ["Jwt:Key"] = TestJwtKey,
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,

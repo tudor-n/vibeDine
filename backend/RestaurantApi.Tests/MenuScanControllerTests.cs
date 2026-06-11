@@ -5,10 +5,12 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using RestaurantApi.Data;
 using RestaurantApi.DTOs.Responses;
-using RestaurantApi.Services;
 using RestaurantApi.Tests.Helpers;
+using Testcontainers.PostgreSql;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -18,32 +20,42 @@ namespace RestaurantApi.Tests;
 
 public class MenuScanControllerTests : IAsyncLifetime
 {
+    private readonly PostgreSqlContainer _pg = new PostgreSqlBuilder().WithImage("postgres:16-alpine").Build();
     private WireMockServer _python = null!;
-    private TestWebApplicationFactory _factory = null!;
+    private MenuImportTestFactory _factory = null!;
     private HttpClient _client = null!;
+    private Guid _restaurantId;
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
+        await _pg.StartAsync();
         _python = WireMockServer.Start();
-        _factory = new TestWebApplicationFactory
+        _factory = new MenuImportTestFactory
         {
-            // BulkCreate tests will overwrite this — scan tests only need /menu/extract reachable.
-            PostgresConnectionString = "Host=localhost;Database=ignored;Username=x;Password=x",
+            PostgresConnectionString = _pg.GetConnectionString(),
             PythonAiBaseUrl = _python.Url!,
         };
-        _client = _factory.CreateClient();
-        return Task.CompletedTask;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+        var (restA, _, clientA, _) = await MenuImportTestFixtures.SeedTwoTenantsAsync(_factory);
+        _restaurantId = restA;
+        _client = clientA;
     }
 
-    public Task DisposeAsync()
+    public async Task DisposeAsync()
     {
         _client.Dispose();
         _factory.Dispose();
         _python.Stop();
-        return Task.CompletedTask;
+        await _pg.DisposeAsync();
     }
 
-    private MultipartFormDataContent OnePhoto()
+    private string ScanUrl => $"/api/restaurants/{_restaurantId}/admin/menu/scan";
+
+    private static MultipartFormDataContent OnePhoto()
     {
         var form = new MultipartFormDataContent();
         var bytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
@@ -62,7 +74,7 @@ public class MenuScanControllerTests : IAsyncLifetime
                 "failed_pages": [], "model":"fake","schema_version":1 }
             """));
 
-        var resp = await _client.PostAsync("/api/admin/menu/scan", OnePhoto());
+        var resp = await _client.PostAsync(ScanUrl, OnePhoto());
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await resp.Content.ReadFromJsonAsync<MenuScanResponse>();
         body!.Items.Should().HaveCount(1);
@@ -73,7 +85,7 @@ public class MenuScanControllerTests : IAsyncLifetime
     public async Task Returns_502_when_python_unreachable()
     {
         _python.Stop();
-        var resp = await _client.PostAsync("/api/admin/menu/scan", OnePhoto());
+        var resp = await _client.PostAsync(ScanUrl, OnePhoto());
         resp.StatusCode.Should().Be(HttpStatusCode.BadGateway);
     }
 
@@ -87,14 +99,14 @@ public class MenuScanControllerTests : IAsyncLifetime
             content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
             form.Add(content, "photos", $"p{i}.png");
         }
-        var resp = await _client.PostAsync("/api/admin/menu/scan", form);
+        var resp = await _client.PostAsync(ScanUrl, form);
         resp.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
     }
 
     [Fact]
     public async Task Returns_400_when_no_photos()
     {
-        var resp = await _client.PostAsync("/api/admin/menu/scan", new MultipartFormDataContent());
+        var resp = await _client.PostAsync(ScanUrl, new MultipartFormDataContent());
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 }

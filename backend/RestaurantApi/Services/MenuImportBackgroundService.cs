@@ -261,13 +261,24 @@ public sealed class MenuImportBackgroundService : BackgroundService
         var callbackUrl = $"{_options.CallbackBaseUrl.TrimEnd('/')}/api/internal/menu-imports/{job.Id}/progress?leaseId={leaseId}";
         var storagePath = fileStorage.ResolveLocalPath(job.StorageKey);
 
+        string locale;
+        using (var sup = tenant.SuppressResolution())
+        {
+            locale = await db.Restaurants
+                .IgnoreQueryFilters()
+                .Where(r => r.Id == job.RestaurantId)
+                .Select(r => r.Locale)
+                .FirstOrDefaultAsync(ct) ?? "ro-RO";
+        }
+
         var payload = new PdfJobPayload(
             JobId: job.Id,
             RestaurantId: job.RestaurantId,
             StoragePath: storagePath,
             ProgressCallbackUrl: callbackUrl,
             HmacSecret: _options.HmacSecret,
-            Provider: job.ProviderUsed);
+            Provider: job.ProviderUsed,
+            Locale: locale);
 
         try
         {

@@ -45,7 +45,8 @@ def test_failed_page_rejects_invalid_reason():
 def test_menu_extraction_response_defaults():
     response = MenuExtractionResponse(items=[], model="claude-sonnet-test")
     assert response.failed_pages == []
-    assert response.schema_version == 1
+    assert response.schema_version == 2
+    assert response.hierarchy is None
 
 
 from services.vision_extractor import FakeVisionExtractor, VisionExtractionError

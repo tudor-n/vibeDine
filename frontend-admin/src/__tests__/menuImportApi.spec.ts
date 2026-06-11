@@ -31,6 +31,8 @@ describe('menuImportApi.scan', () => {
         const form = await request.formData()
         const files = form.getAll('photos')
         expect(files).toHaveLength(2)
+        // Default locale should be sent
+        expect(form.get('locale')).toBe('ro-RO')
         return HttpResponse.json<MenuScanResponse>({
           items: [{ name: 'Ciorbă', price: 18, sourcePage: 0, sourceIndex: 0, categoryHint: 'Ciorbe' }],
           failedPages: [],
@@ -46,6 +48,60 @@ describe('menuImportApi.scan', () => {
     ])
     expect(result.items[0].name).toBe('Ciorbă')
     expect(result.items[0].categoryHint).toBe('Ciorbe')
+  })
+
+  it('forwards an explicit locale as a form field', async () => {
+    server.use(
+      http.post(`${baseUrl}/api/restaurants/${restaurantId}/admin/menu/scan`, async ({ request }) => {
+        const form = await request.formData()
+        expect(form.get('locale')).toBe('fr-FR')
+        return HttpResponse.json<MenuScanResponse>({
+          items: [], failedPages: [], model: 'fake', schemaVersion: 2,
+        })
+      }),
+    )
+    await menuImportApi.scan(
+      [new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })],
+      'fr-FR',
+    )
+  })
+
+  it('normalizes the hierarchy field from the backend (snake_case keys are accepted)', async () => {
+    server.use(
+      http.post(`${baseUrl}/api/restaurants/${restaurantId}/admin/menu/scan`, () =>
+        HttpResponse.json({
+          items: [
+            { name: 'Margherita', price: 28, source_page: 0, source_index: 0, category_hint: 'Pizza' },
+          ],
+          failed_pages: [],
+          model: 'fake',
+          schema_version: 2,
+          hierarchy: {
+            source: 'ai',
+            categories: [
+              {
+                name: 'Pizza',
+                sort_order: 0,
+                subcategories: [],
+                direct_item_refs: [{ source_page: 0, source_index: 0, confidence: 0.9 }],
+              },
+            ],
+            uncategorized_item_refs: [],
+            model_notes: null,
+          },
+        }),
+      ),
+    )
+
+    const result = await menuImportApi.scan(
+      [new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })],
+    )
+    expect(result.hierarchy).toBeDefined()
+    expect(result.hierarchy!.source).toBe('ai')
+    expect(result.hierarchy!.categories[0].name).toBe('Pizza')
+    expect(result.hierarchy!.categories[0].directItemRefs[0]).toEqual({
+      sourcePage: 0, sourceIndex: 0, confidence: 0.9,
+    })
   })
 
   it('throws a typed error on 5xx', async () => {

@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -20,13 +21,25 @@ public class MenuImportPythonClient : IPdfExtractor
 
     public async Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
     {
-        var snakeCaseJson = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        };
-        var resp = await _http.PostAsJsonAsync("/menu/extract-pdf", payload, snakeCaseJson, ct);
+        // The Python service shares no filesystem with this API (separate hosts in
+        // production), so the PDF is streamed from the locally-resolved StoragePath
+        // as a multipart upload instead of sending the path across the wire.
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(payload.JobId.ToString()), "job_id");
+        form.Add(new StringContent(payload.RestaurantId.ToString()), "restaurant_id");
+        form.Add(new StringContent(payload.ProgressCallbackUrl), "progress_callback_url");
+        form.Add(new StringContent(payload.HmacSecret), "hmac_secret");
+        form.Add(new StringContent(payload.Provider), "provider");
+        form.Add(new StringContent(payload.Locale), "locale");
+
+        await using var pdfStream = File.OpenRead(payload.StoragePath);
+        var fileContent = new StreamContent(pdfStream);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+        form.Add(fileContent, "file", $"{payload.JobId:N}.pdf");
+
+        using var resp = await _http.PostAsync("/menu/extract-pdf", form, ct);
         resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadFromJsonAsync<JsonElement>(snakeCaseJson, ct);
+        return await resp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
     }
 }
 
@@ -36,4 +49,5 @@ public sealed record PdfJobPayload(
     string StoragePath,
     string ProgressCallbackUrl,
     string HmacSecret,
-    string Provider = "gemini");
+    string Provider = "gemini",
+    string Locale = "ro-RO");

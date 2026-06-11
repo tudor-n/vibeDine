@@ -761,11 +761,17 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
 
+                    b.Property<Guid?>("SubcategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subcategory_id");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CategoryId");
 
                     b.HasIndex("RestaurantId");
+
+                    b.HasIndex("SubcategoryId");
 
                     b.ToTable("products", (string)null);
                 });
@@ -865,6 +871,13 @@ namespace RestaurantApi.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("ro-RO")
+                        .HasColumnName("locale");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1200,7 +1213,14 @@ namespace RestaurantApi.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("RestaurantApi.Models.Subcategory", "Subcategory")
+                        .WithMany("Products")
+                        .HasForeignKey("SubcategoryId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("Category");
+
+                    b.Navigation("Subcategory");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.RefreshToken", b =>
@@ -1299,6 +1319,11 @@ namespace RestaurantApi.Migrations
             modelBuilder.Entity("RestaurantApi.Models.RestaurantTable", b =>
                 {
                     b.Navigation("Orders");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.Subcategory", b =>
+                {
+                    b.Navigation("Products");
                 });
 #pragma warning restore 612, 618
         }

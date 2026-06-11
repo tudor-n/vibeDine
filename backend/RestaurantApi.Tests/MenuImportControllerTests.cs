@@ -315,11 +315,11 @@ public class MenuImportControllerTests : IAsyncLifetime
             $"/api/restaurants/{RestaurantA}/admin/menu/imports/{jobId}");
         delResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var job = await db.MenuImportJobs.IgnoreQueryFilters()
+        using var checkScope = _factory.Services.CreateScope();
+        var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var checkJob = await checkDb.MenuImportJobs.IgnoreQueryFilters()
             .FirstAsync(j => j.Id == jobId);
-        job.Status.Should().Be("cancelled");
+        checkJob.Status.Should().Be("cancelled");
         System.IO.File.Exists(storagePath).Should().BeFalse();
     }
 
