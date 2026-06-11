@@ -27,6 +27,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<SimilarityRule> SimilarityRules => Set<SimilarityRule>();
     public DbSet<HelpRequest> HelpRequests => Set<HelpRequest>();
     public DbSet<TableGuest> TableGuests => Set<TableGuest>();
+    public DbSet<MenuImportJob> MenuImportJobs => Set<MenuImportJob>();
 
     // ── Tenancy ──────────────────────────────────────────────────────────────
     public DbSet<Organization> Organizations => Set<Organization>();
@@ -238,6 +239,34 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
              .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<MenuImportJob>(e =>
+        {
+            e.ToTable("menu_import_jobs");
+            e.Property(j => j.Id).HasColumnName("id");
+            e.Property(j => j.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(j => j.Status).HasColumnName("status");
+            e.Property(j => j.Phase).HasColumnName("phase");
+            e.Property(j => j.TotalPages).HasColumnName("total_pages");
+            e.Property(j => j.ProcessedPages).HasColumnName("processed_pages");
+            e.Property(j => j.FailedPages).HasColumnName("failed_pages");
+            e.Property(j => j.StorageKey).HasColumnName("storage_key");
+            e.Property(j => j.OriginalFileName).HasColumnName("original_file_name");
+            e.Property(j => j.FileSizeBytes).HasColumnName("file_size_bytes");
+            e.Property(j => j.ProviderUsed).HasColumnName("provider_used");
+            e.Property(j => j.ResultJson).HasColumnName("result_json").HasColumnType("jsonb");
+            e.Property(j => j.ErrorMessage).HasColumnName("error_message");
+            e.Property(j => j.CreatedAt).HasColumnName("created_at");
+            e.Property(j => j.UpdatedAt).HasColumnName("updated_at");
+            e.Property(j => j.CompletedAt).HasColumnName("completed_at");
+            e.Property(j => j.LeaseId).HasColumnName("lease_id");
+            e.Property(j => j.LeaseExpiresAt).HasColumnName("lease_expires_at");
+            e.Property(j => j.LastHeartbeatAt).HasColumnName("last_heartbeat_at");
+            e.Property(j => j.ProcessingAttempts).HasColumnName("processing_attempts");
+            e.HasIndex(j => j.RestaurantId);
+            e.HasIndex(j => new { j.Status, j.CreatedAt });
+            e.HasIndex(j => new { j.Status, j.LeaseExpiresAt });
+        });
+
         // ── Tenancy tables ───────────────────────────────────────────────────
         modelBuilder.Entity<Organization>(e =>
         {
@@ -383,6 +412,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<SimilarityRule>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<HelpRequest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<TableGuest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<MenuImportJob>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
     }
 
     /// <summary>Stamps RestaurantId on new tenant-scoped entities from the ambient tenant.</summary>

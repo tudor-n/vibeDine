@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useMenuImportStore } from '@/stores/useMenuImportStore'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const importStore = useMenuImportStore()
 
 // Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
 // full-screen without the admin shell.
@@ -18,6 +20,45 @@ const bareLayout = computed(() =>
   ),
 )
 const showShell = computed(() => auth.isAuthenticated && !bareLayout.value)
+
+// Try resuming any in-flight import as soon as the shell mounts for an authenticated user.
+onMounted(() => {
+  if (auth.isAuthenticated) void importStore.tryResume()
+})
+watch(
+  () => auth.isAuthenticated,
+  (isAuth, was) => {
+    if (isAuth && !was) void importStore.tryResume()
+  },
+)
+
+// Global progress pill: visible whenever an import is in flight and we're not already on the import page.
+const importInFlight = computed(() => {
+  if (importStore.isScanning) return true
+  if (importStore.mode === 'pdf' && importStore.pdfJob) {
+    const s = importStore.pdfJob.status
+    return s === 'uploading' || s === 'pending' || s === 'extracting'
+  }
+  return false
+})
+const showImportPill = computed(
+  () => showShell.value && importInFlight.value && route.path !== '/menu/import',
+)
+const importPillLabel = computed(() => {
+  if (importStore.mode === 'pdf' && importStore.pdfJob) {
+    const j = importStore.pdfJob
+    if (j.totalPages > 0) {
+      const pct = Math.round((j.processedPages / j.totalPages) * 100)
+      return `Import PDF · ${j.fileName} · ${pct}%`
+    }
+    return `Import PDF · ${j.fileName} · pornește`
+  }
+  if (importStore.isScanning) {
+    const n = importStore.files.length
+    return `Scanare meniu · ${n} ${n === 1 ? 'fotografie' : 'fotografii'}`
+  }
+  return 'Import în curs'
+})
 
 function onSwitchRestaurant(e: Event) {
   auth.setActiveRestaurant((e.target as HTMLSelectElement).value)
@@ -210,6 +251,18 @@ function logout() {
     <main class="relative z-10 flex-1 p-4 md:p-10 overflow-y-auto">
       <RouterView />
     </main>
+
+    <RouterLink
+      v-if="showImportPill"
+      to="/menu/import"
+      class="import-pill"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="import-pill-spinner" aria-hidden="true"></span>
+      <span class="import-pill-label">{{ importPillLabel }}</span>
+      <span class="import-pill-arrow" aria-hidden="true">→</span>
+    </RouterLink>
 
     <ToastContainer />
   </div>
@@ -431,5 +484,67 @@ button.nav-link {
   font-family: inherit;
   cursor: pointer;
   text-align: left;
+}
+.nav-link-logout:hover {
+  background: var(--ink06);
+}
+.nav-link-logout:hover .nav-icon {
+  background: var(--ink);
+  color: var(--paperHi);
+}
+
+/* Floating import-in-progress pill — fixed bottom-right of the viewport */
+.import-pill {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paperHi);
+  text-decoration: none;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--ink);
+  max-width: calc(100vw - 40px);
+  transition: transform 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+}
+.import-pill:hover {
+  transform: translateY(-1px);
+}
+.import-pill-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 10px var(--lime);
+  animation: import-pill-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.import-pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60vw;
+}
+.import-pill-arrow {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+@keyframes import-pill-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50%      { opacity: 1;    transform: scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .import-pill-spinner { animation: none; opacity: 1; }
 }
 </style>
