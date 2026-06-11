@@ -154,6 +154,13 @@ const dashOffset = computed(() => {
   border: none;
   outline: none !important;
   -webkit-tap-highlight-color: transparent;
+  /* Kill the tap/selection "blue box": no long-press callout, no text selection
+     of the bolt/countdown, and neutralise an inherited Tailwind ring. */
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
   display: grid;
   place-items: center;
   cursor: pointer;

@@ -11,6 +11,14 @@ public class Order : ITenantScoped {
     public Guid TableId { get; set; }
     public RestaurantTable Table { get; set; } = null!;
 
+    // The phone (TableGuest) that owns this draft. Null on legacy table-wide
+    // drafts (created before multi-person ordering) and on merged orders.
+    public Guid? GuestId { get; set; }
+
+    // When this draft is merged into another guest's draft, this points at the
+    // surviving order and Status becomes "merged" so it drops out of active queries.
+    public Guid? MergedIntoOrderId { get; set; }
+
     [Required]
     public string Status { get; set; } = "draft";
 

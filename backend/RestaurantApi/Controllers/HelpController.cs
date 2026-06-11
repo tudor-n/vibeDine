@@ -25,8 +25,6 @@ public class HelpController : ControllerBase
         _customerHub = customerHub;
     }
 
-    // Anonymous customer endpoint. TenantResolutionMiddleware sets the tenant
-    // from {restaurantId}, so the query filter scopes Tables/HelpRequests correctly.
     [HttpPost("restaurants/{restaurantId:guid}/tables/{tableId:guid}/call-waiter")]
     public async Task<IActionResult> CallWaiter(Guid restaurantId, Guid tableId)
     {
@@ -46,7 +44,9 @@ public class HelpController : ControllerBase
             return StatusCode(429, new { message = "Already called.", retryAfterSeconds = retry });
         }
 
-        var req = new HelpRequest { TableId = tableId };
+        // Stamp RestaurantId explicitly so the row is correct even if the ambient
+        // tenant ever fails to resolve (StampTenant only fills Guid.Empty values).
+        var req = new HelpRequest { TableId = tableId, RestaurantId = restaurantId };
         _db.HelpRequests.Add(req);
         await _db.SaveChangesAsync();
 
@@ -60,7 +60,13 @@ public class HelpController : ControllerBase
                 createdAt = req.CreatedAt
             });
 
-        return Ok(new { requestId = req.Id, cooldownEndsAt = req.CreatedAt + Cooldown });
+        // Return the cooldown end as an explicit ISO-8601 (round-trip "O") string so the
+        // client's Date.parse() is never ambiguous about the timezone.
+        return Ok(new
+        {
+            requestId = req.Id,
+            cooldownEndsAt = (req.CreatedAt + Cooldown).ToString("O"),
+        });
     }
 
     // Stubbed for the future waiter app. [Authorize] keeps endpoints unreachable

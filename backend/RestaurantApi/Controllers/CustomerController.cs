@@ -18,17 +18,20 @@ public class CustomerController : ControllerBase
     private readonly IFlashDealService _flashDealService;
     private readonly RecommendationService _recommendationService;
     private readonly IHubContext<StaffHub> _staffHub;
+    private readonly IHubContext<CustomerHub> _customerHub;
 
     public CustomerController(
         AppDbContext context,
         IFlashDealService flashDealService,
         RecommendationService recommendationService,
-        IHubContext<StaffHub> staffHub)
+        IHubContext<StaffHub> staffHub,
+        IHubContext<CustomerHub> customerHub)
     {
         _context = context;
         _flashDealService = flashDealService;
         _recommendationService = recommendationService;
         _staffHub = staffHub;
+        _customerHub = customerHub;
     }
 
     [HttpPost("restaurants/{restaurantId:guid}/orders/{orderId:guid}/submit")]
@@ -199,7 +202,7 @@ public class CustomerController : ControllerBase
 
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         
-        try 
+        try
         {
             await _context.SaveChangesAsync();
         }
@@ -208,9 +211,22 @@ public class CustomerController : ControllerBase
                 return Conflict(new { message = "The order was modified by someone else. Please refresh and try again." });
         }
 
+        // Tell the other phones at this table their party view is stale so they
+        // refetch /party. This is the deferred "PartyMemberUpdated" signal: it
+        // makes peer carts/totals live and the "Merge our bills" button appear
+        // as soon as a guest adds items (the frontend debounces this PATCH, so
+        // the broadcast fires at most ~twice/second per phone). Only guest-owned
+        // drafts participate in the party panel; legacy table-wide drafts skip it.
+        if (order.GuestId is not null)
+        {
+            await _customerHub.Clients
+                .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
+                .SendAsync("PartyMemberUpdated", new { guestId = order.GuestId });
+        }
+
         return Ok(new
         {
-            message = "Items successfully updated in your order!", 
+            message = "Items successfully updated in your order!",
             totalAmount = order.TotalAmount
         });
     }

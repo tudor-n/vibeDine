@@ -41,6 +41,19 @@ const seconds = computed(() =>
 )
 
 const ariaLabel = computed(() => t('waiter.iconLabel'))
+
+// Toast shown right after a tap so the action is unmistakable. Success and the
+// rate-limited case both mean "a waiter has the alert"; only a real failure is
+// styled as an error.
+const toastText = computed(() =>
+  store.feedback === 'error' ? t('waiter.errorGeneric') : t('waiter.onTheWay'),
+)
+const isErrorToast = computed(() => store.feedback === 'error')
+const toastStyle = computed(() =>
+  isErrorToast.value
+    ? { background: T.value.accent, color: '#fff' }
+    : { background: T.value.lime, color: T.value.ink },
+)
 </script>
 
 <template>
@@ -125,6 +138,51 @@ const ariaLabel = computed(() => t('waiter.iconLabel'))
 
     <span v-if="store.isCoolingDown" class="countdown">{{ minutes }}:{{ seconds }}</span>
   </button>
+
+  <Transition name="cw-toast">
+    <div
+      v-if="store.feedback"
+      class="cw-toast"
+      :style="toastStyle"
+      role="status"
+      aria-live="polite"
+      @click="store.clearFeedback()"
+    >
+      <svg
+        v-if="!isErrorToast"
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        aria-hidden="true"
+      >
+        <path
+          d="M20 6 9 17l-5-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <svg
+        v-else
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        aria-hidden="true"
+      >
+        <path
+          d="M12 8v5m0 3.5h.01M10.3 3.9 2.4 17.5A1.9 1.9 0 0 0 4 20.4h16a1.9 1.9 0 0 0 1.6-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <span>{{ toastText }}</span>
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -140,6 +198,14 @@ const ariaLabel = computed(() => t('waiter.iconLabel'))
   border: none;
   outline: none !important;
   -webkit-tap-highlight-color: transparent;
+  /* Kill the tap/selection "blue box": stop the long-press callout and any text
+     selection of the icon/countdown, and neutralise a Tailwind ring if one is
+     ever inherited. The drop shadow is reasserted so focus never restyles it. */
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -211,5 +277,41 @@ const ariaLabel = computed(() => t('waiter.iconLabel'))
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Confirmation toast — pinned to the top of the phone frame so the customer
+   gets immediate, unmistakable feedback that the tap registered. */
+.cw-toast {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  z-index: 56;
+  cursor: pointer;
+  box-shadow: 0 12px 28px -10px rgba(21, 20, 15, 0.5);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.cw-toast svg {
+  flex-shrink: 0;
+}
+.cw-toast-enter-active,
+.cw-toast-leave-active {
+  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.cw-toast-enter-from,
+.cw-toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-16px);
 }
 </style>

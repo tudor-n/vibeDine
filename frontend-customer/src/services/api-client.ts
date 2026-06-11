@@ -14,6 +14,44 @@ export interface TableSession {
   activeOrder: { id: string };
 }
 
+// ── Multi-person ordering (party) ──────────────────────────────────────────
+export interface PartyOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  isFlashDealItem: boolean;
+  imageUrl: string | null;
+}
+
+export interface PartyMember {
+  guestId: string;
+  displayName: string | null;
+  itemCount: number;
+  total: number;
+  status: string;
+}
+
+export interface JoinTableResponse {
+  guestId: string;
+  displayName: string | null;
+  restaurantId: string;
+  restaurantName: string;
+  restaurantAddress: string | null;
+  organizationName: string;
+  tableId: string;
+  tableNumber: string;
+  activeOrder: { id: string; status: string; totalAmount: number; items: PartyOrderItem[] };
+  partyMembers: PartyMember[];
+}
+
+export interface MergePartyResponse {
+  targetOrderId: string;
+  mergedOrderIds: string[];
+  activeOrder: { id: string; status: string; totalAmount: number; items: PartyOrderItem[] };
+  partyMembers: PartyMember[];
+}
+
 // Resolved from the table's QR session; every menu/order call is scoped to it.
 let currentRestaurantId: string | null = sessionStorage.getItem('restaurantId');
 
@@ -57,6 +95,26 @@ export const apiClient = {
     if (session.restaurantId) setRestaurantId(session.restaurantId);
     return session;
   },
+
+  // Guest-aware session entry: claims/restores this phone's own draft under the
+  // shared table and returns the current party. Replaces initSession in the app.
+  joinTable: async (qrToken: string, guestId: string | null) => {
+    const res = await fetcher<JoinTableResponse>(`/api/tables/${qrToken}/join`, {
+      method: 'POST',
+      body: JSON.stringify({ guestId }),
+    });
+    if (res.restaurantId) setRestaurantId(res.restaurantId);
+    return res;
+  },
+
+  getParty: (qrToken: string) =>
+    fetcher<{ partyMembers: PartyMember[] }>(`/api/tables/${qrToken}/party`),
+
+  mergeParty: (qrToken: string, initiatorGuestId: string) =>
+    fetcher<MergePartyResponse>(`/api/tables/${qrToken}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ initiatorGuestId }),
+    }),
 
   updateCartItems: (orderId: string, payload: UpdateOrderItemsRequest) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/items`, {

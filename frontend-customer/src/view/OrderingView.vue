@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useGuestStore } from '@/stores/useGuestStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useTheme } from '@/composables/useTheme'
@@ -14,14 +15,16 @@ import MenuView from '@/components/screens/MenuView.vue'
 import CartView from '@/components/screens/CartView.vue'
 import FlashDealView from '@/components/screens/FlashDealView.vue'
 import OrderSentView from '@/components/screens/OrderSentView.vue'
+import MergedView from '@/components/screens/MergedView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
 import CallWaiterButton from '@/components/CallWaiterButton.vue'
 
-type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent'
+type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
 
 const route = useRoute()
 const cartStore = useCartStore()
 const sessionStore = useSessionStore()
+const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
 const { theme, tokens: T, toggle: toggleTheme } = useTheme()
 const { t } = useLocale()
@@ -75,6 +78,32 @@ async function handleSubmitted() {
 
 function orderAgain() {
   activeCategoryId.value = null
+  screen.value = 'pebbles'
+}
+
+// This phone's draft was merged into another guest's order (flagged by the
+// PartyMerged websocket handler). Force the merged screen so the user can't
+// keep editing a draft that no longer exists.
+watch(
+  () => guestStore.mergedInto,
+  (merged) => {
+    if (merged) screen.value = 'merged'
+  },
+)
+
+// From the merged screen: abandon the merged draft and open a fresh, separate
+// order. Re-joining returns a brand-new draft (the old one is "merged").
+async function startSeparateOrder() {
+  cartStore.resetForNewOrder()
+  guestStore.clearMerged()
+  activeCategoryId.value = null
+  if (sessionStore.qrToken) {
+    try {
+      await sessionStore.initializeSession(sessionStore.qrToken)
+    } catch (e) {
+      console.error('Could not start a new order', e)
+    }
+  }
   screen.value = 'pebbles'
 }
 
@@ -162,6 +191,11 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
           key="sent"
           :total="lastTotal"
           @order-again="orderAgain"
+        />
+        <MergedView
+          v-else-if="screen === 'merged'"
+          key="merged"
+          @order-again="startSeparateOrder"
         />
       </Transition>
 

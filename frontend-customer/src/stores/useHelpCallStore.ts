@@ -18,11 +18,33 @@ function readStoredCooldown(): number | null {
   return ms
 }
 
+export type HelpCallFeedback = 'success' | 'rate-limited' | 'error'
+
 export const useHelpCallStore = defineStore('helpCall', () => {
   const cooldownEndsAt = ref<number | null>(readStoredCooldown())
   const isPending = ref(false)
   const lastError = ref<string | null>(null)
   const now = ref(Date.now())
+
+  // Transient, user-visible outcome of the most recent tap. The UI watches this
+  // to pop a toast; it auto-clears itself shortly after so the toast disappears.
+  const feedback = ref<HelpCallFeedback | null>(null)
+  let feedbackTimeout: ReturnType<typeof setTimeout> | null = null
+  function flashFeedback(kind: HelpCallFeedback) {
+    feedback.value = kind
+    if (feedbackTimeout) clearTimeout(feedbackTimeout)
+    feedbackTimeout = setTimeout(() => {
+      feedback.value = null
+      feedbackTimeout = null
+    }, 3600)
+  }
+  function clearFeedback() {
+    feedback.value = null
+    if (feedbackTimeout) {
+      clearTimeout(feedbackTimeout)
+      feedbackTimeout = null
+    }
+  }
 
   let ticker: ReturnType<typeof setInterval> | null = null
 
@@ -92,6 +114,7 @@ export const useHelpCallStore = defineStore('helpCall', () => {
     const tableId = session.tableId
     if (!tableId) {
       lastError.value = 'no-session'
+      flashFeedback('error')
       return
     }
 
@@ -106,15 +129,20 @@ export const useHelpCallStore = defineStore('helpCall', () => {
         } else {
           applyCooldown(Date.now() + COOLDOWN_TOTAL_SECONDS * 1000)
         }
+        flashFeedback('success')
       } else if (res.status === 429) {
+        // A call is already in flight for this table — the waiter has the alert.
         const retry = res.retryAfterSeconds ?? COOLDOWN_TOTAL_SECONDS
         applyCooldown(Date.now() + retry * 1000)
+        flashFeedback('rate-limited')
       } else {
         lastError.value = res.message ?? 'error'
+        flashFeedback('error')
       }
     } catch (err) {
       console.error('callWaiter failed', err)
       lastError.value = 'network'
+      flashFeedback('error')
     } finally {
       isPending.value = false
     }
@@ -126,6 +154,8 @@ export const useHelpCallStore = defineStore('helpCall', () => {
     isCoolingDown,
     isPending,
     lastError,
+    feedback,
+    clearFeedback,
     callWaiter,
     applyCooldown,
     clearCooldown,

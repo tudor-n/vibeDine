@@ -26,6 +26,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<RecommendationDirective> RecommendationDirectives => Set<RecommendationDirective>();
     public DbSet<SimilarityRule> SimilarityRules => Set<SimilarityRule>();
     public DbSet<HelpRequest> HelpRequests => Set<HelpRequest>();
+    public DbSet<TableGuest> TableGuests => Set<TableGuest>();
 
     // ── Tenancy ──────────────────────────────────────────────────────────────
     public DbSet<Organization> Organizations => Set<Organization>();
@@ -95,8 +96,12 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.OrderNumber).HasColumnName("order_number");
             e.Property(o => o.ReadyAt).HasColumnName("ready_at");
             e.Property(o => o.DeletedAt).HasColumnName("deleted_at");
+            e.Property(o => o.GuestId).HasColumnName("guest_id");
+            e.Property(o => o.MergedIntoOrderId).HasColumnName("merged_into_order_id");
             e.HasIndex(o => o.RestaurantId);
             e.HasIndex(o => new { o.RestaurantId, o.OrderNumber });
+            // Fast "is there a draft for this guest at this table" lookup.
+            e.HasIndex(o => new { o.TableId, o.GuestId, o.Status });
 
             e.HasOne(o => o.Table)
              .WithMany(t => t.Orders)
@@ -212,6 +217,24 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.HasOne(h => h.Table)
              .WithMany()
              .HasForeignKey(h => h.TableId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TableGuest>(e =>
+        {
+            e.ToTable("table_guests");
+            e.Property(g => g.Id).HasColumnName("id");
+            e.Property(g => g.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(g => g.TableId).HasColumnName("table_id");
+            e.Property(g => g.DisplayName).HasColumnName("display_name");
+            e.Property(g => g.CreatedAt).HasColumnName("created_at");
+            e.Property(g => g.LastSeenAt).HasColumnName("last_seen_at");
+            e.HasIndex(g => g.RestaurantId);
+            e.HasIndex(g => g.TableId);
+
+            e.HasOne(g => g.Table)
+             .WithMany()
+             .HasForeignKey(g => g.TableId)
              .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -359,6 +382,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<RecommendationDirective>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<SimilarityRule>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<HelpRequest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<TableGuest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
     }
 
     /// <summary>Stamps RestaurantId on new tenant-scoped entities from the ambient tenant.</summary>
