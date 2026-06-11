@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
+using RestaurantApi.Models;
 
 namespace RestaurantApi.Tenancy;
 
@@ -12,12 +14,21 @@ namespace RestaurantApi.Tenancy;
 ///   2. Route value <c>qrToken</c>       → customer entry; table → restaurant.
 ///
 /// For authenticated requests carrying a <c>restaurantId</c>, the caller's membership is
-/// verified (OrgOwner of the org, or RestaurantAdmin of that restaurant) before the
-/// request is allowed to proceed.
+/// verified (OrgOwner of the org, RestaurantAdmin of that restaurant, or active Waiter).
+/// Active Waiters are additionally restricted to the orders-related sub-paths.
 /// </summary>
 public class TenantResolutionMiddleware
 {
     private readonly RequestDelegate _next;
+
+    // Path suffixes (after /api/restaurants/{rid}) that a Waiter is allowed to hit.
+    // Anything outside this set returns 403 even though they pass the membership check.
+    private static readonly Regex[] WaiterAllowedPaths =
+    [
+        new(@"^/admin/orders/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"^/admin/orders/active/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new(@"^/admin/orders/[0-9a-fA-F-]{36}/status/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+    ];
 
     public TenantResolutionMiddleware(RequestDelegate next) => _next = next;
 
@@ -62,6 +73,21 @@ public class TenantResolutionMiddleware
                     await ctx.Response.WriteAsJsonAsync(new { message = "You do not have access to this restaurant." });
                     return;
                 }
+
+                // Waiters are further scoped to orders endpoints. If the caller has a
+                // manager-level membership for this restaurant, skip the restriction —
+                // a user can hold both manager and waiter rows (rare but legal).
+                var canManage = await access.CanManageRestaurantAsync(userId.Value, restaurantId);
+                if (!canManage && await access.IsActiveWaiterAsync(userId.Value, restaurantId))
+                {
+                    var suffix = SuffixAfterRestaurantSegment(ctx.Request.Path);
+                    if (!WaiterAllowedPaths.Any(rx => rx.IsMatch(suffix)))
+                    {
+                        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        await ctx.Response.WriteAsJsonAsync(new { message = "Waiters can only access orders for this restaurant." });
+                        return;
+                    }
+                }
             }
 
             tenant.SetRestaurant(restaurantId);
@@ -87,5 +113,17 @@ public class TenantResolutionMiddleware
         var raw = user.FindFirstValue(ClaimTypes.NameIdentifier)
                   ?? user.FindFirstValue("sub");
         return Guid.TryParse(raw, out var id) ? id : null;
+    }
+
+    private static string SuffixAfterRestaurantSegment(PathString path)
+    {
+        // /api/restaurants/{guid}/<suffix>
+        var value = path.Value ?? string.Empty;
+        var marker = "/api/restaurants/";
+        var idx = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return value;
+        var afterMarker = value[(idx + marker.Length)..];
+        var slash = afterMarker.IndexOf('/');
+        return slash < 0 ? string.Empty : afterMarker[slash..];
     }
 }

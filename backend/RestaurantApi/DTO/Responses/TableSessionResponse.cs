@@ -28,4 +28,5 @@ public class OrderItemResponse
     public int Quantity {get;set;}
     public decimal UnitPrice {get;set;}
     public bool IsFlashDealItem {get;set;}
+    public string? ImageUrl {get;set;}
 }

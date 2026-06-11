@@ -2,6 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Floating action buttons (Call-Waiter, Flash-Deal) are pointer-only
+   (tabindex="-1"). They must never paint the browser's blue focus box, the
+   mobile tap highlight, a long-press callout, a text selection, or an inherited
+   Tailwind ring. This is a global safety net on top of each FAB's scoped rules
+   so the "blue square on tap" can't reappear from any single missed property.
+   Keyboard-focusable buttons (no tabindex="-1") keep their normal focus ring. */
+button[tabindex='-1'] {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+button[tabindex='-1']:focus,
+button[tabindex='-1']:focus-visible,
+button[tabindex='-1']:focus-within {
+  outline: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+
 /* Clasa pentru ascunderea barei de scroll pe mobil */
 .hide-scrollbar::-webkit-scrollbar {
   display: none;

@@ -13,7 +13,8 @@ namespace RestaurantApi.Services;
 public interface IFlashDealService
 {
     Task<bool> ClaimDealAsync(Guid orderId, Guid dealId);
-    Task EvaluateEligibilityAsync(Guid orderId);
+    Task<bool> EvaluateEligibilityAsync(Guid orderId);
+    Task DispatchToKitchenAsync(Guid orderId);
 }
 
 public class FlashDealService : IFlashDealService
@@ -84,16 +85,47 @@ public class FlashDealService : IFlashDealService
         await _staffhub.Clients.Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
             .SendAsync("FlashDealClaimed", new { OrderId = order.Id, DealName = productName });
 
+        // Claiming the deal dispatches the order to the kitchen immediately,
+        // skipping the 2-minute hold that the SubmitOrder flow applies.
+        await DispatchToKitchenAsync(orderId);
+
         return true;
     }
 
-    public async Task EvaluateEligibilityAsync (Guid orderId)
+    // Transitions a `pending_dispatch` order to `submitted` and notifies the
+    // kitchen kanban. Idempotent: if the order is already past pending_dispatch
+    // (e.g. claim fired right before the 2-min expiry task), this no-ops.
+    public async Task DispatchToKitchenAsync(Guid orderId)
+    {
+        var order = await _context.Orders
+            .FirstOrDefaultAsync(o => o.Id == orderId);
+
+        if (order == null || order.Status != "pending_dispatch") return;
+
+        order.Status = "submitted";
+        await _context.SaveChangesAsync();
+
+        await _staffhub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
+            .SendAsync("OrderSubmitted", new
+            {
+                orderId = order.Id,
+                orderNumber = order.OrderNumber,
+                tableId = order.TableId,
+                status = order.Status,
+            });
+    }
+
+    // Returns true if a deal offer was created (so the caller should hold the
+    // order in pending_dispatch); false if no deal was issued (caller should
+    // dispatch immediately because there's nothing for the customer to wait on).
+    public async Task<bool> EvaluateEligibilityAsync (Guid orderId)
     {
         var order = await _context.Orders
             .Include(o=> o.Items)
             .FirstOrDefaultAsync(o => o.Id == orderId);
 
-        if (order == null) return;
+        if (order == null) return false;
 
         var orderedProductsIds = order.Items.Select(i => i.ProductId).ToList();
 
@@ -101,7 +133,7 @@ public class FlashDealService : IFlashDealService
             .Where(p=>p.IsAvailable ==true && !orderedProductsIds.Contains(p.Id))
             .ToListAsync();
 
-        if (!availableProducts.Any()) return;
+        if (!availableProducts.Any()) return false;
 
         // --- Directive-aware product selection ---
         Product? selectedProduct = null;
@@ -143,7 +175,7 @@ public class FlashDealService : IFlashDealService
                         _logger.LogInformation(
                             "Flash deal skipped: order total {Total} below threshold {Threshold} (directive: {Prompt})",
                             orderTotal, threshold, activeDirective.RawPrompt);
-                        return;
+                        return false;
                     }
                 }
             }
@@ -258,6 +290,7 @@ public class FlashDealService : IFlashDealService
         var restaurantId = order.RestaurantId;
         var tableId = order.TableId;
         var dealId = deal.Id;
+        var dealOrderId = orderId;
 
         _ = Task.Run(async () =>
 {
@@ -266,6 +299,7 @@ public class FlashDealService : IFlashDealService
     using var scope = _scopeFactory.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var hub = scope.ServiceProvider.GetRequiredService<IHubContext<CustomerHub>>();
+    var flashService = scope.ServiceProvider.GetRequiredService<IFlashDealService>();
 
     // The background scope has no ambient request, so set the tenant explicitly
     // for the query filter to find the deal.
@@ -273,14 +307,21 @@ public class FlashDealService : IFlashDealService
         .SetRestaurant(restaurantId);
 
     var dealToExpire = await db.FlashDealOffers.FindAsync(dealId);
-    if (dealToExpire == null || dealToExpire.Status != "pending") return;
+    if (dealToExpire != null && dealToExpire.Status == "pending")
+    {
+        dealToExpire.Status = "expired";
+        await db.SaveChangesAsync();
 
-    dealToExpire.Status = "expired";
-    await db.SaveChangesAsync();
+        await hub.Clients.Group(TenantGroups.Table(restaurantId, tableId))
+            .SendAsync("FlashDealExpired", new { DealId = dealId });
+    }
 
-    await hub.Clients.Group(TenantGroups.Table(restaurantId, tableId))
-        .SendAsync("FlashDealExpired", new { DealId = dealId });
+    // The 2-minute hold is up — release the order to the kitchen if it wasn't
+    // already dispatched via ClaimDealAsync.
+    await flashService.DispatchToKitchenAsync(dealOrderId);
 });
+
+        return true;
     }
 
     private static string RemoveDiacritics(string text)

@@ -143,6 +143,23 @@ public class AuthController : ControllerBase
             });
         }
 
+        // Block login when the user holds memberships but ALL of them are pending or rejected
+        // (typical for a freshly-confirmed waiter awaiting manager approval). Users with no
+        // memberships at all (e.g. someone clicking an invite link) are still allowed in.
+        var memberships = await _db.Memberships
+            .Where(m => m.UserId == user.Id)
+            .Select(m => m.Status)
+            .ToListAsync();
+        if (memberships.Count > 0 && memberships.All(s => s != MembershipStatus.Active))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                code = "waiter_pending_approval",
+                email = user.Email,
+                message = "Contul tău așteaptă aprobarea managerului.",
+            });
+        }
+
         return Ok(await BuildAuthResponseAsync(user));
     }
 
@@ -294,6 +311,7 @@ public class AuthController : ControllerBase
                     ? null
                     : _db.Restaurants.Where(r => r.Id == x.m.RestaurantId).Select(r => r.Name).FirstOrDefault(),
                 Role = x.m.Role.ToString(),
+                Status = x.m.Status,
             })
             .ToListAsync();
 
@@ -302,7 +320,16 @@ public class AuthController : ControllerBase
             Id = user.Id,
             Email = user.Email ?? string.Empty,
             FullName = user.FullName,
+            AvatarUrl = BuildAvatarUrl(user),
             Memberships = memberships,
         };
+    }
+
+    private string? BuildAvatarUrl(AppUser user)
+    {
+        if (string.IsNullOrWhiteSpace(user.AvatarPath)) return null;
+        // AvatarPath is stored as a relative path under wwwroot (e.g. "uploads/avatars/{id}.png").
+        // Returned as a leading-slash URL so the SPA can use it directly in <img src>.
+        return "/" + user.AvatarPath.TrimStart('/');
     }
 }

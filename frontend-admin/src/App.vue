@@ -12,9 +12,12 @@ const route = useRoute()
 const router = useRouter()
 const importStore = useMenuImportStore()
 
-// Login / onboarding / accept-invite render full-screen without the admin shell.
+// Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
+// full-screen without the admin shell.
 const bareLayout = computed(() =>
-  ['login', 'onboarding', 'accept-invite'].includes(route.name as string),
+  ['login', 'onboarding', 'org-picker', 'accept-invite', 'waiter-signup', 'awaiting-approval'].includes(
+    route.name as string,
+  ),
 )
 const showShell = computed(() => auth.isAuthenticated && !bareLayout.value)
 
@@ -62,6 +65,11 @@ function onSwitchRestaurant(e: Event) {
   router.go(0)
 }
 
+function switchOrganization() {
+  auth.clearActiveOrganization()
+  router.push('/select-organization')
+}
+
 function logout() {
   auth.logout()
   router.replace('/login')
@@ -96,14 +104,10 @@ function logout() {
       aria-label="Navigare admin"
     >
       <!-- Brand block -->
-      <div class="hidden md:block mb-8">
+      <div class="hidden md:block mb-6">
         <div class="eyebrow mb-2">SMART RESTAURANT</div>
         <div class="display-title text-[34px] leading-[0.95]">
           Admin<br /><span class="text-accent">Curții.</span>
-        </div>
-        <div class="mt-3 flex items-center gap-2">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span class="font-mono text-[13px] uppercase tracking-[0.06em] text-ink font-semibold">Versiunea 1</span>
         </div>
       </div>
 
@@ -112,15 +116,79 @@ function logout() {
         <div class="display-title text-2xl">Smart Restaurant</div>
       </div>
 
+      <!-- Account chip — moved to the top with inline Settings + Logout buttons -->
+      <div class="hidden md:flex account-chip mb-6">
+        <div class="account-avatar">
+          <img
+            v-if="auth.user?.avatarUrl"
+            :src="auth.user.avatarUrl"
+            alt=""
+          />
+          <template v-else>{{ (auth.user?.fullName || 'A').charAt(0).toUpperCase() }}</template>
+        </div>
+        <div class="account-meta">
+          <div class="account-name" :title="auth.user?.fullName">
+            {{ auth.user?.fullName || 'Manager' }}
+          </div>
+          <div v-if="auth.user?.email" class="account-email" :title="auth.user.email">
+            {{ auth.user.email }}
+          </div>
+        </div>
+        <div class="account-actions">
+          <RouterLink
+            to="/settings/profile"
+            class="icon-btn"
+            aria-label="Setări"
+            title="Setări"
+            active-class="icon-btn-active"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </RouterLink>
+          <button
+            type="button"
+            class="icon-btn icon-btn-danger"
+            aria-label="Deconectare"
+            title="Deconectare"
+            @click="logout"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Active org + restaurant selector -->
+      <div v-if="auth.activeOrganization" class="hidden md:flex active-org mb-4">
+        <div class="eyebrow mb-1">Organizația</div>
+        <div class="active-org-name">{{ auth.activeOrganization.name }}</div>
+        <select
+          v-if="auth.restaurantsInActiveOrg.length"
+          class="rest-switch mt-1"
+          :value="auth.activeRestaurantId ?? ''"
+          aria-label="Schimbă locația"
+          @change="onSwitchRestaurant"
+        >
+          <option v-for="r in auth.restaurantsInActiveOrg" :key="r.id" :value="r.id">
+            {{ r.name }}
+          </option>
+        </select>
+      </div>
+
       <div class="hidden md:block eyebrow mb-2 mt-2">Navigare</div>
 
-      <RouterLink to="/" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">◆</span>
         <span class="nav-label">Dashboard</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/menu" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/menu" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon">☰</span>
         <span class="nav-label">Meniu</span>
         <span class="nav-arrow">→</span>
@@ -132,13 +200,13 @@ function logout() {
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/ai-config" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/ai-config" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">✦</span>
         <span class="nav-label">Configurare AI</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/rules" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/rules" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">∞</span>
         <span class="nav-label">Reguli</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
@@ -150,52 +218,32 @@ function logout() {
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink to="/tables" class="nav-link" active-class="nav-link-active">
+      <RouterLink v-if="!auth.isWaiter" to="/tables" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">▦</span>
         <span class="nav-label">Mese &amp; QR</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink
-        v-if="auth.isOrgOwnerOfActive"
-        to="/organization"
+        v-if="auth.canManageWaitersOfActive"
+        to="/waiters"
         class="nav-link"
         active-class="nav-link-active"
       >
-        <span class="nav-icon" aria-hidden="true">⬢</span>
-        <span class="nav-label">Organizație</span>
+        <span class="nav-icon" aria-hidden="true">⊕</span>
+        <span class="nav-label">Ospătari</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <!-- Footer chip -->
-      <div class="hidden md:flex mt-auto pt-6 items-center gap-3 text-ink-70">
-        <div class="w-10 h-10 rounded-full bg-ink text-paperHi grid place-items-center font-bold text-base flex-shrink-0">
-          {{ (auth.user?.fullName || 'A').charAt(0).toUpperCase() }}
-        </div>
-        <div class="leading-snug flex-1 min-w-0">
-          <select
-            v-if="auth.accessibleRestaurants.length"
-            class="rest-switch"
-            :value="auth.activeRestaurantId ?? ''"
-            aria-label="Schimbă locația"
-            @change="onSwitchRestaurant"
-          >
-            <option v-for="r in auth.accessibleRestaurants" :key="r.id" :value="r.id">
-              {{ r.name }}
-            </option>
-          </select>
-          <div class="text-base font-semibold text-ink truncate">{{ auth.user?.fullName || 'Manager' }}</div>
-        </div>
-      </div>
-
+      <!-- Schimbă organizația — sole bottom action -->
       <button
         type="button"
-        class="nav-link nav-link-logout hidden md:flex mt-2"
-        aria-label="Deconectare"
-        @click="logout"
+        class="nav-link hidden md:flex mt-auto"
+        aria-label="Schimbă organizația"
+        @click="switchOrganization"
       >
-        <span class="nav-icon" aria-hidden="true">⏻</span>
-        <span class="nav-label">Deconectare</span>
+        <span class="nav-icon" aria-hidden="true">⇄</span>
+        <span class="nav-label">Schimbă organizația</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </button>
     </nav>
@@ -309,13 +357,112 @@ function logout() {
 }
 .theme-toggle:active { transform: scale(0.92); }
 
+/* Account chip — at the top of the sidebar, contains the avatar, name/email,
+   and small Settings + Logout icon buttons. */
+.account-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: var(--card, var(--paperHi));
+  border: 1px solid var(--ink12);
+  box-shadow: var(--shadow-soft);
+}
+.account-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paperHi);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.account-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.account-meta {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.15;
+}
+.account-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-email {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ink-70, var(--ink));
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.account-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid var(--ink12);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+.icon-btn:hover {
+  background: var(--ink06);
+}
+.icon-btn-active {
+  background: var(--ink);
+  color: var(--paperHi);
+  border-color: var(--ink);
+}
+.icon-btn-danger:hover {
+  background: rgba(185, 28, 28, 0.08);
+  color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+/* Active org block sits between the account chip and the navigation list. */
+.active-org {
+  flex-direction: column;
+  padding: 0 6px;
+}
+.active-org-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Restaurant switcher — styled to read like the existing mono eyebrow label */
 .rest-switch {
   appearance: none;
   background: transparent;
   border: none;
   padding: 0;
-  margin: 0 0 1px;
+  margin: 0;
   max-width: 100%;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
@@ -329,7 +476,8 @@ function logout() {
   outline: 2px solid var(--accent, currentColor);
   outline-offset: 2px;
 }
-/* Logout reuses the sidebar nav-link language; reset the native <button> chrome */
+
+/* Logout / switch-org reuse the sidebar nav-link language; reset the native <button> chrome */
 button.nav-link {
   width: 100%;
   background: transparent;

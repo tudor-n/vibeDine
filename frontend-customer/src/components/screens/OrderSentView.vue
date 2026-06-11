@@ -10,7 +10,6 @@ import BigButton from '@/components/ui/BigButton.vue'
 const props = defineProps<{ total: number }>()
 const emit = defineEmits<{
   (e: 'order-again'): void
-  (e: 'call-waiter'): void
 }>()
 
 const sessionStore = useSessionStore()
@@ -192,11 +191,6 @@ const steps = computed(() => {
     </div>
 
     <div class="cta">
-      <button
-        class="secondary"
-        :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink }"
-        @click="emit('call-waiter')"
-      >{{ t('sent.callWaiter') }}</button>
       <BigButton :theme="theme" :font-size="16" @click="emit('order-again')">{{ t('sent.orderAgain') }}</BigButton>
     </div>
   </PhoneScreen>
@@ -335,16 +329,7 @@ const steps = computed(() => {
   left: 18px;
   right: 18px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
-}
-.secondary {
-  padding: 18px 16px;
-  border-radius: 999px;
-  font-size: 16px;
-  font-weight: 700;
-  cursor: pointer;
-  font-family: inherit;
-  min-height: 56px;
 }
 </style>

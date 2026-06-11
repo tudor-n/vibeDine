@@ -13,6 +13,10 @@ const store = useFlashDealStore()
 const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
 
+const emit = defineEmits<{
+  (e: 'close'): void
+}>()
+
 const remaining = ref(0)
 const totalSeconds = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
@@ -98,8 +102,11 @@ async function claim() {
   }
 }
 
+// Dismiss only collapses the modal back to the floating icon — the deal stays
+// active until it's claimed or expires server-side. Clearing the store here
+// would also drop the icon, which is not what the user asked for.
 function dismiss() {
-  store.clearDeal()
+  emit('close')
 }
 </script>
 

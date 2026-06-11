@@ -18,13 +18,16 @@ async function submit() {
   busy.value = true
   try {
     const org = await orgApi.createOrganization(orgName.value.trim())
-    const restaurant = await orgApi.createRestaurant(org.id, {
+    await orgApi.createRestaurant(org.id, {
       name: restaurantName.value.trim(),
       address: address.value.trim() || undefined,
     })
-    await auth.loadAccessibleRestaurants()
-    auth.setActiveRestaurant(restaurant.id)
-    router.replace('/')
+    // Refresh cached org/restaurant lists, then route through the picker.
+    // The picker is the canonical landing page; routing through it keeps
+    // first-time and returning UX consistent.
+    await auth.loadAccessibleOrganizations()
+    auth.clearActiveOrganization()
+    router.replace('/select-organization')
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Nu am putut crea organizația.'
   } finally {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { apiClient } from '@/services/api-client'
+import { useGuestStore } from '@/stores/useGuestStore'
 
 export const useSessionStore = defineStore('session' , () => {
   const tableId = ref<string | null>(sessionStorage.getItem('tableId'))
@@ -14,7 +14,11 @@ export const useSessionStore = defineStore('session' , () => {
 
   async function initializeSession(token: string){
     try{
-      const response = await apiClient.initSession(token)
+      // Guest-aware entry: this phone gets/keeps its OWN draft under the shared
+      // table (so multiple people can order independently). orderId now points
+      // at the guest's draft rather than a single table-wide draft.
+      const guestStore = useGuestStore()
+      const response = await guestStore.join(token)
 
       tableId.value = response.tableId
       orderId.value = response.activeOrder.id

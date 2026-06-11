@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useGuestStore } from '@/stores/useGuestStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
+import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
@@ -14,13 +16,18 @@ import MenuView from '@/components/screens/MenuView.vue'
 import CartView from '@/components/screens/CartView.vue'
 import FlashDealView from '@/components/screens/FlashDealView.vue'
 import OrderSentView from '@/components/screens/OrderSentView.vue'
+import MergedView from '@/components/screens/MergedView.vue'
+import FlashDealIcon from '@/components/FlashDealIcon.vue'
+import CallWaiterButton from '@/components/CallWaiterButton.vue'
 
-type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent'
+type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
 
 const route = useRoute()
 const cartStore = useCartStore()
 const sessionStore = useSessionStore()
+const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
+const orderStatusStore = useOrderStatusStore()
 const { theme, tokens: T, toggle: toggleTheme } = useTheme()
 const { t } = useLocale()
 
@@ -30,6 +37,22 @@ const screen = ref<Screen>('language')
 const activeCategoryId = ref<string | null>(null)
 const lastTotal = ref(0)
 const sessionError = ref<null | 'missing' | 'invalid'>(null)
+// First time a deal arrives we pop the full-screen offer; once the user
+// dismisses it the icon takes over and stays visible for the remaining 2 min.
+const showFlashDealModal = ref(false)
+let autoOpenedDealId: string | null = null
+
+// Presence heartbeat + live panel: poll /party every 15s. The call carries our
+// guestId, which keeps our seat "fresh" on the server; phones that stop polling
+// (tab closed, customer left) fall out of everyone's party list within ~1 min.
+const PARTY_POLL_MS = 15_000
+let partyPoll: ReturnType<typeof setInterval> | null = null
+
+function onVisibilityChange() {
+  // Coming back from the background: beat immediately so this phone reappears
+  // in the party without waiting for the next interval tick.
+  if (!document.hidden) guestStore.refreshParty(sessionStore.qrToken)
+}
 
 onMounted(async () => {
   const tokenFromUrl = (route.params.qrToken as string) || ''
@@ -43,7 +66,15 @@ onMounted(async () => {
   } catch (e) {
     console.error('Could not initialize session', e)
     sessionError.value = 'invalid'
+    return
   }
+  partyPoll = setInterval(() => guestStore.refreshParty(sessionStore.qrToken), PARTY_POLL_MS)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+
+onUnmounted(() => {
+  if (partyPoll) clearInterval(partyPoll)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 function onLanguageSelected() {
@@ -57,22 +88,87 @@ function backToPebbles() { screen.value = 'pebbles' }
 function openCart() { screen.value = 'cart' }
 function backFromCart() { screen.value = 'menu' }
 
-async function handleSubmitted() {
+function handleSubmitted() {
   lastTotal.value = cartStore.total
   cartStore.clearCart()
+  // Drop the previous round's status so the timeline starts fresh instead of
+  // instantly showing the last order's "completed" stage.
+  orderStatusStore.clear()
   screen.value = 'sent'
-  // Refresh the draft order so the next round of ordering has a fresh id.
-  if (sessionStore.qrToken) {
-    sessionStore.initializeSession(sessionStore.qrToken).catch(() => undefined)
-  }
+  // Deliberately NO re-join here: the backend freed this guest's seat when the
+  // order went to the kitchen. Re-joining now would put the guest straight back
+  // into everyone's party panel; we re-join only when they start a new round.
 }
 
-function orderAgain() {
+// Starting the next round re-joins: the old seat is gone, so this claims a
+// fresh "Guest N" slot with a fresh draft.
+async function orderAgain() {
   activeCategoryId.value = null
+  if (sessionStore.qrToken) {
+    try {
+      await sessionStore.initializeSession(sessionStore.qrToken)
+    } catch (e) {
+      console.error('Could not start a new order', e)
+    }
+  }
   screen.value = 'pebbles'
 }
 
-const flashOverlayActive = computed(() => Boolean(flashDealStore.activeDeal))
+// This phone's draft was merged into another guest's order (flagged by the
+// PartyMerged websocket handler). Force the merged screen so the user can't
+// keep editing a draft that no longer exists.
+watch(
+  () => guestStore.mergedInto,
+  (merged) => {
+    if (merged) screen.value = 'merged'
+  },
+)
+
+// From the merged screen: abandon the merged draft and open a fresh, separate
+// order. Re-joining returns a brand-new draft (the old one is "merged").
+async function startSeparateOrder() {
+  cartStore.resetForNewOrder()
+  guestStore.clearMerged()
+  activeCategoryId.value = null
+  if (sessionStore.qrToken) {
+    try {
+      await sessionStore.initializeSession(sessionStore.qrToken)
+    } catch (e) {
+      console.error('Could not start a new order', e)
+    }
+  }
+  screen.value = 'pebbles'
+}
+
+const flashIconVisible = computed(() => Boolean(flashDealStore.activeDeal))
+const flashOverlayActive = computed(
+  () => Boolean(flashDealStore.activeDeal) && showFlashDealModal.value,
+)
+
+function openFlashDeal() {
+  showFlashDealModal.value = true
+}
+function closeFlashDeal() {
+  showFlashDealModal.value = false
+}
+
+watch(
+  () => flashDealStore.activeDeal,
+  (deal) => {
+    if (!deal) {
+      showFlashDealModal.value = false
+      autoOpenedDealId = null
+      return
+    }
+    // Auto-open once per deal so a fresh offer pops up; later dismissals just
+    // collapse to the icon without re-opening.
+    if (deal.id !== autoOpenedDealId) {
+      autoOpenedDealId = deal.id
+      showFlashDealModal.value = true
+    }
+  },
+  { immediate: true },
+)
 
 // Language picker takes priority over the session-error overlay so the user
 // can localize before seeing the error message.
@@ -128,15 +224,44 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
           key="sent"
           :total="lastTotal"
           @order-again="orderAgain"
-          @call-waiter="() => undefined"
+        />
+        <MergedView
+          v-else-if="screen === 'merged'"
+          key="merged"
+          @order-again="startSeparateOrder"
         />
       </Transition>
 
       <Transition name="overlay">
         <div v-if="flashOverlayActive" class="overlay">
-          <FlashDealView />
+          <FlashDealView @close="closeFlashDeal" />
         </div>
       </Transition>
+
+      <!-- "Someone joined your table" toast — auto-dismissed by the guest store. -->
+      <Transition name="toast" mode="out-in">
+        <div
+          v-if="guestStore.joinNotice"
+          :key="guestStore.joinNotice.key"
+          class="join-toast"
+          role="status"
+          :style="{ background: T.ink, color: T.paper }"
+        >
+          <span class="join-toast-title">
+            {{ t('party.joinedToast', { name: guestStore.joinNotice.name }) }}
+          </span>
+          <span class="join-toast-hint">{{ t('party.joinedToastHint') }}</span>
+        </div>
+      </Transition>
+
+      <FlashDealIcon
+        v-if="flashIconVisible && !flashOverlayActive"
+        @open="openFlashDeal"
+      />
+
+      <CallWaiterButton
+        v-if="screen !== 'language' && !showSessionError && !flashOverlayActive"
+      />
 
       <button
         class="theme-toggle"
@@ -214,6 +339,41 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
   position: absolute;
   inset: 0;
   z-index: 50;
+}
+
+.join-toast {
+  position: absolute;
+  top: 64px;
+  left: 20px;
+  right: 20px;
+  z-index: 70;
+  border-radius: 16px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+  box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.join-toast-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.join-toast-hint {
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
 }
 
 .theme-toggle {

@@ -2,6 +2,9 @@ import { ref, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
+import { useHelpCallStore } from '@/stores/useHelpCallStore'
+import { useGuestStore } from '@/stores/useGuestStore'
+import { useCartStore } from '@/stores/useCartStore'
 import type { FlashDeal, OrderStatus } from '@shared/types/models'
 
 
@@ -13,6 +16,9 @@ export function useWebSocket() {
   const sessionStore = useSessionStore()
   const flashDealStore = useFlashDealStore()
   const orderStatusStore = useOrderStatusStore()
+  const helpCallStore = useHelpCallStore()
+  const guestStore = useGuestStore()
+  const cartStore = useCartStore()
   const isConnected = ref(false)
   let socket: WebSocket | null = null
 
@@ -91,6 +97,56 @@ export function useWebSocket() {
               const payload = data.arguments[0] as { orderId: string; status: OrderStatus }
               if (payload?.orderId && payload?.status) {
                 orderStatusStore.setStatus(payload.orderId, payload.status)
+              }
+            }
+
+            if (data.target === 'WaiterOnTheWay') {
+              helpCallStore.clearCooldown()
+            }
+
+            // Someone new scanned in at this table — refresh the party panel and
+            // pop a short toast on the phones already seated (never for our own
+            // join; the store also suppresses it while our join is in flight).
+            if (data.target === 'PartyMemberJoined') {
+              guestStore.refreshParty(sessionStore.qrToken)
+              const payload = data.arguments[0] as { guestId?: string; displayName?: string }
+              if (payload?.guestId && payload.displayName && payload.guestId !== guestStore.guestId) {
+                guestStore.announceJoin(payload.displayName)
+              }
+            }
+
+            // A guest's order went to the kitchen (or their seat was reclaimed) —
+            // drop them from the party panel.
+            if (data.target === 'PartyMemberLeft') {
+              guestStore.refreshParty(sessionStore.qrToken)
+            }
+
+            // A peer changed their cart — refresh so totals stay live and the
+            // "Merge our bills" button appears the moment someone else has items.
+            if (data.target === 'PartyMemberUpdated') {
+              guestStore.refreshParty(sessionStore.qrToken)
+            }
+
+            // A guest consolidated everyone's drafts into one bill.
+            if (data.target === 'PartyMerged') {
+              const payload = data.arguments[0] as {
+                targetOrderId: string
+                mergedOrderIds: string[]
+                initiatorGuestId: string
+                initiatorDisplayName: string
+              }
+              guestStore.refreshParty(sessionStore.qrToken)
+              const myOrderId = sessionStore.orderId
+              // If MY draft was one of the merged ones, freeze my cart and flag
+              // the merged state so the view switches to the "merged" screen.
+              if (
+                myOrderId &&
+                Array.isArray(payload?.mergedOrderIds) &&
+                payload.mergedOrderIds.includes(myOrderId) &&
+                payload.initiatorGuestId !== guestStore.guestId
+              ) {
+                cartStore.abandonForMerge()
+                guestStore.markMerged(payload.initiatorDisplayName)
               }
             }
           }
