@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import math
 import os
+import shutil
 from pathlib import Path
 from typing import Callable, List
 from urllib.parse import urlparse
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -158,23 +160,6 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
     return builder
 
 
-def _validate_storage_path(storage_path: str) -> str:
-    root = Path(
-        os.environ.get("MENU_IMPORT_STORAGE_ROOT", _DEFAULT_STORAGE_ROOT)
-    ).expanduser().resolve(strict=False)
-    candidate = Path(storage_path).expanduser()
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    resolved = candidate.resolve(strict=False)
-
-    if not _is_relative_to(resolved, root):
-        raise HTTPException(
-            status_code=400,
-            detail="storage_path must be under MENU_IMPORT_STORAGE_ROOT",
-        )
-    return str(resolved)
-
-
 def _validate_progress_callback_url(callback_url: str) -> None:
     parsed = urlparse(callback_url)
     host = parsed.hostname.lower() if parsed.hostname else ""
@@ -216,27 +201,47 @@ def _normalize_host(entry: str) -> str:
     return value
 
 
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
-
-
 @router.post("/extract-pdf", response_model=MenuExtractionResponse)
 async def extract_pdf(
-    request: PdfJobRequest,
+    file: UploadFile = File(...),
+    job_id: UUID = Form(...),
+    restaurant_id: UUID = Form(...),
+    progress_callback_url: str = Form(..., min_length=1),
+    hmac_secret: str = Form(..., min_length=8),
+    provider: str = Form("gemini"),
+    locale: str = Form("ro-RO"),
     factory: Callable[[PdfJobRequest], PdfMenuExtractionService] = Depends(
         get_pdf_extraction_service_factory
     ),
 ) -> MenuExtractionResponse:
-    request = request.model_copy(
-        update={"storage_path": _validate_storage_path(request.storage_path)}
-    )
-    _validate_progress_callback_url(request.progress_callback_url)
-    service = factory(request)
+    """The PDF arrives as a multipart upload — the caller shares no filesystem
+    with this service. It is spooled to a temp file under
+    MENU_IMPORT_STORAGE_ROOT for the extraction pipeline and removed after."""
+    _validate_progress_callback_url(progress_callback_url)
+
+    storage_root = Path(
+        os.environ.get("MENU_IMPORT_STORAGE_ROOT", _DEFAULT_STORAGE_ROOT)
+    ).expanduser()
+    storage_root.mkdir(parents=True, exist_ok=True)
+    storage_path = storage_root / f"{job_id}-{uuid4().hex}.pdf"
+
     try:
-        return await service.run(request)
-    except PdfReadError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with storage_path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+
+        request = PdfJobRequest(
+            job_id=job_id,
+            restaurant_id=restaurant_id,
+            storage_path=str(storage_path),
+            progress_callback_url=progress_callback_url,
+            hmac_secret=hmac_secret,
+            provider=provider,
+            locale=locale,
+        )
+        service = factory(request)
+        try:
+            return await service.run(request)
+        except PdfReadError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        storage_path.unlink(missing_ok=True)
