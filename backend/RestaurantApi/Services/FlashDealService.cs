@@ -63,12 +63,19 @@ public class FlashDealService : IFlashDealService
         bool alreadyClaimed = order.Items.Any(i => i.IsFlashDealItem == true && i.ProductId == deal.ProductId);
         if (alreadyClaimed) return false;
 
+        // One discounted portion per guest whose cart is on this bill. A solo /
+        // pay-separately order (nobody merged) claims quantity 1; a bill that
+        // merged 3 guests claims 3 — each at the discounted unit price, so the
+        // line total is unit × guests with the discount already baked into the
+        // unit (e.g. 3 × 16 = 48 for a 20-lei item at 20% off).
+        var dealQuantity = await CountCombinedGuestsAsync(order.Id);
+
         var orderItem = new OrderItem
         {
             Id = Guid.NewGuid(),
             OrderId = order.Id,
             ProductId = deal.ProductId.Value,
-            Quantity = 1,
+            Quantity = dealQuantity,
             UnitPriceAtPurchase = deal.DiscountPrice ?? 0m,
             IsFlashDealItem = true,
             WasAiRecommended = false
@@ -272,7 +279,14 @@ public class FlashDealService : IFlashDealService
         _context.FlashDealOffers.Add(deal);
         await _context.SaveChangesAsync();
 
-        // Send ProductId and OrderId so the frontend can claim correctly
+        // Scale the offer to the party size when this bill merged several guests:
+        // one discounted portion each. Stays 1 for a solo / pay-separately order.
+        var combinedGuests = await CountCombinedGuestsAsync(orderId);
+
+        // Send ProductId and OrderId so the frontend can claim correctly. The
+        // table SignalR group is the only group phones are in, so every phone
+        // receives this — the customer app filters by OrderId so only the phone
+        // that owns this order pops the offer (separate bills => separate deals).
         await _customerhub.Clients.Group(TenantGroups.Table(order.RestaurantId, order.TableId))
             .SendAsync("FlashDealAvailable", new
             {
@@ -283,6 +297,7 @@ public class FlashDealService : IFlashDealService
                 OriginalPrice = selectedProduct.Price,
                 DiscountPrice = deal.DiscountPrice,
                 DiscountPercent = discountPercent,
+                Quantity = combinedGuests,
                 ExpiresAt=deal.ExpiresAt
             });
 
@@ -322,6 +337,18 @@ public class FlashDealService : IFlashDealService
 });
 
         return true;
+    }
+
+    // How many guests' carts ended up on this bill: the order's own owner plus
+    // every draft that was merged into it. Returns 1 for a solo / pay-separately
+    // order (nobody merged). The count is stable once the order leaves "draft" —
+    // merges only re-parent drafts, so nothing new can attach to a submitted
+    // order — which is why the offer-time and claim-time counts always agree.
+    private async Task<int> CountCombinedGuestsAsync(Guid orderId)
+    {
+        var mergedDrafts = await _context.Orders
+            .CountAsync(o => o.MergedIntoOrderId == orderId);
+        return mergedDrafts + 1;
     }
 
     private static string RemoveDiacritics(string text)

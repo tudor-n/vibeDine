@@ -66,31 +66,52 @@ export function useWebSocket() {
             if (data.target === 'FlashDealAvailable') {
               const raw = data.arguments[0]
 
-              const newDeal: FlashDeal = {
-                id: raw.dealId,
-                menuItemId: raw.productId,
-                menuItem: {
-                  id: raw.productId,
-                  name: raw.productName,
-                  price: raw.originalPrice,
-                  imageUrl: null
-                },
-                discountPercent: raw.discountPercent || 20,
-                discountedPrice: raw.discountPrice,
-                trigger: 'post_order',
-                countdownSeconds: 120,
-                expiresAt: raw.expiresAt,
-                reason: '',
-                isActive: true,
-                createdAt: new Date().toISOString()
-              }
+              // Every phone at the table shares this SignalR group, but a deal
+              // belongs to exactly one order — the one that was just submitted.
+              // Show it only on the phone that owns that order, so a peer's deal
+              // never pops up on everyone's screen. Separate bills => separate
+              // deals; a merged bill's deal shows only on the payer's phone
+              // (its orderId is the merge target's id).
+              const myOrderId = sessionStore.orderId
+              const isMyDeal =
+                !!myOrderId &&
+                !!raw?.orderId &&
+                String(raw.orderId).toLowerCase() === myOrderId.toLowerCase()
 
-              // Store the orderId the deal belongs to separately
-              flashDealStore.setActiveDeal(newDeal, raw.orderId)
+              if (isMyDeal) {
+                const newDeal: FlashDeal = {
+                  id: raw.dealId,
+                  menuItemId: raw.productId,
+                  menuItem: {
+                    id: raw.productId,
+                    name: raw.productName,
+                    price: raw.originalPrice,
+                    imageUrl: null
+                  },
+                  discountPercent: raw.discountPercent || 20,
+                  discountedPrice: raw.discountPrice,
+                  trigger: 'post_order',
+                  countdownSeconds: 120,
+                  expiresAt: raw.expiresAt,
+                  reason: '',
+                  isActive: true,
+                  createdAt: new Date().toISOString()
+                }
+
+                // Store the orderId the deal belongs to + how many portions it's
+                // for (one per guest on this bill; 1 unless the bill was merged).
+                flashDealStore.setActiveDeal(newDeal, raw.orderId, raw.quantity || 1)
+              }
             }
 
             if (data.target === 'FlashDealExpired') {
-              flashDealStore.clearDeal()
+              // Clear only if it's the deal this phone is actually showing: two
+              // guests at one table can each hold their own pending deal, and
+              // this event hits the whole group — don't cancel a peer's offer.
+              const payload = data.arguments[0] as { dealId?: string }
+              if (payload?.dealId && flashDealStore.activeDeal?.id === payload.dealId) {
+                flashDealStore.clearDeal()
+              }
             }
 
             if (data.target === 'OrderStatusUpdated') {
