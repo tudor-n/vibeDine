@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using RestaurantApi.Auth;
 using RestaurantApi.Data;
@@ -223,11 +224,15 @@ if (app.Environment.IsDevelopment())
 app.UseRouting();
 app.UseCors();
 
-// Serve uploaded files (avatars, etc.) out of wwwroot/uploads.
-// Ensures the directory exists so the very first upload doesn't 500.
-var uploadsRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads", "avatars");
-Directory.CreateDirectory(uploadsRoot);
-app.UseStaticFiles();
+// Serve uploaded files out of ContentRoot/wwwroot even when the published
+// container starts without a checked-in wwwroot directory.
+var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "avatars"));
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "menu-items"));
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(webRoot),
+});
 
 app.UseAuthentication();
 app.UseAuthorization();

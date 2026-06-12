@@ -12,6 +12,7 @@ import type {
 } from '@shared/types/menu-import'
 import type { AdminProduct } from '@shared/types/models'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { resolveMediaUrl } from '@/services/mediaUrl'
 
 export interface StartPdfImportResponse {
   jobId: string
@@ -178,9 +179,7 @@ function resolveBaseUrl(): string {
  * and already-absolute URLs are returned untouched.
  */
 export function resolvePhotoUrl(url: string | null | undefined): string {
-  if (!url) return ''
-  if (url.startsWith('/') && !url.startsWith('//')) return `${resolveBaseUrl()}${url}`
-  return url
+  return resolveMediaUrl(url)
 }
 
 /** Restaurant-scoped admin URL + bearer header from the active session. */
