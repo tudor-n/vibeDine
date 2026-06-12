@@ -308,7 +308,7 @@ class GeminiMenuOrganizer:
         resolved = api_key or os.environ.get("GEMINI_API_KEY")
         if not resolved and client is None:
             raise RuntimeError("GEMINI_API_KEY required for GeminiMenuOrganizer.")
-        self.model_name = model_name or os.environ.get("GEMINI_ORGANIZER_MODEL", "gemini-2.5-flash")
+        self.model_name = model_name or os.environ.get("GEMINI_ORGANIZER_MODEL", "gemini-3.1-flash-lite")
         self._client = client or genai.Client(api_key=resolved)
 
     async def organize(
