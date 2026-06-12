@@ -103,6 +103,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(t => t.RestaurantId).HasColumnName("restaurant_id");
             e.Property(t => t.TableNumber).HasColumnName("table_number");
             e.Property(t => t.QrToken).HasColumnName("qr_token");
+            e.Property(t => t.DeletedAt).HasColumnName("deleted_at");
             // qr_token is the customer's globally-unique entry point; it must resolve a
             // single table across the whole platform.
             e.HasIndex(t => t.QrToken).IsUnique();

@@ -98,7 +98,7 @@ public class TenantResolutionMiddleware
             using (tenant.SuppressResolution())
             {
                 var table = await db.Tables
-                    .FirstOrDefaultAsync(t => t.QrToken == qrToken);
+                    .FirstOrDefaultAsync(t => t.QrToken == qrToken && t.DeletedAt == null);
 
                 if (table is not null)
                     tenant.SetRestaurant(table.RestaurantId);

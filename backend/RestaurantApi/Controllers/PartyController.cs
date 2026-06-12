@@ -56,7 +56,7 @@ public class PartyController : ControllerBase
     [HttpPost("tables/{qrToken:guid}/join")]
     public async Task<IActionResult> Join(Guid qrToken, [FromBody] JoinPartyRequest? body)
     {
-        var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken);
+        var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken && t.DeletedAt == null);
         if (table is null)
             return NotFound(new { message = "Invalid QR Code. Table not found." });
 
@@ -136,7 +136,7 @@ public class PartyController : ControllerBase
     [HttpGet("tables/{qrToken:guid}/party")]
     public async Task<IActionResult> Party(Guid qrToken, [FromQuery] Guid? guestId)
     {
-        var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken);
+        var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken && t.DeletedAt == null);
         if (table is null)
             return NotFound(new { message = "Table not found." });
 
@@ -160,7 +160,7 @@ public class PartyController : ControllerBase
     [HttpPost("tables/{qrToken:guid}/merge")]
     public async Task<IActionResult> Merge(Guid qrToken, [FromBody] MergePartyRequest body)
     {
-        var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken);
+        var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken && t.DeletedAt == null);
         if (table is null)
             return NotFound(new { message = "Table not found." });
 

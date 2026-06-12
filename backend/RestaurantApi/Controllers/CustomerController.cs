@@ -278,7 +278,7 @@ public class CustomerController : ControllerBase
     public async Task<IActionResult> GetTableSession(Guid qrToken)
     {
         var table = await _context.Tables
-            .FirstOrDefaultAsync(t => t.QrToken == qrToken);
+            .FirstOrDefaultAsync(t => t.QrToken == qrToken && t.DeletedAt == null);
 
         if (table == null)
             return NotFound(new { message = "Invalid QR Code. Table not found." });
