@@ -121,7 +121,10 @@ async function parseOrThrow<T>(response: Response): Promise<T> {
         throw new Error(errorData.message || errorData.error || `API Error: ${response.status}`);
     }
     if (response.status === 204) return {} as T;
-    return response.json();
+    // Tolerate empty 200 bodies (some endpoints return Ok() with no payload);
+    // calling response.json() on those throws "Unexpected end of JSON input".
+    const text = await response.text();
+    return (text ? JSON.parse(text) : {}) as T;
 }
 
 /** Unauthenticated request — used for login / register / refresh. */
@@ -397,6 +400,13 @@ export const tablesApi = {
         }),
 };
 
+export interface WaiterCall {
+    requestId: string;
+    tableId: string;
+    tableNumber: string | null;
+    createdAt: string;
+}
+
 // ── Restaurant-scoped dashboard API ──────────────────────────────────────────
 export const apiClient = {
     getMetrics: () =>
@@ -413,6 +423,16 @@ export const apiClient = {
             method: 'PATCH',
             body: JSON.stringify({ status }),
         }),
+
+    // Waiter calls (help requests) — the live queue shown on the staff dashboard.
+    getHelpRequests: () =>
+        authedFetcher<WaiterCall[]>(scoped('/help-requests')),
+
+    acknowledgeHelpRequest: (requestId: string) =>
+        authedFetcher<{ alreadyAcknowledged?: boolean }>(
+            scoped(`/help-requests/${requestId}/acknowledge`),
+            { method: 'POST' },
+        ),
 
     getDirectives: () =>
         authedFetcher<AIDirective[]>(scoped('/admin/directives')),

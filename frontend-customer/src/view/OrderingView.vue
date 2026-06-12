@@ -36,6 +36,9 @@ useWebSocket()
 const screen = ref<Screen>('language')
 const activeCategoryId = ref<string | null>(null)
 const lastTotal = ref(0)
+// True once the diner has sent at least one order this session. Keeps the
+// top "view progress" button available after they leave the progress screen.
+const orderInProgress = ref(false)
 const sessionError = ref<null | 'missing' | 'invalid'>(null)
 // First time a deal arrives we pop the full-screen offer; once the user
 // dismisses it the icon takes over and stays visible for the remaining 2 min.
@@ -94,6 +97,7 @@ function handleSubmitted() {
   // Drop the previous round's status so the timeline starts fresh instead of
   // instantly showing the last order's "completed" stage.
   orderStatusStore.clear()
+  orderInProgress.value = true
   screen.value = 'sent'
   // Deliberately NO re-join here: the backend freed this guest's seat when the
   // order went to the kitchen. Re-joining now would put the guest straight back
@@ -173,6 +177,22 @@ watch(
 // Language picker takes priority over the session-error overlay so the user
 // can localize before seeing the error message.
 const showSessionError = computed(() => sessionError.value !== null && screen.value !== 'language')
+
+// Re-open the progress screen for the order that's already on its way.
+function viewProgress() {
+  screen.value = 'sent'
+}
+
+// Once an order is live, offer a top button to jump back to its progress from
+// any screen except the progress screen itself.
+const showProgressButton = computed(
+  () =>
+    orderInProgress.value &&
+    screen.value !== 'sent' &&
+    screen.value !== 'language' &&
+    !showSessionError.value &&
+    !flashOverlayActive.value,
+)
 </script>
 
 <template>
@@ -262,6 +282,30 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
       <CallWaiterButton
         v-if="screen !== 'language' && !showSessionError && !flashOverlayActive"
       />
+
+      <!-- Re-open the live order's progress timeline. Appears once an order has
+           been sent and the diner has navigated away from the progress screen. -->
+      <button
+        v-if="showProgressButton"
+        class="progress-toggle"
+        :style="{ background: T.lime, color: '#000' }"
+        :aria-label="t('sent.viewProgress')"
+        @click="viewProgress"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="22" height="22"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" />
+          <path d="M9 8h6M9 12h4" />
+        </svg>
+      </button>
 
       <button
         class="theme-toggle"
@@ -396,6 +440,30 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
   box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.25);
 }
 .theme-toggle:active {
+  transform: scale(0.94);
+}
+
+/* "View progress" button — sits just left of the theme toggle, same size, so
+   the two read as a tidy top-right cluster. Lime to echo the order-sent
+   "Confirmed" pill the diner saw when they placed the order. */
+.progress-toggle {
+  position: absolute;
+  top: 14px;
+  right: 62px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 60;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.25);
+}
+.progress-toggle:active {
   transform: scale(0.94);
 }
 

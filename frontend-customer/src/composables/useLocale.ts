@@ -93,6 +93,7 @@ const ro: Dict = {
   'sent.payHint': 'Plata la final · cash sau card',
   'sent.callWaiter': 'Chemați chelnerul',
   'sent.orderAgain': 'Mai comand',
+  'sent.viewProgress': 'Vezi statusul comenzii',
 
   'flash.badge': 'Ofertă specială',
   'flash.dismiss': 'Închide oferta',
@@ -225,6 +226,7 @@ const en: Dict = {
   'sent.payHint': 'Pay at the end · cash or card',
   'sent.callWaiter': 'Call the waiter',
   'sent.orderAgain': 'Order again',
+  'sent.viewProgress': 'View order status',
 
   'flash.badge': 'Special offer',
   'flash.dismiss': 'Close offer',
