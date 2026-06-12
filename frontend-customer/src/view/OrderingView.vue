@@ -39,6 +39,11 @@ const lastTotal = ref(0)
 // True once the diner has sent at least one order this session. Keeps the
 // top "view progress" button available after they leave the progress screen.
 const orderInProgress = ref(false)
+// Once the order reaches "Servire la masă" (completed), the timeline is final.
+// We keep the re-open button for a short grace window so the diner can catch
+// the last update, then retire it for the rest of this round.
+const progressDismissed = ref(false)
+let progressDismissTimer: ReturnType<typeof setTimeout> | null = null
 const sessionError = ref<null | 'missing' | 'invalid'>(null)
 // First time a deal arrives we pop the full-screen offer; once the user
 // dismisses it the icon takes over and stays visible for the remaining 2 min.
@@ -77,6 +82,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (partyPoll) clearInterval(partyPoll)
+  if (progressDismissTimer) clearTimeout(progressDismissTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
@@ -97,6 +103,12 @@ function handleSubmitted() {
   // Drop the previous round's status so the timeline starts fresh instead of
   // instantly showing the last order's "completed" stage.
   orderStatusStore.clear()
+  // New round → revive the progress button and cancel any pending auto-hide.
+  progressDismissed.value = false
+  if (progressDismissTimer) {
+    clearTimeout(progressDismissTimer)
+    progressDismissTimer = null
+  }
   orderInProgress.value = true
   screen.value = 'sent'
   // Deliberately NO re-join here: the backend freed this guest's seat when the
@@ -188,10 +200,26 @@ function viewProgress() {
 const showProgressButton = computed(
   () =>
     orderInProgress.value &&
+    !progressDismissed.value &&
     screen.value !== 'sent' &&
     screen.value !== 'language' &&
     !showSessionError.value &&
     !flashOverlayActive.value,
+)
+
+// When the order is served (status "completed" / Servire la masă), the diner no
+// longer needs to track it — retire the re-open button after a short grace.
+const PROGRESS_DISMISS_MS = 12_000
+watch(
+  () => orderStatusStore.status,
+  (status) => {
+    if (status === 'completed' && !progressDismissed.value && !progressDismissTimer) {
+      progressDismissTimer = setTimeout(() => {
+        progressDismissed.value = true
+        progressDismissTimer = null
+      }, PROGRESS_DISMISS_MS)
+    }
+  },
 )
 </script>
 

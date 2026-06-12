@@ -6,7 +6,6 @@ import { useMenu } from '@/composables/useMenu'
 import { useSessionStore } from '@/stores/useSessionStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import Pebble from '@/components/ui/Pebble.vue'
-import FoodTile from '@/components/ui/FoodTile.vue'
 
 const emit = defineEmits<{
   (e: 'open-category', id: string): void
@@ -101,9 +100,6 @@ const panelStyle = computed(() => {
   }
 })
 
-// First main category is the "Recomandarea zilei" anchor; sticky bar links to it.
-const dailyTarget = computed(() => pebbles.value[0] ?? null)
-
 function handlePebbleClick(id: string, ev: MouseEvent) {
   if (navigateTimer) return
   active.value = id
@@ -126,21 +122,6 @@ function handlePebbleClick(id: string, ev: MouseEvent) {
 
   navigateTimer = setTimeout(() => {
     emit('open-category', id)
-  }, 360)
-}
-
-function openDaily() {
-  if (!dailyTarget.value) return
-  // Reuse the warp by faking an event from the sticky bar centre.
-  const phone = document.querySelector('.phone-screen') as HTMLElement | null
-  const phoneRect = phone?.getBoundingClientRect()
-  if (phoneRect) {
-    warp.value = { x: phoneRect.width / 2, y: phoneRect.height - 100 }
-  }
-  active.value = dailyTarget.value.id
-  if (navigateTimer) clearTimeout(navigateTimer)
-  navigateTimer = setTimeout(() => {
-    emit('open-category', dailyTarget.value!.id)
   }, 360)
 }
 
@@ -213,44 +194,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Sticky "Recomandarea zilei" bar — fades in on the bottom edge. -->
-    <div
-      v-if="dailyTarget"
-      class="sticky-wrap"
-      :style="{
-        background: `linear-gradient(to bottom, transparent, ${T.paper} 28%)`,
-      }"
-    >
-      <button
-        class="daily-card"
-        type="button"
-        :style="{ background: T.ink, color: T.paperHi }"
-        @click="openDaily"
-      >
-        <FoodTile
-          tone="terra"
-          :label="t('welcome.today')"
-          :radius="12"
-          class="daily-tile"
-        />
-        <div class="daily-body">
-          <div class="daily-eyebrow" :style="{ color: T.lime }">
-            {{ t('pebbles.dailyRecommendation') }}
-          </div>
-          <div class="daily-name">{{ t('welcome.featuredName') }}</div>
-          <div
-            class="daily-meta"
-            :style="{ color: theme === 'dark' ? T.ink70 : 'rgba(251,247,236,0.55)' }"
-          >{{ t('welcome.featuredMeta') }}</div>
-        </div>
-        <span
-          class="daily-arrow"
-          :style="{ background: T.accent, color: T.onAccent }"
-          aria-hidden="true"
-        >→</span>
-      </button>
-    </div>
-
     <!-- Warp transition overlay: lime circle expanding from the tapped pebble. -->
     <div
       v-if="warp"
@@ -312,7 +255,7 @@ onBeforeUnmount(() => {
   position: relative;
   flex: 1;
   overflow: hidden auto;
-  padding: 12px clamp(12px, 4vw, 16px) calc(110px + var(--safe-bottom, 0px));
+  padding: 12px clamp(12px, 4vw, 16px) calc(24px + var(--safe-bottom, 0px));
 }
 .bloom {
   position: absolute;
@@ -352,67 +295,6 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr 1fr;
   gap: 0 10px;
   align-items: start;
-}
-
-/* Sticky bottom bar */
-.sticky-wrap {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 10px clamp(12px, 4vw, 16px) calc(18px + var(--safe-bottom, 0px));
-  z-index: 20;
-  pointer-events: none;
-}
-.daily-card {
-  width: 100%;
-  pointer-events: auto;
-  border: none;
-  border-radius: 22px;
-  padding: 14px 16px;
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  box-shadow: 0 16px 40px -12px rgba(21, 20, 15, 0.5);
-}
-.daily-tile {
-  width: 58px;
-  height: 68px;
-  flex-shrink: 0;
-}
-.daily-body {
-  flex: 1;
-  min-width: 0;
-}
-.daily-eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.daily-name {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.2;
-  margin-bottom: 2px;
-}
-.daily-meta {
-  font-size: 13px;
-  font-weight: 500;
-}
-.daily-arrow {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-  font-weight: 700;
 }
 
 /* Warp transition: circle clip expanding from the tapped pebble centre. */
