@@ -80,13 +80,13 @@ const body = computed(() => t('merged.body', { name: initiatorName.value }))
   box-shadow: 0 16px 30px -14px rgba(21, 20, 15, 0.4);
 }
 .title {
-  font-size: 30px;
+  font-size: clamp(25px, 7.7vw, 30px);
   font-weight: 800;
   letter-spacing: -0.02em;
   margin: 0 0 14px;
 }
 .body {
-  font-size: 17px;
+  font-size: clamp(15px, 4.4vw, 17px);
   line-height: 1.55;
   margin: 0;
   max-width: 300px;
@@ -94,8 +94,8 @@ const body = computed(() => t('merged.body', { name: initiatorName.value }))
 .cta {
   position: absolute;
   z-index: 2;
-  bottom: 28px;
-  left: 18px;
-  right: 18px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(14px, 4.6vw, 18px);
+  right: clamp(14px, 4.6vw, 18px);
 }
 </style>

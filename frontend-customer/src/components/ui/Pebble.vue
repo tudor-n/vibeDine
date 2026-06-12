@@ -65,13 +65,12 @@ const fallbackBg = computed(() => (props.theme === 'dark' ? '#3a2418' : '#e8d5b9
       :style="{
         transform: active ? 'scale(1.06) translateY(-4px)' : 'scale(1) translateY(0)',
         filter: dropShadow,
+        maxWidth: `${size}px`,
       }"
     >
       <svg
         viewBox="0 0 100 100"
-        :width="size"
-        :height="size"
-        style="display:block;overflow:visible"
+        class="blob-svg"
         aria-hidden="true"
       >
         <defs>
@@ -154,9 +153,20 @@ const fallbackBg = computed(() => (props.theme === 'dark' ? '#3a2418' : '#e8d5b9
   align-items: center;
   gap: 10px;
   font-family: inherit;
+  width: 100%;
+  min-width: 0;
 }
+/* Fluid: fills the grid cell on narrow phones, capped at the design size. */
 .blob-wrap {
+  width: 100%;
   transition: transform 0.45s cubic-bezier(0.34, 1.4, 0.64, 1), filter 0.3s ease;
+}
+.blob-svg {
+  display: block;
+  overflow: visible;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
 }
 .caption {
   text-align: center;

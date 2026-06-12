@@ -247,21 +247,21 @@ const steps = computed(() => {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 130px;
+  padding-bottom: calc(120px + var(--safe-bottom, 0px));
 }
 .hero {
   position: relative;
-  padding: 32px 24px 0;
+  padding: clamp(20px, 4vh, 32px) clamp(18px, 6vw, 24px) 0;
 }
 .title {
   font-weight: 700;
-  font-size: 48px;
+  font-size: clamp(34px, 12.3vw, 48px);
   line-height: 0.95;
   letter-spacing: -0.03em;
   margin: 0 0 16px;
 }
 .lede {
-  font-size: 18px;
+  font-size: clamp(15px, 4.6vw, 18px);
   line-height: 1.55;
   margin: 0 0 22px;
 }
@@ -309,7 +309,7 @@ const steps = computed(() => {
   font-weight: 500;
 }
 .total-value {
-  font-size: 36px;
+  font-size: clamp(28px, 9.2vw, 36px);
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -325,9 +325,9 @@ const steps = computed(() => {
 .cta {
   position: absolute;
   z-index: 2;
-  bottom: 28px;
-  left: 18px;
-  right: 18px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(14px, 4.6vw, 18px);
+  right: clamp(14px, 4.6vw, 18px);
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;

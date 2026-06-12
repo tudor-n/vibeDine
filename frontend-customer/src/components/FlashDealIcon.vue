@@ -146,8 +146,8 @@ const dashOffset = computed(() => {
      Stays visible across every screen without colliding with header content
      or bottom buttons. */
   position: absolute;
-  bottom: 120px;
-  right: 16px;
+  bottom: calc(110px + var(--safe-bottom, 0px));
+  right: clamp(12px, 4vw, 16px);
   width: 56px;
   height: 56px;
   border-radius: 50%;
