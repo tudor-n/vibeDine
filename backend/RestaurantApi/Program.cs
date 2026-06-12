@@ -99,6 +99,20 @@ builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOpt
 builder.Services.Configure<AppUrlOptions>(builder.Configuration.GetSection(AppUrlOptions.SectionName));
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
+// Warn loudly if Production is about to send mail through the dev defaults —
+// a misconfigured SMTP host/From silently breaks confirmation emails.
+if (builder.Environment.IsProduction())
+{
+    var smtpCheck = builder.Configuration.GetSection(SmtpOptions.SectionName).Get<SmtpOptions>() ?? new SmtpOptions();
+    if (smtpCheck.Host is "localhost" or "127.0.0.1"
+        || smtpCheck.FromAddress.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            "[WARN] SMTP is using development defaults in Production — confirmation emails will NOT be delivered. " +
+            "Set Smtp__Host and Smtp__FromAddress (see docs/email-deliverability-setup.md).");
+    }
+}
+
 // ── AI microservice clients ──────────────────────────────────────────────────
 builder.Services.AddHttpClient("AiService", (sp, client) =>
 {
