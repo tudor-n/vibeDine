@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useMenuImportStore, type HierarchyMoveTarget } from '@/stores/useMenuImportStore'
+import { resolvePhotoUrl } from '@/services/menuImportApi'
 import type { ItemRef } from '@shared/types/menu-import'
 
 const store = useMenuImportStore()
@@ -9,7 +10,7 @@ const search = ref('')
 const collapsedCategories = reactive(new Set<string>())
 
 // ─── Item lookup ────────────────────────────────────────────────────────────
-type Extracted = { name: string; price: number; description?: string | null }
+type Extracted = { name: string; price: number; description?: string | null; imageUrl?: string | null }
 const itemByKey = computed(() => {
   const m = new Map<string, Extracted>()
   for (const it of store.extractedItems) {
@@ -17,6 +18,7 @@ const itemByKey = computed(() => {
       name: it.name,
       price: it.price,
       description: it.description ?? null,
+      imageUrl: it.imageUrl ?? null,
     })
   }
   return m
@@ -353,6 +355,24 @@ function priceDisplay(p: number): string {
                 <span class="page-badge" :title="`Pagina ${ref.sourcePage + 1}`">
                   p{{ ref.sourcePage + 1 }}
                 </span>
+                <span class="hier-thumb-slot">
+                  <template v-if="itemOf(ref)?.imageUrl">
+                    <img
+                      :data-testid="`hier-thumb-${ref.sourcePage}-${ref.sourceIndex}`"
+                      class="hier-thumb"
+                      :src="resolvePhotoUrl(itemOf(ref)?.imageUrl)"
+                      :alt="itemOf(ref)?.name"
+                    />
+                    <button
+                      type="button"
+                      class="hier-thumb-remove"
+                      :data-testid="`hier-thumb-remove-${ref.sourcePage}-${ref.sourceIndex}`"
+                      title="Elimină fotografia"
+                      aria-label="Elimină fotografia"
+                      @click="store.removeItemPhoto({ sourcePage: ref.sourcePage, sourceIndex: ref.sourceIndex })"
+                    >×</button>
+                  </template>
+                </span>
                 <span class="sr-only">{{ itemOf(ref)?.name }}</span>
                 <input
                   type="text"
@@ -421,6 +441,24 @@ function priceDisplay(p: number): string {
                 <span v-else class="confidence-dot-spacer" aria-hidden="true" />
                 <span class="page-badge" :title="`Pagina ${ref.sourcePage + 1}`">
                   p{{ ref.sourcePage + 1 }}
+                </span>
+                <span class="hier-thumb-slot">
+                  <template v-if="itemOf(ref)?.imageUrl">
+                    <img
+                      :data-testid="`hier-thumb-${ref.sourcePage}-${ref.sourceIndex}`"
+                      class="hier-thumb"
+                      :src="resolvePhotoUrl(itemOf(ref)?.imageUrl)"
+                      :alt="itemOf(ref)?.name"
+                    />
+                    <button
+                      type="button"
+                      class="hier-thumb-remove"
+                      :data-testid="`hier-thumb-remove-${ref.sourcePage}-${ref.sourceIndex}`"
+                      title="Elimină fotografia"
+                      aria-label="Elimină fotografia"
+                      @click="store.removeItemPhoto({ sourcePage: ref.sourcePage, sourceIndex: ref.sourceIndex })"
+                    >×</button>
+                  </template>
                 </span>
                 <span class="sr-only">{{ itemOf(ref)?.name }}</span>
                 <input
@@ -517,6 +555,24 @@ function priceDisplay(p: number): string {
           />
           <span class="page-badge" :title="`Pagina ${ref.sourcePage + 1}`">
             p{{ ref.sourcePage + 1 }}
+          </span>
+          <span class="hier-thumb-slot">
+            <template v-if="itemOf(ref)?.imageUrl">
+              <img
+                :data-testid="`hier-thumb-${ref.sourcePage}-${ref.sourceIndex}`"
+                class="hier-thumb"
+                :src="resolvePhotoUrl(itemOf(ref)?.imageUrl)"
+                :alt="itemOf(ref)?.name"
+              />
+              <button
+                type="button"
+                class="hier-thumb-remove"
+                :data-testid="`hier-thumb-remove-${ref.sourcePage}-${ref.sourceIndex}`"
+                title="Elimină fotografia"
+                aria-label="Elimină fotografia"
+                @click="store.removeItemPhoto({ sourcePage: ref.sourcePage, sourceIndex: ref.sourceIndex })"
+              >×</button>
+            </template>
           </span>
           <input
             type="text"
@@ -770,12 +826,43 @@ function priceDisplay(p: number): string {
 }
 .item-row {
   display: grid;
-  grid-template-columns: 14px 44px minmax(0, 1fr) 110px auto auto;
+  grid-template-columns: 14px 44px auto minmax(0, 1fr) 110px auto auto;
   gap: 8px;
   align-items: center;
   padding: 4px 6px;
   border-radius: 10px;
   transition: background 0.12s ease;
+}
+
+/* Dish-photo crop. The column collapses to 0 for items without a photo. */
+.hier-thumb-slot {
+  position: relative;
+  display: inline-flex;
+  line-height: 0;
+}
+.hier-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--ink06);
+  border: 1px solid var(--ink12);
+}
+.hier-thumb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(21, 20, 15, 0.78);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
 }
 .item-row:hover { background: var(--ink06); }
 .item-row.is-low-conf { background: var(--accentSoft); }
@@ -896,15 +983,16 @@ function priceDisplay(p: number): string {
   .cat-actions { grid-area: actions; justify-content: flex-end; }
 
   .item-row {
-    grid-template-columns: 14px 44px minmax(0, 1fr) auto;
+    grid-template-columns: 14px 44px auto minmax(0, 1fr) auto;
     grid-template-areas:
-      'conf badge name skip'
-      '. . price price'
-      '. . move move';
+      'conf badge thumb name skip'
+      '. . . price price'
+      '. . . move move';
   }
   .item-row .confidence-dot,
   .item-row .confidence-dot-spacer { grid-area: conf; }
   .item-row .page-badge { grid-area: badge; }
+  .item-row .hier-thumb-slot { grid-area: thumb; }
   .item-row .row-name-input { grid-area: name; }
   .item-row .row-price-input { grid-area: price; }
   .item-row .row-move-select { grid-area: move; max-width: unset; }

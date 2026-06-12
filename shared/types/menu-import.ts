@@ -9,6 +9,7 @@ export interface ExtractedMenuItem {
   description?: string | null
   categoryHint?: string | null
   confidence?: number | null
+  imageUrl?: string | null
 }
 
 export interface FailedPage {
@@ -36,6 +37,7 @@ export interface BulkCreateProductItem {
   categoryId: string
   description?: string | null
   isAvailable?: boolean
+  imageUrl?: string | null
 }
 
 export interface BulkCreateProductsRequest {
@@ -91,6 +93,7 @@ export interface BulkHierarchyProductRequest {
   subcategoryTempId?: string | null
   sortOrder: number
   isAvailable: boolean
+  imageUrl?: string | null
 }
 
 export interface BulkCreateHierarchyRequest {
