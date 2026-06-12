@@ -6,7 +6,7 @@ from models.schemas import AutoGenerateRequest
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
 
-GEMINI_MODEL = "gemini-3.1-pro-preview"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 
 def generate_similarity_rules(request: AutoGenerateRequest) -> dict:
