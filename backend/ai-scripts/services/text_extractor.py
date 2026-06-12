@@ -133,7 +133,7 @@ def _build_pages_text(pages: list[BatchTextExtractionPage]) -> str:
 # GeminiTextExtractor
 # ---------------------------------------------------------------------------
 
-GEMINI_TEXT_DEFAULT_MODEL = "gemini-2.0-flash"
+GEMINI_TEXT_DEFAULT_MODEL = "gemini-3.1-pro-preview"
 
 GEMINI_TEXT_RESPONSE_SCHEMA = {
     "type": "object",
