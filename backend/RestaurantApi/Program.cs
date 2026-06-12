@@ -97,7 +97,38 @@ builder.Services.AddAuthorization();
 // ── Email ────────────────────────────────────────────────────────────────────
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<AppUrlOptions>(builder.Configuration.GetSection(AppUrlOptions.SectionName));
-builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+
+// Railway (and most PaaS) block outbound SMTP ports, so production sends through Resend's
+// HTTP API (port 443). Local dev keeps the MailKit SMTP sender (e.g. mailpit). Selected
+// by Email:Provider. The HttpClient timeout caps the register request so a slow/blocked
+// provider can never freeze it (the old SMTP path hung for the full ~2-minute timeout).
+var emailProvider = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>()?.Provider ?? "smtp";
+var usingResend = string.Equals(emailProvider, "resend", StringComparison.OrdinalIgnoreCase);
+if (usingResend)
+{
+    builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>(c =>
+        c.Timeout = TimeSpan.FromSeconds(15));
+}
+else
+{
+    builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+}
+
+// Warn loudly if Production is about to send mail through the SMTP dev defaults —
+// a misconfigured SMTP host/From silently breaks confirmation emails. Skipped when
+// using Resend, where Smtp:Host/From are irrelevant.
+if (builder.Environment.IsProduction() && !usingResend)
+{
+    var smtpCheck = builder.Configuration.GetSection(SmtpOptions.SectionName).Get<SmtpOptions>() ?? new SmtpOptions();
+    if (smtpCheck.Host is "localhost" or "127.0.0.1"
+        || smtpCheck.FromAddress.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            "[WARN] SMTP is using development defaults in Production — confirmation emails will NOT be delivered. " +
+            "Set Email__Provider=resend (recommended on Railway) or Smtp__Host/Smtp__FromAddress (see docs/email-deliverability-setup.md).");
+    }
+}
 
 // ── AI microservice clients ──────────────────────────────────────────────────
 builder.Services.AddHttpClient("AiService", (sp, client) =>

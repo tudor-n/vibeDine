@@ -109,6 +109,12 @@ public class StaffHubAuthorizationTests
 
         public Task<bool> IsOrgOwnerAsync(Guid userId, Guid organizationId)
             => Task.FromResult(false);
+
+        public Task<bool> CanManageRestaurantAsync(Guid userId, Guid restaurantId)
+            => Task.FromResult(false);
+
+        public Task<bool> IsActiveWaiterAsync(Guid userId, Guid restaurantId)
+            => Task.FromResult(false);
     }
 
     private sealed class RecordingGroupManager : IGroupManager
