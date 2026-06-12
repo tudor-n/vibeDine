@@ -12,6 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from models.menu_extraction import MenuExtractionResponse, PdfJobRequest
+from services.item_photo_extractor import resolve_item_photo_extractor
 from services.menu_extraction_service import MenuExtractionService
 from services.menu_organizer import resolve_organizer
 from services.pdf_menu_extraction_service import PdfMenuExtractionService, PdfReadError
@@ -73,6 +74,7 @@ def get_extraction_service() -> MenuExtractionService:
     return MenuExtractionService(
         extractor_factory=_default_extractor_factory,
         organizer_factory=resolve_organizer,
+        photo_extractor_factory=resolve_item_photo_extractor,
     )
 
 
@@ -80,12 +82,15 @@ def get_extraction_service() -> MenuExtractionService:
 async def extract_menu(
     photos: List[UploadFile] = File(default=[]),
     locale: str = Form("ro-RO"),
+    extract_item_photos: bool = Form(False),
     service: MenuExtractionService = Depends(get_extraction_service),
 ) -> MenuExtractionResponse:
     if not photos:
         raise HTTPException(status_code=400, detail="At least one photo is required.")
     image_bytes_list = [await p.read() for p in photos]
-    return await service.extract(image_bytes_list, locale=locale)
+    return await service.extract(
+        image_bytes_list, locale=locale, extract_item_photos=extract_item_photos
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +139,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
         4_000_000,
         minimum=0,
     )
+    item_photo_max_pages = _read_int_env("ITEM_PHOTO_MAX_PAGES", 50, minimum=0)
 
     text_extractor_factory = _build_text_extractor_factory()
 
@@ -155,6 +161,12 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
             render_quality=render_quality,
             max_embedded_image_bytes=max_embedded_image_bytes,
             organizer_factory=resolve_organizer,
+            # Only wire the detector when this import opted in, so the default
+            # path is byte-identical to before.
+            item_photo_extractor_factory=(
+                resolve_item_photo_extractor if req.extract_item_photos else None
+            ),
+            item_photo_max_pages=item_photo_max_pages,
         )
 
     return builder
@@ -210,6 +222,7 @@ async def extract_pdf(
     hmac_secret: str = Form(..., min_length=8),
     provider: str = Form("gemini"),
     locale: str = Form("ro-RO"),
+    extract_item_photos: bool = Form(False),
     factory: Callable[[PdfJobRequest], PdfMenuExtractionService] = Depends(
         get_pdf_extraction_service_factory
     ),
@@ -237,6 +250,7 @@ async def extract_pdf(
             hmac_secret=hmac_secret,
             provider=provider,
             locale=locale,
+            extract_item_photos=extract_item_photos,
         )
         service = factory(request)
         try:
