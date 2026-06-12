@@ -34,7 +34,7 @@ except Exception:  # pragma: no cover - missing/incompatible wheel
 
 from PIL import Image
 
-GEMINI_ITEM_PHOTO_DEFAULT_MODEL = "gemini-3.1-pro-preview"
+GEMINI_ITEM_PHOTO_DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
 # Crop / validation tuning.
 _MAX_CROP_SIDE_PX = 1024
