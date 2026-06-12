@@ -5,12 +5,14 @@ import { useTheme } from '@/composables/useTheme'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
+import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const importStore = useMenuImportStore()
+const waiterCalls = useWaiterCallsStore()
 
 // Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
 // full-screen without the admin shell.
@@ -32,6 +34,17 @@ watch(
   },
 )
 
+// Keep the global waiter-call connection alive for any signed-in staffer with an
+// active restaurant — independent of the current page — so calls surface anywhere.
+watch(
+  () => [auth.isAuthenticated, auth.activeRestaurantId] as const,
+  ([isAuth, rid]) => {
+    if (isAuth && rid) void waiterCalls.start(rid)
+    else void waiterCalls.stop()
+  },
+  { immediate: true },
+)
+
 // Global progress pill: visible whenever an import is in flight and we're not already on the import page.
 const importInFlight = computed(() => {
   if (importStore.isScanning) return true
@@ -43,6 +56,12 @@ const importInFlight = computed(() => {
 })
 const showImportPill = computed(
   () => showShell.value && importInFlight.value && route.path !== '/menu/import',
+)
+
+// Persistent floating alert while calls are open — visible on every dashboard page
+// except the calls view itself (where the full list already shows).
+const showCallsPill = computed(
+  () => showShell.value && waiterCalls.count > 0 && route.name !== 'waiter-calls',
 )
 const importPillLabel = computed(() => {
   if (importStore.mode === 'pdf' && importStore.pdfJob) {
@@ -200,6 +219,13 @@ function logout() {
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
+      <RouterLink to="/waiter-calls" class="nav-link" active-class="nav-link-active">
+        <span class="nav-icon" aria-hidden="true">◉</span>
+        <span class="nav-label">Chemări</span>
+        <span v-if="waiterCalls.count" class="nav-badge" aria-label="chemări active">{{ waiterCalls.count }}</span>
+        <span v-else class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
       <RouterLink v-if="!auth.isWaiter" to="/ai-config" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">✦</span>
         <span class="nav-label">Configurare AI</span>
@@ -262,6 +288,20 @@ function logout() {
       <span class="import-pill-spinner" aria-hidden="true"></span>
       <span class="import-pill-label">{{ importPillLabel }}</span>
       <span class="import-pill-arrow" aria-hidden="true">→</span>
+    </RouterLink>
+
+    <RouterLink
+      v-if="showCallsPill"
+      to="/waiter-calls"
+      class="calls-pill"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="calls-pill-dot" aria-hidden="true"></span>
+      <span class="calls-pill-label">
+        {{ waiterCalls.count }} {{ waiterCalls.count === 1 ? 'chemare' : 'chemări' }} · Vezi
+      </span>
+      <span class="calls-pill-arrow" aria-hidden="true">→</span>
     </RouterLink>
 
     <ToastContainer />
@@ -546,5 +586,81 @@ button.nav-link {
 
 @media (prefers-reduced-motion: reduce) {
   .import-pill-spinner { animation: none; opacity: 1; }
+}
+
+/* Waiter-call count badge on the "Chemări" nav item */
+.nav-badge {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.nav-link-active .nav-badge {
+  background: var(--lime);
+  color: var(--onLime);
+}
+
+/* Floating waiter-call alert — fixed bottom-left so it never collides with the
+   bottom-right import pill, the top-right theme toggle, or the mobile top nav.
+   Accent colour + pulse so it's impossible to miss from any page. */
+.calls-pill {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 56;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  box-shadow: 0 14px 30px -10px rgba(255, 74, 28, 0.6);
+  border: 1px solid var(--accent);
+  max-width: calc(100vw - 40px);
+  animation: calls-pill-pulse 1.5s ease-in-out infinite;
+  transition: transform 0.15s ease;
+}
+.calls-pill:hover {
+  transform: translateY(-1px);
+}
+.calls-pill-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.9);
+  flex-shrink: 0;
+}
+.calls-pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60vw;
+}
+.calls-pill-arrow {
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+@keyframes calls-pill-pulse {
+  0%, 100% { box-shadow: 0 14px 30px -10px rgba(255, 74, 28, 0.6), 0 0 0 0 rgba(255, 74, 28, 0.5); }
+  50%      { box-shadow: 0 14px 30px -10px rgba(255, 74, 28, 0.6), 0 0 0 10px rgba(255, 74, 28, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .calls-pill { animation: none; }
 }
 </style>

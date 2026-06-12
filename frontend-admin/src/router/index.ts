@@ -84,6 +84,11 @@ const router = createRouter({
             redirect: { name: 'orders-active' },
         },
         {
+            path: '/waiter-calls',
+            name: 'waiter-calls',
+            component: () => import('@/views/WaiterCallsView.vue')
+        },
+        {
             path: '/tables',
             name: 'tables',
             component: () => import('@/views/TablesView.vue')
@@ -186,6 +191,7 @@ router.beforeEach(async (to) => {
     const WAITER_ALLOWED = new Set([
         'orders-active',
         'orders',
+        'waiter-calls',
         'org-picker',
         'settings-profile',
     ])

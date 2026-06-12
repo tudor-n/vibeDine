@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
-import { useHelpCallStore, COOLDOWN_TOTAL_SECONDS } from '@/stores/useHelpCallStore'
+import { useHelpCallStore } from '@/stores/useHelpCallStore'
 
 const store = useHelpCallStore()
 const { tokens: T } = useTheme()
@@ -22,17 +22,6 @@ function handleClick() {
   store.callWaiter()
 }
 
-const SIZE = 56
-const STROKE = 4
-const RADIUS = (SIZE - STROKE) / 2
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS
-
-const dashOffset = computed(() => {
-  if (!store.isCoolingDown) return CIRCUMFERENCE
-  const pct = Math.max(0, Math.min(1, store.cooldownRemaining / COOLDOWN_TOTAL_SECONDS))
-  return CIRCUMFERENCE * (1 - pct)
-})
-
 const minutes = computed(() =>
   Math.floor(store.cooldownRemaining / 60).toString().padStart(1, '0'),
 )
@@ -40,7 +29,7 @@ const seconds = computed(() =>
   Math.floor(store.cooldownRemaining % 60).toString().padStart(2, '0'),
 )
 
-const ariaLabel = computed(() => t('waiter.iconLabel'))
+const label = computed(() => t('waiter.iconLabel'))
 
 // Toast shown right after a tap so the action is unmistakable. Success and the
 // rate-limited case both mean "a waiter has the alert"; only a real failure is
@@ -60,9 +49,9 @@ const toastStyle = computed(() =>
   <button
     type="button"
     tabindex="-1"
-    class="call-waiter-icon"
+    class="call-waiter-pill"
     :class="{ 'is-cooling': store.isCoolingDown, 'is-pending': store.isPending }"
-    :aria-label="ariaLabel"
+    :aria-label="label"
     :aria-disabled="store.isCoolingDown || store.isPending"
     :disabled="store.isCoolingDown || store.isPending"
     :style="{ background: T.accent, color: '#fff' }"
@@ -71,41 +60,11 @@ const toastStyle = computed(() =>
     @click="handleClick"
   >
     <svg
-      v-if="store.isCoolingDown"
-      class="ring"
-      :width="SIZE"
-      :height="SIZE"
-      :viewBox="`0 0 ${SIZE} ${SIZE}`"
-      aria-hidden="true"
-    >
-      <circle
-        :cx="SIZE / 2"
-        :cy="SIZE / 2"
-        :r="RADIUS"
-        fill="none"
-        stroke="rgba(255,255,255,0.25)"
-        :stroke-width="STROKE"
-      />
-      <circle
-        :cx="SIZE / 2"
-        :cy="SIZE / 2"
-        :r="RADIUS"
-        fill="none"
-        stroke="#fff"
-        :stroke-width="STROKE"
-        stroke-linecap="round"
-        :stroke-dasharray="CIRCUMFERENCE"
-        :stroke-dashoffset="dashOffset"
-        :transform="`rotate(-90 ${SIZE / 2} ${SIZE / 2})`"
-      />
-    </svg>
-
-    <svg
       v-if="!store.isPending"
-      class="bell"
+      class="pill-ic"
       viewBox="0 0 24 24"
-      width="22"
-      height="22"
+      width="20"
+      height="20"
       aria-hidden="true"
     >
       <path
@@ -115,10 +74,10 @@ const toastStyle = computed(() =>
     </svg>
     <svg
       v-else
-      class="spinner"
+      class="pill-ic spinner"
       viewBox="0 0 24 24"
-      width="22"
-      height="22"
+      width="20"
+      height="20"
       aria-hidden="true"
     >
       <circle
@@ -136,7 +95,11 @@ const toastStyle = computed(() =>
       />
     </svg>
 
-    <span v-if="store.isCoolingDown" class="countdown">{{ minutes }}:{{ seconds }}</span>
+    <span class="pill-label">
+      <template v-if="store.isPending">{{ t('waiter.calling') }}</template>
+      <template v-else-if="store.isCoolingDown">{{ minutes }}:{{ seconds }}</template>
+      <template v-else>{{ label }}</template>
+    </span>
   </button>
 
   <Transition name="cw-toast">
@@ -186,82 +149,75 @@ const toastStyle = computed(() =>
 </template>
 
 <style scoped>
-.call-waiter-icon {
-  /* Pinned bottom-left so it coexists with FlashDealIcon (bottom-right).
-     Same 56px footprint and 120px vertical clearance keep them aligned. */
+/* Floating "call waiter" pill, pinned top-center of the phone frame so it reads
+   as the primary action at the top of the app. It stays narrow and centered so
+   it never underlaps the top-right theme toggle. */
+.call-waiter-pill {
   position: absolute;
-  bottom: calc(110px + var(--safe-bottom, 0px));
-  left: clamp(12px, 4vw, 16px);
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
+  top: calc(14px + var(--safe-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  max-width: min(68%, 240px);
+  border-radius: 999px;
   border: none;
   outline: none !important;
   -webkit-tap-highlight-color: transparent;
   /* Kill the tap/selection "blue box": stop the long-press callout and any text
-     selection of the icon/countdown, and neutralise a Tailwind ring if one is
-     ever inherited. The drop shadow is reasserted so focus never restyles it. */
+     selection, and neutralise a Tailwind ring if one is ever inherited. */
   -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
   --tw-ring-shadow: 0 0 #0000;
   --tw-ring-offset-shadow: 0 0 #0000;
-  display: grid;
-  place-items: center;
   cursor: pointer;
-  z-index: 55;
+  z-index: 57;
   font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
   box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45);
   animation: pulse 1.6s ease-in-out infinite;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.15s ease;
 }
-.call-waiter-icon.is-cooling,
-.call-waiter-icon.is-pending {
+.call-waiter-pill.is-cooling,
+.call-waiter-pill.is-pending {
   cursor: default;
   animation: none;
+  opacity: 0.92;
 }
-.call-waiter-icon:focus,
-.call-waiter-icon:focus-visible,
-.call-waiter-icon:focus-within {
+.call-waiter-pill:focus,
+.call-waiter-pill:focus-visible,
+.call-waiter-pill:focus-within {
   outline: none !important;
   outline-width: 0 !important;
   outline-style: none !important;
   outline-color: transparent !important;
   box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45) !important;
 }
-.call-waiter-icon::-moz-focus-inner {
+.call-waiter-pill::-moz-focus-inner {
   border: 0 !important;
   outline: 0 !important;
   padding: 0 !important;
 }
-.call-waiter-icon:not(:disabled):active {
-  transform: scale(0.94);
+.call-waiter-pill:not(:disabled):active {
+  transform: translateX(-50%) scale(0.96);
 }
-.ring {
-  position: absolute;
-  inset: 0;
-  transition: stroke-dashoffset 1s linear;
+.pill-ic {
+  flex-shrink: 0;
 }
-.bell {
-  position: absolute;
-  top: 8px;
-  pointer-events: none;
+.pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .spinner {
-  position: absolute;
-  top: 8px;
-  pointer-events: none;
   animation: spin 0.9s linear infinite;
-}
-.countdown {
-  position: absolute;
-  bottom: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  letter-spacing: -0.02em;
-  pointer-events: none;
-  color: #fff;
 }
 @keyframes pulse {
   0%,
@@ -279,11 +235,11 @@ const toastStyle = computed(() =>
   to { transform: rotate(360deg); }
 }
 
-/* Confirmation toast — pinned to the top of the phone frame so the customer
-   gets immediate, unmistakable feedback that the tap registered. */
+/* Confirmation toast — sits just below the pill so the customer gets immediate,
+   unmistakable feedback without overlapping the call button itself. */
 .cw-toast {
   position: absolute;
-  top: 16px;
+  top: 64px;
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100% - 32px);

@@ -397,6 +397,13 @@ export const tablesApi = {
         }),
 };
 
+export interface WaiterCall {
+    requestId: string;
+    tableId: string;
+    tableNumber: string | null;
+    createdAt: string;
+}
+
 // ── Restaurant-scoped dashboard API ──────────────────────────────────────────
 export const apiClient = {
     getMetrics: () =>
@@ -413,6 +420,16 @@ export const apiClient = {
             method: 'PATCH',
             body: JSON.stringify({ status }),
         }),
+
+    // Waiter calls (help requests) — the live queue shown on the staff dashboard.
+    getHelpRequests: () =>
+        authedFetcher<WaiterCall[]>(scoped('/help-requests')),
+
+    acknowledgeHelpRequest: (requestId: string) =>
+        authedFetcher<{ alreadyAcknowledged?: boolean }>(
+            scoped(`/help-requests/${requestId}/acknowledge`),
+            { method: 'POST' },
+        ),
 
     getDirectives: () =>
         authedFetcher<AIDirective[]>(scoped('/admin/directives')),
