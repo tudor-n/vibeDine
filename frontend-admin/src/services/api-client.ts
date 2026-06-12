@@ -121,7 +121,10 @@ async function parseOrThrow<T>(response: Response): Promise<T> {
         throw new Error(errorData.message || errorData.error || `API Error: ${response.status}`);
     }
     if (response.status === 204) return {} as T;
-    return response.json();
+    // Tolerate empty 200 bodies (some endpoints return Ok() with no payload);
+    // calling response.json() on those throws "Unexpected end of JSON input".
+    const text = await response.text();
+    return (text ? JSON.parse(text) : {}) as T;
 }
 
 /** Unauthenticated request — used for login / register / refresh. */

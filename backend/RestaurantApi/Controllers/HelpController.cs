@@ -122,6 +122,6 @@ public class HelpController : ControllerBase
             .Group(TenantGroups.Table(restaurantId, req.TableId))
             .SendAsync("WaiterOnTheWay", new { requestId = req.Id });
 
-        return Ok();
+        return Ok(new { alreadyAcknowledged = false });
     }
 }

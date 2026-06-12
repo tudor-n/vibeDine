@@ -149,14 +149,12 @@ const toastStyle = computed(() =>
 </template>
 
 <style scoped>
-/* Floating "call waiter" pill, pinned top-center of the phone frame so it reads
-   as the primary action at the top of the app. It stays narrow and centered so
-   it never underlaps the top-right theme toggle. */
+/* Floating "call waiter" pill, pinned top-left of the phone frame. It stays
+   narrow so it never underlaps the top-right theme toggle / progress button. */
 .call-waiter-pill {
   position: absolute;
   top: calc(14px + var(--safe-top, 0px));
-  left: 50%;
-  transform: translateX(-50%);
+  left: calc(14px + var(--safe-left, 0px));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -183,13 +181,11 @@ const toastStyle = computed(() =>
   line-height: 1;
   white-space: nowrap;
   box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45);
-  animation: pulse 1.6s ease-in-out infinite;
   transition: opacity 0.2s ease, transform 0.15s ease;
 }
 .call-waiter-pill.is-cooling,
 .call-waiter-pill.is-pending {
   cursor: default;
-  animation: none;
   opacity: 0.92;
 }
 .call-waiter-pill:focus,
@@ -207,7 +203,7 @@ const toastStyle = computed(() =>
   padding: 0 !important;
 }
 .call-waiter-pill:not(:disabled):active {
-  transform: translateX(-50%) scale(0.96);
+  transform: scale(0.96);
 }
 .pill-ic {
   flex-shrink: 0;
@@ -219,17 +215,6 @@ const toastStyle = computed(() =>
 .spinner {
   animation: spin 0.9s linear infinite;
 }
-@keyframes pulse {
-  0%,
-  100% {
-    box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45),
-      0 0 0 0 rgba(255, 74, 28, 0.55);
-  }
-  50% {
-    box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45),
-      0 0 0 12px rgba(255, 74, 28, 0);
-  }
-}
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -240,9 +225,8 @@ const toastStyle = computed(() =>
 .cw-toast {
   position: absolute;
   top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100% - 32px);
+  left: calc(14px + var(--safe-left, 0px));
+  max-width: calc(100% - 28px);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -268,6 +252,6 @@ const toastStyle = computed(() =>
 .cw-toast-enter-from,
 .cw-toast-leave-to {
   opacity: 0;
-  transform: translateX(-50%) translateY(-16px);
+  transform: translateY(-16px);
 }
 </style>
