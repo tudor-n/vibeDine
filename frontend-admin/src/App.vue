@@ -78,7 +78,7 @@ function logout() {
 
 <template>
   <RouterView v-if="!showShell" />
-  <div v-else class="min-h-screen bg-paper text-ink flex flex-col md:flex-row relative overflow-hidden">
+  <div v-else class="min-h-screen md:h-screen bg-paper text-ink flex flex-col md:flex-row relative overflow-hidden">
     <!-- Background blooms -->
     <div class="bloom bloom-accent" style="top: -120px; right: -140px; width: 420px; height: 420px;" />
     <div class="bloom bloom-lime" style="bottom: -120px; left: 12%; width: 360px; height: 360px;" />
@@ -100,7 +100,7 @@ function logout() {
     </button>
 
     <nav
-      class="relative z-10 w-full md:w-72 flex-shrink-0 p-5 md:p-6 flex md:flex-col gap-1 md:gap-1.5 md:min-h-screen md:border-r border-ink-12 nav-shell"
+      class="relative z-10 w-full md:w-72 flex-shrink-0 p-5 md:p-6 flex md:flex-col gap-1 md:gap-1.5 md:h-screen md:overflow-y-auto md:border-r border-ink-12 nav-shell"
       aria-label="Navigare admin"
     >
       <!-- Brand block -->

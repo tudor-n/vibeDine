@@ -310,18 +310,20 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
 .stage {
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: stretch;
   justify-content: center;
 }
+/* On phones the frame IS the screen: full width, full dynamic height (dvh
+   tracks the browser URL bar collapsing). The framed 390px preview only
+   applies on larger screens. */
 .phone-frame {
   width: 100%;
-  max-width: 390px;
-  min-height: 100vh;
+  height: 100vh;
   height: 100dvh;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 30px 60px -20px rgba(21, 20, 15, 0.18);
 }
 @media (min-width: 480px) {
   .stage {
@@ -329,9 +331,11 @@ const showSessionError = computed(() => sessionError.value !== null && screen.va
     align-items: center;
   }
   .phone-frame {
+    max-width: 390px;
     height: 844px;
-    min-height: 0;
+    max-height: calc(100vh - 48px);
     border-radius: 44px;
+    box-shadow: 0 30px 60px -20px rgba(21, 20, 15, 0.18);
   }
 }
 

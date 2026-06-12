@@ -348,7 +348,7 @@ function addRecommendation(rec: Recommendation) {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 110px;
+  padding-bottom: calc(110px + var(--safe-bottom, 0px));
 }
 .search-row {
   position: relative;
@@ -415,31 +415,32 @@ function addRecommendation(rec: Recommendation) {
   text-align: center;
 }
 .dishes {
-  padding: 0 16px 18px;
+  padding: 0 clamp(12px, 4vw, 16px) 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .dish {
   border-radius: 22px;
-  padding: 14px;
+  padding: clamp(12px, 3.5vw, 14px);
   box-shadow: 0 2px 10px -6px rgba(21, 20, 15, 0.08);
+  --tile: clamp(76px, 24vw, 100px);
 }
 .dish-row {
   display: grid;
-  grid-template-columns: 100px 1fr;
-  gap: 16px;
+  grid-template-columns: var(--tile) 1fr;
+  gap: clamp(12px, 4vw, 16px);
   margin-bottom: 12px;
 }
 .dish-tile {
-  width: 100px;
-  height: 100px;
+  width: var(--tile);
+  height: var(--tile);
 }
 .dish-body {
   padding: 2px 0;
 }
 .dish-name {
-  font-size: 18px;
+  font-size: clamp(16px, 4.6vw, 18px);
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.2;
@@ -460,7 +461,7 @@ function addRecommendation(rec: Recommendation) {
   padding-top: 10px;
 }
 .price {
-  font-size: 24px;
+  font-size: clamp(20px, 6.1vw, 24px);
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -471,9 +472,9 @@ function addRecommendation(rec: Recommendation) {
 .add-btn {
   border: none;
   height: 48px;
-  padding: 0 20px;
+  padding: 0 clamp(14px, 4.5vw, 20px);
   border-radius: 999px;
-  font-size: 16px;
+  font-size: clamp(14px, 4.1vw, 16px);
   font-weight: 700;
   cursor: pointer;
   display: flex;
@@ -510,7 +511,8 @@ function addRecommendation(rec: Recommendation) {
 }
 .recs-strip::-webkit-scrollbar { display: none; }
 .rec-card {
-  min-width: 170px;
+  min-width: clamp(146px, 44vw, 170px);
+  max-width: 200px;
   border-radius: 20px;
   padding: 12px;
   display: flex;
@@ -556,10 +558,10 @@ function addRecommendation(rec: Recommendation) {
 }
 .cart-bar {
   position: absolute;
-  bottom: 24px;
-  left: 14px;
-  right: 14px;
-  padding: 14px 16px 14px 22px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(12px, 3.6vw, 14px);
+  right: clamp(12px, 3.6vw, 14px);
+  padding: 14px 16px 14px clamp(16px, 5.6vw, 22px);
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -573,14 +575,14 @@ function addRecommendation(rec: Recommendation) {
   margin-bottom: 2px;
 }
 .cart-summary {
-  font-size: 20px;
+  font-size: clamp(17px, 5.1vw, 20px);
   font-weight: 700;
 }
 .cart-cta {
   border: none;
   border-radius: 999px;
-  padding: 13px 20px;
-  font-size: 15px;
+  padding: 13px clamp(15px, 5.1vw, 20px);
+  font-size: clamp(14px, 3.8vw, 15px);
   font-weight: 700;
   cursor: pointer;
   font-family: inherit;

@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Safe-area clearance for phones with a home indicator / notch (requires
+   viewport-fit=cover in index.html). Falls back to 0 on other devices. */
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
 /* Floating action buttons (Call-Waiter, Flash-Deal) are pointer-only
    (tabindex="-1"). They must never paint the browser's blue focus box, the
    mobile tap highlight, a long-press callout, a text selection, or an inherited

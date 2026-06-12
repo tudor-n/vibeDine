@@ -264,15 +264,15 @@ async function submit() {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 130px;
+  padding-bottom: calc(120px + var(--safe-bottom, 0px));
 }
 .lede {
-  font-size: 16px;
-  margin: 0 22px 16px;
+  font-size: clamp(14px, 4.1vw, 16px);
+  margin: 0 clamp(18px, 5.6vw, 22px) 16px;
   line-height: 1.45;
 }
 .items {
-  padding: 0 16px;
+  padding: 0 clamp(12px, 4vw, 16px);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -289,7 +289,7 @@ async function submit() {
   height: 68px;
 }
 .item-name {
-  font-size: 18px;
+  font-size: clamp(16px, 4.6vw, 18px);
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.2;
@@ -311,7 +311,7 @@ async function submit() {
   margin-top: 8px;
 }
 .item-price {
-  font-size: 22px;
+  font-size: clamp(19px, 5.6vw, 22px);
   font-weight: 700;
 }
 .item-price-unit {
@@ -341,7 +341,7 @@ async function submit() {
   font-weight: 700;
 }
 .summary-wrap {
-  padding: 16px 22px 0;
+  padding: 16px clamp(16px, 5.6vw, 22px) 0;
 }
 .summary {
   border-radius: 20px;
@@ -367,7 +367,7 @@ async function submit() {
   font-weight: 600;
 }
 .total-value {
-  font-size: 32px;
+  font-size: clamp(26px, 8.2vw, 32px);
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -386,8 +386,8 @@ async function submit() {
 .cta {
   position: absolute;
   z-index: 2;
-  bottom: 28px;
-  left: 18px;
-  right: 18px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(14px, 4.6vw, 18px);
+  right: clamp(14px, 4.6vw, 18px);
 }
 </style>

@@ -190,8 +190,8 @@ const toastStyle = computed(() =>
   /* Pinned bottom-left so it coexists with FlashDealIcon (bottom-right).
      Same 56px footprint and 120px vertical clearance keep them aligned. */
   position: absolute;
-  bottom: 120px;
-  left: 16px;
+  bottom: calc(110px + var(--safe-bottom, 0px));
+  left: clamp(12px, 4vw, 16px);
   width: 56px;
   height: 56px;
   border-radius: 50%;

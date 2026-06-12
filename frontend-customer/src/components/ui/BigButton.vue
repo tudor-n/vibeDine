@@ -70,7 +70,7 @@ function onClick(ev: MouseEvent) {
 <style scoped>
 .big-btn {
   width: 100%;
-  padding: 20px 24px;
+  padding: clamp(15px, 2.2vh, 20px) clamp(18px, 6vw, 24px);
   border: none;
   border-radius: 999px;
   font-weight: 700;
