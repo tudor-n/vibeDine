@@ -170,6 +170,8 @@ builder.Services.AddTransient<IPdfExtractor, MenuImportPythonClient>(sp =>
 
 builder.Services.Configure<MenuImportOptions>(builder.Configuration.GetSection("MenuImport"));
 builder.Services.AddSingleton<MenuImportProgressNotifier>();
+builder.Services.AddSingleton<ItemPhotoStorage>();
+builder.Services.AddScoped<MenuImportPhotoMerger>();
 builder.Services.AddHostedService<MenuImportBackgroundService>();
 
 builder.Services.AddScoped<RecommendationService>();

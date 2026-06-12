@@ -500,6 +500,12 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("error_message");
 
+                    b.Property<bool>("ExtractItemPhotos")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("extract_item_photos");
+
                     b.Property<int>("FailedPages")
                         .HasColumnType("integer")
                         .HasColumnName("failed_pages");
@@ -976,6 +982,46 @@ namespace RestaurantApi.Migrations
                     b.ToTable("similarity_rules", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.Subcategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("image_url");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<int?>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("RestaurantId", "CategoryId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("subcategories", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.TableGuest", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1262,6 +1308,17 @@ namespace RestaurantApi.Migrations
                     b.Navigation("ProductA");
 
                     b.Navigation("ProductB");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.Subcategory", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Category", "Category")
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Category");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.TableGuest", b =>
