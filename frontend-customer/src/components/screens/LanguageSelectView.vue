@@ -110,7 +110,7 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
 .hero {
   position: relative;
   z-index: 1;
-  padding: 80px 24px 28px;
+  padding: clamp(32px, 9vh, 80px) clamp(18px, 6vw, 24px) clamp(18px, 3.5vh, 28px);
 }
 .eyebrow {
   font-size: 15px;
@@ -121,13 +121,13 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
 }
 .title {
   font-weight: 600;
-  font-size: 44px;
+  font-size: clamp(32px, 11.3vw, 44px);
   line-height: 1;
   letter-spacing: -0.03em;
   margin: 0 0 16px;
 }
 .lede {
-  font-size: 17px;
+  font-size: clamp(15px, 4.4vw, 17px);
   line-height: 1.5;
   margin: 0;
 }
@@ -144,15 +144,15 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 18px 20px;
+  padding: clamp(14px, 2.2vh, 18px) 20px;
   border-radius: 22px;
   cursor: pointer;
   font-family: inherit;
-  font-size: 18px;
+  font-size: clamp(16px, 4.6vw, 18px);
   font-weight: 700;
   text-align: left;
   transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
-  min-height: 72px;
+  min-height: 64px;
 }
 .opt:active {
   transform: scale(0.985);
@@ -178,6 +178,6 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
 .cta {
   position: relative;
   z-index: 1;
-  padding: 16px 20px 32px;
+  padding: 16px 20px calc(20px + var(--safe-bottom, 0px));
 }
 </style>

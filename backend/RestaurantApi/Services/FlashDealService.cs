@@ -13,7 +13,8 @@ namespace RestaurantApi.Services;
 public interface IFlashDealService
 {
     Task<bool> ClaimDealAsync(Guid orderId, Guid dealId);
-    Task EvaluateEligibilityAsync(Guid orderId);
+    Task<bool> EvaluateEligibilityAsync(Guid orderId);
+    Task DispatchToKitchenAsync(Guid orderId);
 }
 
 public class FlashDealService : IFlashDealService
@@ -62,12 +63,19 @@ public class FlashDealService : IFlashDealService
         bool alreadyClaimed = order.Items.Any(i => i.IsFlashDealItem == true && i.ProductId == deal.ProductId);
         if (alreadyClaimed) return false;
 
+        // One discounted portion per guest whose cart is on this bill. A solo /
+        // pay-separately order (nobody merged) claims quantity 1; a bill that
+        // merged 3 guests claims 3 — each at the discounted unit price, so the
+        // line total is unit × guests with the discount already baked into the
+        // unit (e.g. 3 × 16 = 48 for a 20-lei item at 20% off).
+        var dealQuantity = await CountCombinedGuestsAsync(order.Id);
+
         var orderItem = new OrderItem
         {
             Id = Guid.NewGuid(),
             OrderId = order.Id,
             ProductId = deal.ProductId.Value,
-            Quantity = 1,
+            Quantity = dealQuantity,
             UnitPriceAtPurchase = deal.DiscountPrice ?? 0m,
             IsFlashDealItem = true,
             WasAiRecommended = false
@@ -84,16 +92,47 @@ public class FlashDealService : IFlashDealService
         await _staffhub.Clients.Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
             .SendAsync("FlashDealClaimed", new { OrderId = order.Id, DealName = productName });
 
+        // Claiming the deal dispatches the order to the kitchen immediately,
+        // skipping the 2-minute hold that the SubmitOrder flow applies.
+        await DispatchToKitchenAsync(orderId);
+
         return true;
     }
 
-    public async Task EvaluateEligibilityAsync (Guid orderId)
+    // Transitions a `pending_dispatch` order to `submitted` and notifies the
+    // kitchen kanban. Idempotent: if the order is already past pending_dispatch
+    // (e.g. claim fired right before the 2-min expiry task), this no-ops.
+    public async Task DispatchToKitchenAsync(Guid orderId)
+    {
+        var order = await _context.Orders
+            .FirstOrDefaultAsync(o => o.Id == orderId);
+
+        if (order == null || order.Status != "pending_dispatch") return;
+
+        order.Status = "submitted";
+        await _context.SaveChangesAsync();
+
+        await _staffhub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
+            .SendAsync("OrderSubmitted", new
+            {
+                orderId = order.Id,
+                orderNumber = order.OrderNumber,
+                tableId = order.TableId,
+                status = order.Status,
+            });
+    }
+
+    // Returns true if a deal offer was created (so the caller should hold the
+    // order in pending_dispatch); false if no deal was issued (caller should
+    // dispatch immediately because there's nothing for the customer to wait on).
+    public async Task<bool> EvaluateEligibilityAsync (Guid orderId)
     {
         var order = await _context.Orders
             .Include(o=> o.Items)
             .FirstOrDefaultAsync(o => o.Id == orderId);
 
-        if (order == null) return;
+        if (order == null) return false;
 
         var orderedProductsIds = order.Items.Select(i => i.ProductId).ToList();
 
@@ -101,7 +140,7 @@ public class FlashDealService : IFlashDealService
             .Where(p=>p.IsAvailable ==true && !orderedProductsIds.Contains(p.Id))
             .ToListAsync();
 
-        if (!availableProducts.Any()) return;
+        if (!availableProducts.Any()) return false;
 
         // --- Directive-aware product selection ---
         Product? selectedProduct = null;
@@ -143,7 +182,7 @@ public class FlashDealService : IFlashDealService
                         _logger.LogInformation(
                             "Flash deal skipped: order total {Total} below threshold {Threshold} (directive: {Prompt})",
                             orderTotal, threshold, activeDirective.RawPrompt);
-                        return;
+                        return false;
                     }
                 }
             }
@@ -240,7 +279,14 @@ public class FlashDealService : IFlashDealService
         _context.FlashDealOffers.Add(deal);
         await _context.SaveChangesAsync();
 
-        // Send ProductId and OrderId so the frontend can claim correctly
+        // Scale the offer to the party size when this bill merged several guests:
+        // one discounted portion each. Stays 1 for a solo / pay-separately order.
+        var combinedGuests = await CountCombinedGuestsAsync(orderId);
+
+        // Send ProductId and OrderId so the frontend can claim correctly. The
+        // table SignalR group is the only group phones are in, so every phone
+        // receives this — the customer app filters by OrderId so only the phone
+        // that owns this order pops the offer (separate bills => separate deals).
         await _customerhub.Clients.Group(TenantGroups.Table(order.RestaurantId, order.TableId))
             .SendAsync("FlashDealAvailable", new
             {
@@ -251,6 +297,7 @@ public class FlashDealService : IFlashDealService
                 OriginalPrice = selectedProduct.Price,
                 DiscountPrice = deal.DiscountPrice,
                 DiscountPercent = discountPercent,
+                Quantity = combinedGuests,
                 ExpiresAt=deal.ExpiresAt
             });
 
@@ -258,6 +305,7 @@ public class FlashDealService : IFlashDealService
         var restaurantId = order.RestaurantId;
         var tableId = order.TableId;
         var dealId = deal.Id;
+        var dealOrderId = orderId;
 
         _ = Task.Run(async () =>
 {
@@ -266,6 +314,7 @@ public class FlashDealService : IFlashDealService
     using var scope = _scopeFactory.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var hub = scope.ServiceProvider.GetRequiredService<IHubContext<CustomerHub>>();
+    var flashService = scope.ServiceProvider.GetRequiredService<IFlashDealService>();
 
     // The background scope has no ambient request, so set the tenant explicitly
     // for the query filter to find the deal.
@@ -273,14 +322,33 @@ public class FlashDealService : IFlashDealService
         .SetRestaurant(restaurantId);
 
     var dealToExpire = await db.FlashDealOffers.FindAsync(dealId);
-    if (dealToExpire == null || dealToExpire.Status != "pending") return;
+    if (dealToExpire != null && dealToExpire.Status == "pending")
+    {
+        dealToExpire.Status = "expired";
+        await db.SaveChangesAsync();
 
-    dealToExpire.Status = "expired";
-    await db.SaveChangesAsync();
+        await hub.Clients.Group(TenantGroups.Table(restaurantId, tableId))
+            .SendAsync("FlashDealExpired", new { DealId = dealId });
+    }
 
-    await hub.Clients.Group(TenantGroups.Table(restaurantId, tableId))
-        .SendAsync("FlashDealExpired", new { DealId = dealId });
+    // The 2-minute hold is up — release the order to the kitchen if it wasn't
+    // already dispatched via ClaimDealAsync.
+    await flashService.DispatchToKitchenAsync(dealOrderId);
 });
+
+        return true;
+    }
+
+    // How many guests' carts ended up on this bill: the order's own owner plus
+    // every draft that was merged into it. Returns 1 for a solo / pay-separately
+    // order (nobody merged). The count is stable once the order leaves "draft" —
+    // merges only re-parent drafts, so nothing new can attach to a submitted
+    // order — which is why the offer-time and claim-time counts always agree.
+    private async Task<int> CountCombinedGuestsAsync(Guid orderId)
+    {
+        var mergedDrafts = await _context.Orders
+            .CountAsync(o => o.MergedIntoOrderId == orderId);
+        return mergedDrafts + 1;
     }
 
     private static string RemoveDiacritics(string text)

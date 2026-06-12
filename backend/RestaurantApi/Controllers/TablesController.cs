@@ -32,6 +32,7 @@ public class TablesController : ControllerBase
     public async Task<IActionResult> List()
     {
         var tables = await _db.Tables
+            .Where(t => t.DeletedAt == null)
             .OrderBy(t => t.TableNumber)
             .Select(t => new TableResponse(t.Id, t.TableNumber, t.QrToken ?? Guid.Empty))
             .ToListAsync();
@@ -46,7 +47,8 @@ public class TablesController : ControllerBase
         if (string.IsNullOrWhiteSpace(number))
             return BadRequest(new { message = "Table number is required." });
 
-        if (await _db.Tables.AnyAsync(t => t.TableNumber == number))
+        // Only live tables collide — a soft-deleted "5" must not block recreating "5".
+        if (await _db.Tables.AnyAsync(t => t.TableNumber == number && t.DeletedAt == null))
             return Conflict(new { message = $"Table \"{number}\" already exists for this location." });
 
         // RestaurantId is auto-stamped on insert by AppDbContext.StampTenant().
@@ -78,18 +80,32 @@ public class TablesController : ControllerBase
         return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value));
     }
 
+    // Orders that count as "someone is using this table right now". Drafts (a
+    // browsing cart, including the one auto-created the instant a QR is scanned),
+    // completed, cancelled and merged orders are NOT active — historically the
+    // delete blocked on *any* order, so a table could never be removed once it
+    // had ever been scanned. These are the same in-flight states the kitchen
+    // kanban and the stale-guest purge treat as live.
+    private static readonly string[] ActiveOrderStatuses =
+        ["pending_dispatch", "submitted", "preparing", "ready"];
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var table = await _db.Tables.FindAsync(id);
-        if (table == null) return NotFound(new { message = "Table not found." });
+        if (table == null || table.DeletedAt != null)
+            return NotFound(new { message = "Table not found." });
 
-        if (await _db.Orders.AnyAsync(o => o.TableId == id))
-            return Conflict(new { message = "Table has orders and cannot be deleted." });
+        if (await _db.Orders.AnyAsync(o => o.TableId == id
+                && o.DeletedAt == null
+                && ActiveOrderStatuses.Contains(o.Status)))
+            return Conflict(new { message = "Table has an active order in progress and cannot be deleted." });
 
-        _db.Tables.Remove(table);
+        // Soft-delete: keep the row (and its order history) so reporting stays
+        // intact, but retire the QR token and hide the table from the admin list.
+        table.DeletedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        _logger.LogInformation("Deleted table {Id}", id);
+        _logger.LogInformation("Soft-deleted table {Id}", id);
 
         return NoContent();
     }

@@ -51,12 +51,14 @@ public class AuthController : ControllerBase
             // rather than leaking that the address is registered.
             if (!existing.EmailConfirmed)
             {
-                await SendConfirmationEmailAsync(existing);
+                var resent = await SendConfirmationEmailAsync(existing);
                 return Ok(new RegisterResponse
                 {
-                    Status = "confirmation_sent",
+                    Status = resent ? "confirmation_sent" : "confirmation_failed",
                     Email = existing.Email ?? request.Email,
-                    Message = "Ți-am trimis un nou link de confirmare pe email.",
+                    Message = resent
+                        ? "Ți-am trimis un nou link de confirmare pe email."
+                        : "Nu am putut trimite emailul de confirmare. Încearcă din nou în câteva momente.",
                 });
             }
             return Conflict(new { message = "An account with this email already exists." });
@@ -73,14 +75,16 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
             return BadRequest(new { message = string.Join(" ", result.Errors.Select(e => e.Description)) });
 
-        await SendConfirmationEmailAsync(user);
+        var sent = await SendConfirmationEmailAsync(user);
 
-        _logger.LogInformation("Registered user {UserId} ({Email}) — confirmation email sent", user.Id, user.Email);
+        _logger.LogInformation("Registered user {UserId} ({Email}) — confirmation email sent: {Sent}", user.Id, user.Email, sent);
         return Ok(new RegisterResponse
         {
-            Status = "confirmation_sent",
+            Status = sent ? "confirmation_sent" : "confirmation_failed",
             Email = user.Email ?? request.Email,
-            Message = "Verifică-ți emailul pentru a finaliza crearea contului.",
+            Message = sent
+                ? "Verifică-ți emailul pentru a finaliza crearea contului."
+                : "Contul a fost creat, dar nu am putut trimite emailul de confirmare. Încearcă din nou în câteva momente.",
         });
     }
 
@@ -121,7 +125,11 @@ public class AuthController : ControllerBase
         var user = await _users.FindByEmailAsync(request.Email);
         // Never disclose whether the email exists.
         if (user != null && !user.EmailConfirmed)
-            await SendConfirmationEmailAsync(user);
+        {
+            var sent = await SendConfirmationEmailAsync(user);
+            if (!sent)
+                _logger.LogWarning("Resend confirmation email failed for {Email}", user.Email);
+        }
 
         return Ok(new { message = "Dacă există un cont neconfirmat cu acest email, am trimis un nou link." });
     }
@@ -140,6 +148,23 @@ public class AuthController : ControllerBase
                 code = "email_not_confirmed",
                 email = user.Email,
                 message = "Confirmă-ți adresa de email înainte de autentificare.",
+            });
+        }
+
+        // Block login when the user holds memberships but ALL of them are pending or rejected
+        // (typical for a freshly-confirmed waiter awaiting manager approval). Users with no
+        // memberships at all (e.g. someone clicking an invite link) are still allowed in.
+        var memberships = await _db.Memberships
+            .Where(m => m.UserId == user.Id)
+            .Select(m => m.Status)
+            .ToListAsync();
+        if (memberships.Count > 0 && memberships.All(s => s != MembershipStatus.Active))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                code = "waiter_pending_approval",
+                email = user.Email,
+                message = "Contul tău așteaptă aprobarea managerului.",
             });
         }
 
@@ -219,7 +244,7 @@ public class AuthController : ControllerBase
         return Ok(await BuildProfileAsync(user));
     }
 
-    private async Task SendConfirmationEmailAsync(AppUser user)
+    private async Task<bool> SendConfirmationEmailAsync(AppUser user)
     {
         var raw = await _users.GenerateEmailConfirmationTokenAsync(user);
         // Identity tokens contain characters that don't survive a URL query string,
@@ -256,11 +281,13 @@ public class AuthController : ControllerBase
         try
         {
             await _email.SendEmailAsync(user.Email!, "Confirmă-ți contul Smart Restaurant", html);
+            return true;
         }
         catch (Exception ex)
         {
             // Don't leak SMTP failures to the client, but log loudly so dev can diagnose.
             _logger.LogError(ex, "Failed to send confirmation email to {Email}", user.Email);
+            return false;
         }
     }
 
@@ -294,6 +321,7 @@ public class AuthController : ControllerBase
                     ? null
                     : _db.Restaurants.Where(r => r.Id == x.m.RestaurantId).Select(r => r.Name).FirstOrDefault(),
                 Role = x.m.Role.ToString(),
+                Status = x.m.Status,
             })
             .ToListAsync();
 
@@ -302,7 +330,16 @@ public class AuthController : ControllerBase
             Id = user.Id,
             Email = user.Email ?? string.Empty,
             FullName = user.FullName,
+            AvatarUrl = BuildAvatarUrl(user),
             Memberships = memberships,
         };
+    }
+
+    private string? BuildAvatarUrl(AppUser user)
+    {
+        if (string.IsNullOrWhiteSpace(user.AvatarPath)) return null;
+        // AvatarPath is stored as a relative path under wwwroot (e.g. "uploads/avatars/{id}.png").
+        // Returned as a leading-slash URL so the SPA can use it directly in <img src>.
+        return "/" + user.AvatarPath.TrimStart('/');
     }
 }

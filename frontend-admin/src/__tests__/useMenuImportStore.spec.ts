@@ -8,10 +8,12 @@ vi.mock('@/services/menuImportApi', () => ({
   menuImportApi: {
     scan: vi.fn(),
     bulkCreate: vi.fn(),
+    bulkCreateHierarchy: vi.fn(),
   },
 }))
 
 import { menuImportApi } from '@/services/menuImportApi'
+import type { MenuHierarchy } from '@shared/types/menu-import'
 
 const scanFixture: MenuScanResponse = {
   items: [
@@ -107,5 +109,241 @@ describe('useMenuImportStore', () => {
     store.$reset()
     expect(store.files).toEqual([])
     expect(store.step).toBe(1)
+  })
+
+  it('scan() with hierarchy in response hydrates the tree and jumps to step 3', async () => {
+    const fixtureWithHierarchy: MenuScanResponse = {
+      items: [{ name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza' }],
+      failedPages: [],
+      model: 'fake',
+      schemaVersion: 2,
+      hierarchy: {
+        source: 'ai',
+        categories: [{
+          name: 'Pizza',
+          sortOrder: 0,
+          subcategories: [],
+          directItemRefs: [{ sourcePage: 0, sourceIndex: 0, confidence: 0.9 }],
+        }],
+        uncategorizedItemRefs: [],
+        modelNotes: null,
+      },
+    }
+    ;(menuImportApi.scan as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fixtureWithHierarchy)
+    const store = useMenuImportStore()
+    store.addFiles([new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })])
+    await store.scan()
+    expect(store.step).toBe(3)
+    expect(store.hierarchy).not.toBeNull()
+    expect(store.hierarchy!.source).toBe('ai')
+    expect(store.hierarchy!.categories[0].name).toBe('Pizza')
+    // hint mapping should be empty since we skipped the mapping step
+    expect(Object.keys(store.categoryMapping)).toEqual([])
+    expect(store.detectedHints).toEqual([])
+  })
+})
+
+const hierarchyFixture: MenuHierarchy = {
+  source: 'ai',
+  categories: [
+    {
+      name: 'Pizza',
+      sortOrder: 0,
+      subcategories: [
+        { name: 'Classic', sortOrder: 0, itemRefs: [{ sourcePage: 0, sourceIndex: 0, confidence: 0.9 }] },
+      ],
+      directItemRefs: [{ sourcePage: 0, sourceIndex: 1, confidence: 0.85 }],
+    },
+  ],
+  uncategorizedItemRefs: [],
+  modelNotes: null,
+}
+
+describe('useMenuImportStore — hierarchy', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.resetAllMocks()
+  })
+
+  it('hydrateHierarchy stores the tree and surfaces source', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza' },
+      { name: 'Calzone', price: 30, sourcePage: 0, sourceIndex: 1, categoryHint: 'Pizza' },
+    ]
+    store.hydrateHierarchy(hierarchyFixture)
+    expect(store.hierarchy!.source).toBe('ai')
+    expect(store.hierarchy!.categories[0].subcategories[0].name).toBe('Classic')
+  })
+
+  it('moveItem moves an item from a subcategory to directItemRefs', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza' },
+      { name: 'Calzone', price: 30, sourcePage: 0, sourceIndex: 1, categoryHint: 'Pizza' },
+    ]
+    store.hydrateHierarchy(hierarchyFixture)
+    store.moveItem({ sourcePage: 0, sourceIndex: 0, confidence: 0.9 }, { kind: 'direct', categoryName: 'Pizza' })
+    const cat = store.hierarchy!.categories[0]
+    expect(cat.subcategories[0].itemRefs).toHaveLength(0)
+    expect(cat.directItemRefs).toHaveLength(2)
+  })
+
+  it('renameCategory updates the category name', () => {
+    const store = useMenuImportStore()
+    store.hydrateHierarchy(hierarchyFixture)
+    store.renameCategory('Pizza', 'Pizze')
+    expect(store.hierarchy!.categories[0].name).toBe('Pizze')
+  })
+
+  it('addSubcategory + removeSubcategory keep items intact', () => {
+    const store = useMenuImportStore()
+    store.hydrateHierarchy(hierarchyFixture)
+    store.addSubcategory('Pizza', 'Specialty')
+    expect(store.hierarchy!.categories[0].subcategories).toHaveLength(2)
+    store.removeSubcategory('Pizza', 'Classic')
+    expect(store.hierarchy!.categories[0].subcategories.map(s => s.name)).toEqual(['Specialty'])
+    expect(store.hierarchy!.categories[0].directItemRefs).toHaveLength(2)
+  })
+
+  it('buildHierarchyPayload serialises with tempIds and correct subcategoryTempId', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza' },
+      { name: 'Calzone', price: 30, sourcePage: 0, sourceIndex: 1, categoryHint: 'Pizza' },
+    ]
+    store.hydrateHierarchy(hierarchyFixture)
+    const payload = store.buildHierarchyPayload()
+    expect(payload.categories).toHaveLength(1)
+    expect(payload.categories[0].subcategories).toHaveLength(1)
+    expect(payload.products).toHaveLength(2)
+    const margherita = payload.products.find(p => p.name === 'Margherita')!
+    expect(margherita.subcategoryTempId).toBe(payload.categories[0].subcategories[0].tempId)
+    const calzone = payload.products.find(p => p.name === 'Calzone')!
+    expect(calzone.subcategoryTempId).toBeNull()
+    expect(calzone.categoryTempId).toBe(payload.categories[0].tempId)
+  })
+
+  it('buildHierarchyPayload assigns unique tempIds even for duplicate-named subcategories', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'A', price: 1, sourcePage: 0, sourceIndex: 0, categoryHint: 'C' },
+      { name: 'B', price: 2, sourcePage: 0, sourceIndex: 1, categoryHint: 'C' },
+    ]
+    store.hydrateHierarchy({
+      source: 'ai',
+      categories: [{ name: 'C', sortOrder: 0, subcategories: [], directItemRefs: [] }],
+      uncategorizedItemRefs: [],
+      modelNotes: null,
+    })
+    store.addSubcategory('C', 'Sub')
+    store.addSubcategory('C', 'Sub')
+    // Manually move one item into each subcategory
+    const h = store.hierarchy!
+    h.categories[0].subcategories[0].itemRefs.push({ sourcePage: 0, sourceIndex: 0, confidence: 0.9 })
+    h.categories[0].subcategories[1].itemRefs.push({ sourcePage: 0, sourceIndex: 1, confidence: 0.9 })
+    const payload = store.buildHierarchyPayload()
+    expect(payload.categories[0].subcategories).toHaveLength(2)
+    const subTempIds = payload.categories[0].subcategories.map(s => s.tempId)
+    expect(new Set(subTempIds).size).toBe(2) // unique
+  })
+
+  it('buildHierarchyPayload drops empty subcategories', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza' },
+    ]
+    store.hydrateHierarchy({
+      source: 'ai',
+      categories: [{
+        name: 'Pizza', sortOrder: 0,
+        subcategories: [
+          { name: 'Classic', sortOrder: 0, itemRefs: [{ sourcePage: 0, sourceIndex: 0, confidence: 0.9 }] },
+          { name: 'Empty', sortOrder: 1, itemRefs: [] }, // should be dropped
+        ],
+        directItemRefs: [],
+      }],
+      uncategorizedItemRefs: [],
+      modelNotes: null,
+    })
+    const payload = store.buildHierarchyPayload()
+    expect(payload.categories[0].subcategories).toHaveLength(1)
+    expect(payload.categories[0].subcategories[0].name).toBe('Classic')
+  })
+
+  it('importHierarchy posts to bulkCreateHierarchy', async () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza' },
+    ]
+    store.hydrateHierarchy(hierarchyFixture)
+    ;(menuImportApi.bulkCreateHierarchy as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      createdCategories: [], createdSubcategories: [], createdProducts: [],
+    })
+    await store.importHierarchy()
+    expect(menuImportApi.bulkCreateHierarchy).toHaveBeenCalledTimes(1)
+  })
+
+  it('updateExtractedItem patches name and price on the matching item', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'A', price: 1, sourcePage: 0, sourceIndex: 0, categoryHint: null },
+    ]
+    store.updateExtractedItem({ sourcePage: 0, sourceIndex: 0 }, { name: 'B', price: 9 })
+    expect(store.extractedItems[0].name).toBe('B')
+    expect(store.extractedItems[0].price).toBe(9)
+  })
+
+  it('skipItem excludes the item from buildHierarchyPayload', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'A', price: 1, sourcePage: 0, sourceIndex: 0, categoryHint: 'C' },
+      { name: 'B', price: 2, sourcePage: 0, sourceIndex: 1, categoryHint: 'C' },
+    ]
+    store.hydrateHierarchy({
+      source: 'ai',
+      categories: [{
+        name: 'C', sortOrder: 0, subcategories: [],
+        directItemRefs: [
+          { sourcePage: 0, sourceIndex: 0, confidence: 0.9 },
+          { sourcePage: 0, sourceIndex: 1, confidence: 0.9 },
+        ],
+      }],
+      uncategorizedItemRefs: [],
+      modelNotes: null,
+    })
+    store.skipItem({ sourcePage: 0, sourceIndex: 0 })
+    const payload = store.buildHierarchyPayload()
+    expect(payload.products).toHaveLength(1)
+    expect(payload.products[0].name).toBe('B')
+  })
+
+  it('addCategory appends a new empty category', () => {
+    const store = useMenuImportStore()
+    store.hydrateHierarchy({
+      source: 'ai', categories: [], uncategorizedItemRefs: [], modelNotes: null,
+    })
+    store.addCategory('New Cat')
+    expect(store.hierarchy!.categories).toHaveLength(1)
+    expect(store.hierarchy!.categories[0].name).toBe('New Cat')
+  })
+
+  it('removeCategory moves items to uncategorized (no data loss)', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'A', price: 1, sourcePage: 0, sourceIndex: 0, categoryHint: 'C' },
+    ]
+    store.hydrateHierarchy({
+      source: 'ai',
+      categories: [{
+        name: 'C', sortOrder: 0, subcategories: [],
+        directItemRefs: [{ sourcePage: 0, sourceIndex: 0, confidence: 0.9 }],
+      }],
+      uncategorizedItemRefs: [],
+      modelNotes: null,
+    })
+    store.removeCategory('C')
+    expect(store.hierarchy!.categories).toHaveLength(0)
+    expect(store.hierarchy!.uncategorizedItemRefs).toHaveLength(1)
   })
 })

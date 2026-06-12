@@ -93,6 +93,7 @@ const ro: Dict = {
   'sent.payHint': 'Plata la final · cash sau card',
   'sent.callWaiter': 'Chemați chelnerul',
   'sent.orderAgain': 'Mai comand',
+  'sent.viewProgress': 'Vezi statusul comenzii',
 
   'flash.badge': 'Ofertă specială',
   'flash.dismiss': 'Închide oferta',
@@ -102,6 +103,7 @@ const ro: Dict = {
   'flash.defaultReason': 'O porție specială la preț redus, doar câteva minute.',
   'flash.discount': '−{percent}% reducere',
   'flash.meta': "Chef's cut · porție limitată",
+  'flash.forGuests': 'Pentru {count} persoane · câte o porție de fiecare',
   'flash.timeLeft': 'Timp rămas',
   'flash.minutes': 'minute',
   'flash.added': 'Adăugat ✓',
@@ -110,6 +112,31 @@ const ro: Dict = {
   'flash.noThanks': 'Nu mulțumesc',
   'flash.errorInvalidSession': 'Sesiune invalidă. Reîncărcați pagina.',
   'flash.errorClaim': 'Eroare la revendicare.',
+  'flash.iconLabel': 'Vezi oferta specială',
+
+  'waiter.iconLabel': 'Chemați chelnerul',
+  'waiter.calling': 'Se trimite…',
+  'waiter.onTheWay': 'Chelnerul vine spre dvs.',
+  'waiter.cooldownHint': 'Mai puteți chema în',
+  'waiter.errorGeneric': 'Nu s-a putut trimite. Încercați din nou.',
+
+  'party.title': 'La masa ta',
+  'party.you': 'Tu',
+  'party.justYou': 'Deocamdată ești singur la masă.',
+  'party.items': '{count} produse',
+  'party.itemOne': '1 produs',
+  'party.empty': 'coș gol',
+  'party.statusMerged': 'notă unită',
+  'party.statusSubmitted': 'comandă trimisă',
+  'party.merge': 'Unește notele',
+  'party.merging': 'Se unește…',
+  'party.mergeHint': 'Adună toate coșurile într-o singură notă.',
+  'party.joinedToast': '{name} s-a alăturat mesei tale',
+  'party.joinedToastHint': 'La final puteți uni comenzile într-o singură notă.',
+
+  'merged.title': 'Notele au fost unite',
+  'merged.body': 'Produsele tale sunt acum în comanda lui {name}. {name} se ocupă de notă pentru toată masa.',
+  'merged.newOrder': 'Comandă separată nouă',
 }
 
 const en: Dict = {
@@ -199,6 +226,7 @@ const en: Dict = {
   'sent.payHint': 'Pay at the end · cash or card',
   'sent.callWaiter': 'Call the waiter',
   'sent.orderAgain': 'Order again',
+  'sent.viewProgress': 'View order status',
 
   'flash.badge': 'Special offer',
   'flash.dismiss': 'Close offer',
@@ -208,6 +236,7 @@ const en: Dict = {
   'flash.defaultReason': 'A special portion at a reduced price, only a few minutes.',
   'flash.discount': '−{percent}% off',
   'flash.meta': "Chef's cut · limited portion",
+  'flash.forGuests': 'For {count} guests · one portion each',
   'flash.timeLeft': 'Time left',
   'flash.minutes': 'minutes',
   'flash.added': 'Added ✓',
@@ -216,6 +245,31 @@ const en: Dict = {
   'flash.noThanks': 'No thanks',
   'flash.errorInvalidSession': 'Invalid session. Reload the page.',
   'flash.errorClaim': 'Error claiming offer.',
+  'flash.iconLabel': 'View special offer',
+
+  'waiter.iconLabel': 'Call the waiter',
+  'waiter.calling': 'Calling…',
+  'waiter.onTheWay': 'A waiter is on the way',
+  'waiter.cooldownHint': 'You can call again in',
+  'waiter.errorGeneric': 'Could not send. Try again.',
+
+  'party.title': 'At your table',
+  'party.you': 'You',
+  'party.justYou': "It's just you at the table so far.",
+  'party.items': '{count} items',
+  'party.itemOne': '1 item',
+  'party.empty': 'empty cart',
+  'party.statusMerged': 'merged',
+  'party.statusSubmitted': 'order sent',
+  'party.merge': 'Merge our bills',
+  'party.merging': 'Merging…',
+  'party.mergeHint': 'Pull everyone’s carts into one single bill.',
+  'party.joinedToast': '{name} just joined your table',
+  'party.joinedToastHint': 'You can merge your orders into one bill at the end.',
+
+  'merged.title': 'Bills merged',
+  'merged.body': "Your items are now in {name}'s order. {name} will handle the bill for the table.",
+  'merged.newOrder': 'Start a separate order',
 }
 
 const dict: Record<Locale, Dict> = { ro, en }

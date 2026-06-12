@@ -18,17 +18,20 @@ public class CustomerController : ControllerBase
     private readonly IFlashDealService _flashDealService;
     private readonly RecommendationService _recommendationService;
     private readonly IHubContext<StaffHub> _staffHub;
+    private readonly IHubContext<CustomerHub> _customerHub;
 
     public CustomerController(
         AppDbContext context,
         IFlashDealService flashDealService,
         RecommendationService recommendationService,
-        IHubContext<StaffHub> staffHub)
+        IHubContext<StaffHub> staffHub,
+        IHubContext<CustomerHub> customerHub)
     {
         _context = context;
         _flashDealService = flashDealService;
         _recommendationService = recommendationService;
         _staffHub = staffHub;
+        _customerHub = customerHub;
     }
 
     [HttpPost("restaurants/{restaurantId:guid}/orders/{orderId:guid}/submit")]
@@ -45,7 +48,11 @@ public class CustomerController : ControllerBase
             return BadRequest(new { message = "Cannot submit an empty order. Please add items to your cart first." });
 
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
-        order.Status = "submitted";
+        // Hold the order in pending_dispatch until the 2-minute flash deal window
+        // elapses (or the customer claims the deal). The active-orders kanban
+        // filter only includes submitted/preparing/ready, so the kitchen won't
+        // see the order yet. DispatchToKitchenAsync transitions it to "submitted".
+        order.Status = "pending_dispatch";
 
         // Per-restaurant sequence. The (RestaurantId, OrderNumber) index isn't unique
         // because a race between two concurrent submits could collide here; for the
@@ -59,18 +66,51 @@ public class CustomerController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        await _flashDealService.EvaluateEligibilityAsync(orderId);
+        // This guest's round is done — free their seat so the party panel (and
+        // the next phone that scans the QR) only shows people still composing an
+        // order. Guests whose drafts were merged into this order leave too: their
+        // phones are parked on the merged screen and they re-join as fresh guests
+        // when they start another round. Anyone who already opened a new draft
+        // (e.g. a merged guest who tapped "start a separate order") keeps their seat.
+        if (order.GuestId is Guid ownerGuestId)
+        {
+            var candidateIds = await _context.Orders
+                .Where(o => o.MergedIntoOrderId == order.Id && o.GuestId != null)
+                .Select(o => o.GuestId!.Value)
+                .ToListAsync();
+            candidateIds.Add(ownerGuestId);
 
-        // Notify the kitchen kanban that a new order has landed.
-        await _staffHub.Clients
-            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderSubmitted", new
+            var stillDrafting = await _context.Orders
+                .Where(o => o.TableId == order.TableId && o.Status == "draft"
+                            && o.GuestId != null && candidateIds.Contains(o.GuestId.Value))
+                .Select(o => o.GuestId!.Value)
+                .ToListAsync();
+
+            var leavingIds = candidateIds.Except(stillDrafting).ToList();
+            if (leavingIds.Count > 0)
             {
-                orderId = order.Id,
-                orderNumber = order.OrderNumber,
-                tableId = order.TableId,
-                status = order.Status,
-            });
+                var removed = await _context.TableGuests
+                    .Where(g => g.TableId == order.TableId && leavingIds.Contains(g.Id))
+                    .ExecuteDeleteAsync();
+
+                if (removed > 0)
+                {
+                    await _customerHub.Clients
+                        .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
+                        .SendAsync("PartyMemberLeft", new { guestIds = leavingIds });
+                }
+            }
+        }
+
+        var dealCreated = await _flashDealService.EvaluateEligibilityAsync(orderId);
+
+        if (!dealCreated)
+        {
+            // No deal means nothing to wait on — release the order to the kitchen
+            // immediately. When a deal is created, ClaimDealAsync or the 2-minute
+            // expiry task in FlashDealService is responsible for the dispatch.
+            await _flashDealService.DispatchToKitchenAsync(orderId);
+        }
 
         return Ok(new
         {
@@ -198,7 +238,7 @@ public class CustomerController : ControllerBase
 
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         
-        try 
+        try
         {
             await _context.SaveChangesAsync();
         }
@@ -207,9 +247,29 @@ public class CustomerController : ControllerBase
                 return Conflict(new { message = "The order was modified by someone else. Please refresh and try again." });
         }
 
+        // Tell the other phones at this table their party view is stale so they
+        // refetch /party. This is the deferred "PartyMemberUpdated" signal: it
+        // makes peer carts/totals live and the "Merge our bills" button appear
+        // as soon as a guest adds items (the frontend debounces this PATCH, so
+        // the broadcast fires at most ~twice/second per phone). Only guest-owned
+        // drafts participate in the party panel; legacy table-wide drafts skip it.
+        if (order.GuestId is not null)
+        {
+            // Cart activity proves the phone is still at the table — keep its
+            // seat inside the presence window even if the periodic /party
+            // heartbeat is failing or throttled.
+            await _context.TableGuests
+                .Where(g => g.Id == order.GuestId.Value)
+                .ExecuteUpdateAsync(s => s.SetProperty(g => g.LastSeenAt, DateTime.UtcNow));
+
+            await _customerHub.Clients
+                .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
+                .SendAsync("PartyMemberUpdated", new { guestId = order.GuestId });
+        }
+
         return Ok(new
         {
-            message = "Items successfully updated in your order!", 
+            message = "Items successfully updated in your order!",
             totalAmount = order.TotalAmount
         });
     }
@@ -218,7 +278,7 @@ public class CustomerController : ControllerBase
     public async Task<IActionResult> GetTableSession(Guid qrToken)
     {
         var table = await _context.Tables
-            .FirstOrDefaultAsync(t => t.QrToken == qrToken);
+            .FirstOrDefaultAsync(t => t.QrToken == qrToken && t.DeletedAt == null);
 
         if (table == null)
             return NotFound(new { message = "Invalid QR Code. Table not found." });

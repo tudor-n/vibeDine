@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/useAuthStore'
-import { EmailNotConfirmedError } from '@/services/api-client'
+import { EmailNotConfirmedError, WaiterPendingApprovalError } from '@/services/api-client'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -43,6 +43,9 @@ async function submit() {
     if (e instanceof EmailNotConfirmedError) {
       unconfirmedEmail.value = e.email || email.value.trim()
       error.value = e.message
+    } else if (e instanceof WaiterPendingApprovalError) {
+      router.replace({ name: 'awaiting-approval', query: { email: e.email || email.value.trim() } })
+      return
     } else {
       error.value = e instanceof Error ? e.message : 'Autentificare eșuată.'
     }

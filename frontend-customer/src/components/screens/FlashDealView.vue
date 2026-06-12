@@ -13,6 +13,10 @@ const store = useFlashDealStore()
 const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
 
+const emit = defineEmits<{
+  (e: 'close'): void
+}>()
+
 const remaining = ref(0)
 const totalSeconds = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
@@ -78,6 +82,19 @@ const itemTone = computed(() => {
   return toneFromKey(id)
 })
 
+// One discounted portion per guest whose cart is on this bill: 1 for a solo /
+// pay-separately order, N for a bill that merged N guests.
+const quantity = computed(() => Math.max(1, store.activeDealQuantity ?? 1))
+const isMulti = computed(() => quantity.value > 1)
+const unitNow = computed(() => store.activeDeal?.discountedPrice ?? 0)
+const unitWas = computed(() => store.activeDeal?.menuItem.price ?? 0)
+// The discount is baked into the unit price, so the headline total is simply
+// unit × guests — e.g. a 20-lei item at 20% off, for 3 guests, shows 3 × 16 = 48
+// (equivalently, 20% off the 60-lei full total). round2 guards float drift.
+const round2 = (n: number) => Math.round(n * 100) / 100
+const totalNow = computed(() => round2(unitNow.value * quantity.value))
+const totalWas = computed(() => round2(unitWas.value * quantity.value))
+
 async function claim() {
   const deal = store.activeDeal
   const orderId = store.activeDealOrderId
@@ -98,8 +115,11 @@ async function claim() {
   }
 }
 
+// Dismiss only collapses the modal back to the floating icon — the deal stays
+// active until it's claimed or expires server-side. Clearing the store here
+// would also drop the icon, which is not what the user asked for.
 function dismiss() {
-  store.clearDeal()
+  emit('close')
 }
 </script>
 
@@ -161,24 +181,39 @@ function dismiss() {
             class="discount"
             :style="{ background: T.lime, color: T.ink }"
           >{{ t('flash.discount', { percent: discountPercent }) }}</div>
-          <div class="deal-name">{{ store.activeDeal.menuItem.name }}</div>
-          <div class="deal-meta" :style="{ color: T.ink70 }">{{ t('flash.meta') }}</div>
+          <div class="deal-name">
+            {{ store.activeDeal.menuItem.name }}
+            <span
+              v-if="isMulti"
+              class="qty-chip"
+              :style="{ background: T.ink, color: T.paper }"
+            >× {{ quantity }}</span>
+          </div>
+          <div class="deal-meta" :style="{ color: T.ink70 }">
+            {{ isMulti ? t('flash.forGuests', { count: quantity }) : t('flash.meta') }}
+          </div>
           <div class="prices">
             <!-- Dark green per the handoff (#3E7B10) on warm; on dark theme
-                 we keep the brand lime for contrast. -->
+                 we keep the brand lime for contrast. Prices are the bill total
+                 (unit × guests); for a solo order that's just the unit price. -->
             <span
               class="price-now"
               :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }"
             >
-              {{ store.activeDeal.discountedPrice }}
+              {{ totalNow }}
               <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </span>
             <span
-              v-if="store.activeDeal.menuItem.price !== store.activeDeal.discountedPrice"
+              v-if="totalWas !== totalNow"
               class="price-was"
               :style="{ color: T.ink40 }"
-            >{{ store.activeDeal.menuItem.price }} {{ t('common.ron') }}</span>
+            >{{ totalWas }} {{ t('common.ron') }}</span>
           </div>
+          <div
+            v-if="isMulti"
+            class="unit-note"
+            :style="{ color: T.ink70 }"
+          >{{ quantity }} × {{ unitNow }} {{ t('common.ron') }}</div>
         </div>
       </div>
 
@@ -296,15 +331,15 @@ function dismiss() {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 170px;
+  padding-bottom: calc(160px + var(--safe-bottom, 0px));
 }
 .hero {
   position: relative;
-  padding: 28px 24px 0;
+  padding: clamp(18px, 3.5vh, 28px) clamp(18px, 6vw, 24px) 0;
 }
 .title {
   font-weight: 700;
-  font-size: 46px;
+  font-size: clamp(33px, 11.8vw, 46px);
   line-height: 0.95;
   letter-spacing: -0.03em;
   margin: 0 0 16px;
@@ -315,21 +350,21 @@ function dismiss() {
   padding: 0 10px 2px;
 }
 .lede {
-  font-size: 18px;
+  font-size: clamp(15px, 4.6vw, 18px);
   line-height: 1.55;
   margin: 0 0 22px;
 }
 .deal-card {
   border-radius: 24px;
-  padding: 16px 18px;
+  padding: clamp(12px, 4vw, 16px) clamp(14px, 4.6vw, 18px);
   margin-bottom: 16px;
   display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 16px;
+  grid-template-columns: clamp(78px, 23vw, 96px) 1fr;
+  gap: clamp(12px, 4vw, 16px);
 }
 .deal-tile {
-  width: 96px;
-  height: 110px;
+  width: clamp(78px, 23vw, 96px);
+  height: clamp(92px, 27vw, 110px);
 }
 .deal-body {
   display: flex;
@@ -350,9 +385,23 @@ function dismiss() {
   font-weight: 700;
   line-height: 1.2;
 }
+.qty-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+  vertical-align: middle;
+}
 .deal-meta {
   font-size: 14px;
   margin-top: 4px;
+}
+.unit-note {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 6px;
 }
 .prices {
   display: flex;
@@ -361,7 +410,7 @@ function dismiss() {
   margin-top: 10px;
 }
 .price-now {
-  font-size: 32px;
+  font-size: clamp(26px, 8.2vw, 32px);
   font-weight: 800;
 }
 .price-unit {
@@ -388,14 +437,14 @@ function dismiss() {
 }
 .num {
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 56px;
+  font-size: clamp(40px, 14.3vw, 56px);
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1;
 }
 .colon {
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
-  font-size: 56px;
+  font-size: clamp(40px, 14.3vw, 56px);
   line-height: 1;
 }
 .unit {
@@ -417,9 +466,9 @@ function dismiss() {
 .cta {
   position: absolute;
   z-index: 2;
-  bottom: 28px;
-  left: 18px;
-  right: 18px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(14px, 4.6vw, 18px);
+  right: clamp(14px, 4.6vw, 18px);
   display: flex;
   flex-direction: column;
   gap: 10px;

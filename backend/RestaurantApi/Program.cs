@@ -9,13 +9,18 @@ using RestaurantApi.Hubs;
 using RestaurantApi.Models;
 using RestaurantApi.Services;
 using RestaurantApi.Services.Email;
+using RestaurantApi.Storage;
 using RestaurantApi.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Increase Kestrel's request body limit for PDF uploads (up to 110 MB).
+builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 110_000_000);
+
 // ── Tenancy ──────────────────────────────────────────────────────────────────
 builder.Services.AddScoped<ICurrentTenant, CurrentTenant>();
 builder.Services.AddScoped<ITenantAccess, TenantAccess>();
+builder.Services.AddSingleton<IFileStorage, LocalDiskFileStorage>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -44,6 +49,16 @@ if (System.Text.Encoding.UTF8.GetByteCount(jwt.Key) < 32)
     throw new InvalidOperationException(
         "Jwt:Key is missing or shorter than 32 bytes. Set it via the Jwt__Key environment " +
         "variable (appsettings.Development.json is excluded from the Docker image by .dockerignore).");
+}
+
+// MenuImport HMAC secret fail-fast: require at least 32 characters.
+var menuImportHmacSecret = builder.Configuration["MenuImport:HmacSecret"];
+if (!builder.Environment.IsEnvironment("Testing") &&
+    (string.IsNullOrWhiteSpace(menuImportHmacSecret) || menuImportHmacSecret.Length < 32))
+{
+    throw new InvalidOperationException(
+        "MenuImport:HmacSecret is missing or shorter than 32 characters. Set it via " +
+        "appsettings.Development.json or the MenuImport__HmacSecret environment variable.");
 }
 
 builder.Services
@@ -82,7 +97,38 @@ builder.Services.AddAuthorization();
 // ── Email ────────────────────────────────────────────────────────────────────
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<AppUrlOptions>(builder.Configuration.GetSection(AppUrlOptions.SectionName));
-builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+
+// Railway (and most PaaS) block outbound SMTP ports, so production sends through Resend's
+// HTTP API (port 443). Local dev keeps the MailKit SMTP sender (e.g. mailpit). Selected
+// by Email:Provider. The HttpClient timeout caps the register request so a slow/blocked
+// provider can never freeze it (the old SMTP path hung for the full ~2-minute timeout).
+var emailProvider = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>()?.Provider ?? "smtp";
+var usingResend = string.Equals(emailProvider, "resend", StringComparison.OrdinalIgnoreCase);
+if (usingResend)
+{
+    builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>(c =>
+        c.Timeout = TimeSpan.FromSeconds(15));
+}
+else
+{
+    builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+}
+
+// Warn loudly if Production is about to send mail through the SMTP dev defaults —
+// a misconfigured SMTP host/From silently breaks confirmation emails. Skipped when
+// using Resend, where Smtp:Host/From are irrelevant.
+if (builder.Environment.IsProduction() && !usingResend)
+{
+    var smtpCheck = builder.Configuration.GetSection(SmtpOptions.SectionName).Get<SmtpOptions>() ?? new SmtpOptions();
+    if (smtpCheck.Host is "localhost" or "127.0.0.1"
+        || smtpCheck.FromAddress.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            "[WARN] SMTP is using development defaults in Production — confirmation emails will NOT be delivered. " +
+            "Set Email__Provider=resend (recommended on Railway) or Smtp__Host/Smtp__FromAddress (see docs/email-deliverability-setup.md).");
+    }
+}
 
 // ── AI microservice clients ──────────────────────────────────────────────────
 builder.Services.AddHttpClient("AiService", (sp, client) =>
@@ -126,6 +172,36 @@ builder.Services.AddHttpClient<MenuExtractionClient>((sp, client) =>
     client.BaseAddress = new Uri(url);
     client.Timeout = TimeSpan.FromMinutes(6);
 });
+
+// ── MenuImport Python client (long-running extraction; 30-min timeout) ────────
+builder.Services.AddHttpClient<MenuImportPythonClient>((sp, client) =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    var url = cfg["AiService:BaseUrl"];
+    if (string.IsNullOrWhiteSpace(url))
+    {
+        if (env.IsDevelopment() || env.IsEnvironment("Testing"))
+        {
+            url = "http://localhost:8000";
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                "AiService:BaseUrl is not configured. Set it via appsettings or the AiService__BaseUrl environment variable.");
+        }
+    }
+    client.BaseAddress = new Uri(url);
+    client.Timeout = TimeSpan.FromMinutes(30);
+});
+
+// Register MenuImportPythonClient as IPdfExtractor for the background service.
+builder.Services.AddTransient<IPdfExtractor, MenuImportPythonClient>(sp =>
+    sp.GetRequiredService<MenuImportPythonClient>());
+
+builder.Services.Configure<MenuImportOptions>(builder.Configuration.GetSection("MenuImport"));
+builder.Services.AddSingleton<MenuImportProgressNotifier>();
+builder.Services.AddHostedService<MenuImportBackgroundService>();
 
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
@@ -175,6 +251,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseRouting();
 app.UseCors();
+
+// Serve uploaded files (avatars, etc.) out of wwwroot/uploads.
+// Ensures the directory exists so the very first upload doesn't 500.
+var uploadsRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads", "avatars");
+Directory.CreateDirectory(uploadsRoot);
+app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();

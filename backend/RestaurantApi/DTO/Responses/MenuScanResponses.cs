@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace RestaurantApi.DTOs.Responses;
 
 public record ExtractedMenuItemResponse(
@@ -15,4 +17,5 @@ public record MenuScanResponse(
     IReadOnlyList<ExtractedMenuItemResponse> Items,
     IReadOnlyList<FailedPageResponse> FailedPages,
     string Model,
-    int SchemaVersion);
+    int SchemaVersion,
+    JsonElement? Hierarchy = null);

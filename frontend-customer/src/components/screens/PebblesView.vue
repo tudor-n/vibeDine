@@ -290,17 +290,17 @@ onBeforeUnmount(() => {
 }
 .heading {
   position: relative;
-  padding: 22px 24px 6px;
+  padding: clamp(14px, 3vh, 22px) clamp(18px, 6vw, 24px) 6px;
 }
 .title {
   font-weight: 600;
-  font-size: 36px;
+  font-size: clamp(27px, 9.2vw, 36px);
   line-height: 1.05;
   letter-spacing: -0.03em;
   margin: 0;
 }
 .lede {
-  font-size: 16px;
+  font-size: clamp(14px, 4.1vw, 16px);
   margin: 8px 0 0;
 }
 .state {
@@ -312,7 +312,7 @@ onBeforeUnmount(() => {
   position: relative;
   flex: 1;
   overflow: hidden auto;
-  padding: 12px 16px 110px;
+  padding: 12px clamp(12px, 4vw, 16px) calc(110px + var(--safe-bottom, 0px));
 }
 .bloom {
   position: absolute;
@@ -360,7 +360,7 @@ onBeforeUnmount(() => {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 10px 16px 28px;
+  padding: 10px clamp(12px, 4vw, 16px) calc(18px + var(--safe-bottom, 0px));
   z-index: 20;
   pointer-events: none;
 }

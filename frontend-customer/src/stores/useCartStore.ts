@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Product } from '@shared/types/models'
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests'
-import { apiClient } from '@/services/api-client'
+import { apiClient, type PartyOrderItem } from '@/services/api-client'
 import { useSessionStore } from './useSessionStore'
 
 export interface CartItem extends Product {
@@ -15,6 +15,10 @@ export const useCartStore = defineStore('cart', () => {
   const recommendedItemIds = ref<Set<string>>(new Set())
   const sessionStore = useSessionStore()
 
+  // When this phone's draft has been merged into someone else's order it must
+  // stop syncing — its draft is now "merged" and PATCHes would 404.
+  const frozen = ref(false)
+
   const total = computed(() => {
     return items.value.reduce((sum, item) => sum + item.price * item.quantity, 0)
   })
@@ -23,6 +27,7 @@ export const useCartStore = defineStore('cart', () => {
   const lastSyncPromise = ref<Promise<void> | null>(null)
 
   async function syncCartWithBackend() {
+    if (frozen.value) return
     if(!sessionStore.orderId){
       console.warn('Nu există o comandă activă (orderId lipsește).')
       return
@@ -94,6 +99,46 @@ export const useCartStore = defineStore('cart', () => {
     recommendedItemIds.value.clear()
   }
 
+  // Replace the local cart with the authoritative server order (used by the
+  // merge initiator: after merging, the backend order already holds everyone's
+  // items, so we mirror them in WITHOUT re-syncing).
+  function replaceFromServer(serverItems: PartyOrderItem[]) {
+    items.value = serverItems.map((i) => ({
+      id: i.productId,
+      categoryId: '',
+      name: i.productName,
+      description: '',
+      price: i.unitPrice,
+      imageUrl: i.imageUrl,
+      isAvailable: true,
+      quantity: i.quantity,
+    }))
+    recommendedItemIds.value.clear()
+  }
+
+  // This phone's draft was merged away: drop any pending sync, empty the cart,
+  // and freeze so nothing tries to write to the now-merged order.
+  function abandonForMerge() {
+    if (syncTimeout) {
+      clearTimeout(syncTimeout)
+      syncTimeout = null
+    }
+    items.value = []
+    recommendedItemIds.value.clear()
+    frozen.value = true
+  }
+
+  // Start a brand-new order (e.g. "order again" after a merge): clear and unfreeze.
+  function resetForNewOrder() {
+    if (syncTimeout) {
+      clearTimeout(syncTimeout)
+      syncTimeout = null
+    }
+    items.value = []
+    recommendedItemIds.value.clear()
+    frozen.value = false
+  }
+
   function wasRecommended(productId: string): boolean {
     return recommendedItemIds.value.has(productId)
   }
@@ -101,12 +146,16 @@ export const useCartStore = defineStore('cart', () => {
   return {
     items,
     total,
+    frozen,
     lastSyncPromise,
     addItem,
     addRecommendedItem,
     removeItem,
     clearCart,
     addLocalItemOnly,
+    replaceFromServer,
+    abandonForMerge,
+    resetForNewOrder,
     wasRecommended,
   }
 })

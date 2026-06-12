@@ -29,6 +29,8 @@ public static class SeedData
                 UserName = DemoOwnerEmail,
                 Email = DemoOwnerEmail,
                 FullName = "Demo Owner",
+                // Demo account must be usable without SMTP (no inbox exists for it).
+                EmailConfirmed = true,
             };
             await users.CreateAsync(owner, DemoOwnerPassword);
         }

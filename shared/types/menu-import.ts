@@ -21,6 +21,7 @@ export interface MenuScanResponse {
   failedPages: FailedPage[]
   model: string
   schemaVersion: number
+  hierarchy?: MenuHierarchy
 }
 
 export interface BulkCreateCategoryItem {
@@ -40,4 +41,78 @@ export interface BulkCreateProductItem {
 export interface BulkCreateProductsRequest {
   items: BulkCreateProductItem[]
   newCategories: BulkCreateCategoryItem[]
+}
+
+export interface ItemRef {
+  sourcePage: number
+  sourceIndex: number
+  confidence: number
+}
+
+export interface OrganizedSubcategory {
+  name: string
+  sortOrder: number
+  itemRefs: ItemRef[]
+}
+
+export interface OrganizedCategory {
+  name: string
+  sortOrder: number
+  subcategories: OrganizedSubcategory[]
+  directItemRefs: ItemRef[]
+}
+
+export interface MenuHierarchy {
+  source: 'ai' | 'hint-fallback'
+  categories: OrganizedCategory[]
+  uncategorizedItemRefs: ItemRef[]
+  modelNotes?: string | null
+}
+
+// Request body for POST /admin/menu/bulk-create-hierarchy (typed C# endpoint — camelCase)
+export interface BulkHierarchySubcategoryRequest {
+  tempId: string
+  name: string
+  sortOrder?: number | null
+}
+
+export interface BulkHierarchyCategoryRequest {
+  tempId: string
+  name: string
+  sortOrder?: number | null
+  subcategories: BulkHierarchySubcategoryRequest[]
+}
+
+export interface BulkHierarchyProductRequest {
+  name: string
+  price: number
+  description?: string | null
+  categoryTempId: string
+  subcategoryTempId?: string | null
+  sortOrder: number
+  isAvailable: boolean
+}
+
+export interface BulkCreateHierarchyRequest {
+  categories: BulkHierarchyCategoryRequest[]
+  products: BulkHierarchyProductRequest[]
+}
+
+// Response from POST /admin/menu/bulk-create-hierarchy
+export interface TempIdMap {
+  tempId: string
+  id: string
+}
+
+export interface CreatedHierarchyProduct {
+  id: string
+  name: string
+  categoryId: string
+  subcategoryId: string | null
+}
+
+export interface BulkCreateHierarchyResponse {
+  createdCategories: TempIdMap[]
+  createdSubcategories: TempIdMap[]
+  createdProducts: CreatedHierarchyProduct[]
 }

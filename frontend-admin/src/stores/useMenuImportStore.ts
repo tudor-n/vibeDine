@@ -1,15 +1,53 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 
-import { menuImportApi } from '@/services/menuImportApi'
+import { menuImportApi, type MenuImportJobResponse } from '@/services/menuImportApi'
+import { createStaffHubClient } from '@/services/signalRClient'
+import type { StaffHubClient } from '@/services/signalRClient'
+import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { MENU_VALIDATION } from '@shared/types/menu-validation'
 import type {
   BulkCreateCategoryItem,
+  BulkCreateHierarchyRequest,
   BulkCreateProductItem,
   BulkCreateProductsRequest,
   ExtractedMenuItem,
   FailedPage,
+  ItemRef,
+  MenuHierarchy,
+  OrganizedCategory,
+  OrganizedSubcategory,
 } from '@shared/types/menu-import'
+
+// Internal in-store shape: each category / subcategory carries a stable tempId
+// so duplicate names cannot collide and rename is trivial. This shape only
+// exists in the store — the wire shape (OrganizedCategory / OrganizedSubcategory)
+// is unaffected.
+type EditableSubcategory = OrganizedSubcategory & { tempId: string }
+type EditableCategory = Omit<OrganizedCategory, 'subcategories'> & {
+  tempId: string
+  subcategories: EditableSubcategory[]
+}
+type EditableHierarchy = Omit<MenuHierarchy, 'categories'> & { categories: EditableCategory[] }
+
+export type ImportMode = 'photos' | 'pdf'
+
+export interface PdfJobUiState {
+  id: string
+  status: 'uploading' | 'pending' | 'extracting' | 'complete' | 'failed' | 'cancelled'
+  phase: 'parsing' | 'classifying' | 'extracting' | 'finalizing'
+  fileName: string
+  fileSizeBytes: number
+  processedPages: number
+  totalPages: number
+  failedPages: number
+  etaSeconds?: number
+  errorMessage?: string
+  // ms-since-epoch when display tracking started; persists across navigations
+  // so the time-based progress curve doesn't restart when the user returns.
+  startedAt: number
+}
 
 export type MappedCategory =
   | { kind: 'existing'; categoryId: string }
@@ -33,10 +71,110 @@ function makeId(): string {
   return crypto.randomUUID()
 }
 
+const PDF_IMPORT_POLL_INTERVAL_MS = 5_000
+
+// ── Persistence: lightweight IDB wrapper for File objects + localStorage for PDF job ──
+const IDB_NAME = 'sr_admin_import'
+const IDB_STORE = 'kv'
+const IDB_KEY_PHOTOS = 'photos.state'
+const PDF_STORAGE_KEY = 'sr_admin_import_pdf'
+
+interface PersistedPhotoState {
+  files: File[]
+  wasScanning: boolean
+}
+
+interface PersistedPdfState {
+  jobId: string
+  restaurantId: string
+  fileName: string
+  fileSizeBytes: number
+}
+
+function openIdb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE)
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function idbGet<T>(key: string): Promise<T | undefined> {
+  try {
+    const db = await openIdb()
+    return await new Promise<T | undefined>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly')
+      const req = tx.objectStore(IDB_STORE).get(key)
+      req.onsuccess = () => resolve(req.result as T | undefined)
+      req.onerror = () => reject(req.error)
+    })
+  } catch {
+    return undefined
+  }
+}
+
+async function idbSet<T>(key: string, value: T): Promise<void> {
+  try {
+    const db = await openIdb()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      tx.objectStore(IDB_STORE).put(value, key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch {
+    // persistence is best-effort — never block the user flow
+  }
+}
+
+async function idbDel(key: string): Promise<void> {
+  try {
+    const db = await openIdb()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      tx.objectStore(IDB_STORE).delete(key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch {
+    // best-effort
+  }
+}
+
+function readPdfPersisted(): PersistedPdfState | null {
+  try {
+    const raw = localStorage.getItem(PDF_STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as PersistedPdfState) : null
+  } catch {
+    return null
+  }
+}
+
+function writePdfPersisted(state: PersistedPdfState | null) {
+  try {
+    if (state === null) localStorage.removeItem(PDF_STORAGE_KEY)
+    else localStorage.setItem(PDF_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // best-effort
+  }
+}
+
+export type HierarchyMoveTarget =
+  | { kind: 'subcategory'; categoryName: string; subcategoryName: string }
+  | { kind: 'direct'; categoryName: string }
+  | { kind: 'uncategorized' }
+
 export const useMenuImportStore = defineStore('menuImport', () => {
+  const toast = useToast()
+
   const step = ref<1 | 2 | 3>(1)
   const files = ref<File[]>([])
   const isScanning = ref(false)
+  const scanStartedAt = ref<number | null>(null)
   const scanError = ref<string | null>(null)
   const isImporting = ref(false)
   const importError = ref<string | null>(null)
@@ -48,6 +186,50 @@ export const useMenuImportStore = defineStore('menuImport', () => {
   const unassignedMapping = ref<MappedCategory | null>(null)
   const reviewItems = ref<ReviewItem[]>([])
 
+  // ── Hierarchy state (AI categorization v2) ─────────────────────────────────
+  // tempIds live on each node in the editable clone (see EditableHierarchy)
+  // so duplicate names can't collide and renames don't need to update keys.
+  const hierarchy = ref<EditableHierarchy | null>(null)
+
+  // Skipped items by `${page}:${idx}` — excluded from the payload and the tree.
+  const skippedItemKeys = reactive(new Set<string>())
+
+  function refKey(ref: { sourcePage: number; sourceIndex: number }): string {
+    return `${ref.sourcePage}:${ref.sourceIndex}`
+  }
+
+  function skipItem(ref: { sourcePage: number; sourceIndex: number }) {
+    skippedItemKeys.add(refKey(ref))
+  }
+
+  function unskipItem(ref: { sourcePage: number; sourceIndex: number }) {
+    skippedItemKeys.delete(refKey(ref))
+  }
+
+  function isSkipped(ref: { sourcePage: number; sourceIndex: number }): boolean {
+    return skippedItemKeys.has(refKey(ref))
+  }
+
+  function updateExtractedItem(
+    ref: { sourcePage: number; sourceIndex: number },
+    patch: Partial<Pick<ExtractedMenuItem, 'name' | 'price' | 'description'>>,
+  ) {
+    const idx = extractedItems.value.findIndex(
+      (it) => it.sourcePage === ref.sourcePage && it.sourceIndex === ref.sourceIndex,
+    )
+    if (idx === -1) return
+    const target = extractedItems.value[idx]
+    if (patch.name !== undefined) target.name = patch.name
+    if (patch.price !== undefined) target.price = patch.price
+    if (patch.description !== undefined) target.description = patch.description
+  }
+
+  // ── PDF mode state ─────────────────────────────────────────────────────────
+  const mode = ref<ImportMode>('photos')
+  const pdfJob = ref<PdfJobUiState | null>(null)
+  const pdfHub = ref<StaffHubClient | null>(null)
+  const pdfPollTimer = ref<ReturnType<typeof setInterval> | null>(null)
+
   const canAdvanceFromStep1 = computed(() => files.value.length > 0 && !isScanning.value)
   const unassignedCount = computed(
     () => extractedItems.value.filter((it) => it.categoryHint == null).length,
@@ -57,6 +239,18 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     const unassignedOk = unassignedCount.value === 0 || unassignedMapping.value !== null
     return allHintsMapped && unassignedOk
   })
+
+  async function persistPhotoState(opts?: { wasScanning?: boolean }) {
+    if (files.value.length === 0 && !opts?.wasScanning) {
+      await idbDel(IDB_KEY_PHOTOS)
+      return
+    }
+    const snapshot: PersistedPhotoState = {
+      files: files.value.slice(),
+      wasScanning: opts?.wasScanning ?? isScanning.value,
+    }
+    await idbSet(IDB_KEY_PHOTOS, snapshot)
+  }
 
   function addFiles(incoming: File[]): { rejected: { file: File; reason: string }[] } {
     const rejected: { file: File; reason: string }[] = []
@@ -76,20 +270,38 @@ export const useMenuImportStore = defineStore('menuImport', () => {
       if (files.value.some((existing) => existing.name === f.name && existing.size === f.size)) continue
       files.value.push(f)
     }
+    void persistPhotoState()
     return { rejected }
   }
 
   function removeFile(name: string) {
     files.value = files.value.filter((f) => f.name !== name)
+    void persistPhotoState()
   }
 
   async function scan() {
     isScanning.value = true
+    scanStartedAt.value = Date.now()
     scanError.value = null
+    // Mark "was scanning" in storage so a refresh mid-scan can auto-retry on reload.
+    await persistPhotoState({ wasScanning: true })
     try {
       const result = await menuImportApi.scan(files.value)
       extractedItems.value = result.items
       failedPages.value = result.failedPages
+
+      // New pipeline: if the backend already produced a hierarchy, skip the hint-mapping
+      // step entirely and jump straight to hierarchy review. Mirrors hydrateCompletedPdfJob.
+      if (result.hierarchy) {
+        hydrateHierarchy(result.hierarchy)
+        detectedHints.value = []
+        for (const k of Object.keys(categoryMapping)) delete categoryMapping[k]
+        unassignedMapping.value = null
+        step.value = 3
+        await idbDel(IDB_KEY_PHOTOS)
+        return
+      }
+
       detectedHints.value = Array.from(
         new Set(result.items.map((it) => it.categoryHint).filter((h): h is string => !!h)),
       )
@@ -100,11 +312,16 @@ export const useMenuImportStore = defineStore('menuImport', () => {
       }
       unassignedMapping.value = null
       step.value = 2
+      // Scan succeeded — clear the auto-retry flag, but keep files in case the user wants to redo.
+      await idbDel(IDB_KEY_PHOTOS)
     } catch (err) {
       scanError.value = err instanceof Error ? err.message : 'Scan failed.'
+      // Clear the auto-retry flag on real errors so we don't loop forever on reload.
+      await persistPhotoState({ wasScanning: false })
       throw err
     } finally {
       isScanning.value = false
+      scanStartedAt.value = null
     }
   }
 
@@ -221,10 +438,593 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     }
   }
 
+  // ── PDF actions ────────────────────────────────────────────────────────────
+
+  function makeUploadingPdfJob(file: File): PdfJobUiState {
+    return {
+      id: '',
+      status: 'uploading',
+      phase: 'parsing',
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      processedPages: 0,
+      totalPages: 0,
+      failedPages: 0,
+      etaSeconds: undefined,
+      errorMessage: undefined,
+      startedAt: Date.now(),
+    }
+  }
+
+  function isActivePdfStatus(status: PdfJobUiState['status']): boolean {
+    return status === 'uploading' || status === 'pending' || status === 'extracting'
+  }
+
+  function messageFromFailedPayload(payload: Record<string, unknown>, fallback: string): string {
+    const errorMessage = payload['errorMessage']
+    if (typeof errorMessage === 'string' && errorMessage.trim()) return errorMessage
+    const error = payload['error']
+    if (typeof error === 'string' && error.trim()) return error
+    return fallback
+  }
+
+  function messageFromJob(job: MenuImportJobResponse, fallback: string): string {
+    if (typeof job.errorMessage === 'string' && job.errorMessage.trim()) return job.errorMessage
+    const error = (job as MenuImportJobResponse & { error?: unknown }).error
+    if (typeof error === 'string' && error.trim()) return error
+    return fallback
+  }
+
+  function applyPdfJobSnapshot(job: MenuImportJobResponse) {
+    if (!pdfJob.value || pdfJob.value.id !== job.id) return
+    pdfJob.value.status = job.status
+    pdfJob.value.processedPages = job.processedPages
+    pdfJob.value.totalPages = job.totalPages
+    pdfJob.value.failedPages = job.failedPages
+    pdfJob.value.phase = job.phase
+    pdfJob.value.errorMessage = messageFromJob(job, pdfJob.value.errorMessage ?? '')
+  }
+
+  function hydrateCompletedPdfJob(job: MenuImportJobResponse): boolean {
+    applyPdfJobSnapshot(job)
+    if (!job.result) return false
+
+    extractedItems.value = job.result.items
+    failedPages.value = job.result.failedPages
+
+    // New pipeline: if the backend already produced a hierarchy, skip the hint-mapping
+    // step entirely and jump straight to hierarchy review.
+    if (job.result.hierarchy) {
+      hydrateHierarchy(job.result.hierarchy)
+      step.value = 3
+      mode.value = 'photos'
+      return true
+    }
+
+    // Mirror the scan() logic: seed detectedHints & categoryMapping
+    const hints = Array.from(
+      new Set(
+        job.result.items
+          .map((it) => it.categoryHint)
+          .filter((h): h is string => !!h),
+      ),
+    )
+    detectedHints.value = hints
+    for (const k of Object.keys(categoryMapping)) delete categoryMapping[k]
+    for (const hint of hints) {
+      categoryMapping[hint] = { kind: 'new', tempId: makeId(), name: hint }
+    }
+    unassignedMapping.value = null
+
+    // Mirror scan(): if hints exist -> step 2 (map categories); else -> step 3 (review)
+    if (hints.length > 0) {
+      step.value = 2
+    } else {
+      reviewItems.value = extractedItems.value
+        .slice()
+        .sort((a, b) => a.sourcePage - b.sourcePage || a.sourceIndex - b.sourceIndex)
+        .map((it) => ({
+          clientId: makeId(),
+          name: it.name,
+          price: it.price,
+          sourcePage: it.sourcePage,
+          categoryHint: it.categoryHint ?? null,
+          resolvedCategory: resolveCategoryForItem(it),
+          skipped: false,
+        }))
+      step.value = 3
+    }
+    mode.value = 'photos'
+    return true
+  }
+
+  async function failPdfJob(message: string) {
+    if (pdfJob.value) {
+      pdfJob.value.status = 'failed'
+      pdfJob.value.errorMessage = message
+    }
+    importError.value = message
+    toast.error(importError.value)
+    writePdfPersisted(null)
+    await _disconnect()
+  }
+
+  function _stopPdfPolling() {
+    if (pdfPollTimer.value === null) return
+    clearInterval(pdfPollTimer.value)
+    pdfPollTimer.value = null
+  }
+
+  function _startPdfPolling(jobId: string) {
+    _stopPdfPolling()
+    pdfPollTimer.value = setInterval(() => {
+      void _pollPdfJob(jobId)
+    }, PDF_IMPORT_POLL_INTERVAL_MS)
+  }
+
+  async function _pollPdfJob(jobId: string) {
+    if (!pdfJob.value || pdfJob.value.id !== jobId || !isActivePdfStatus(pdfJob.value.status)) {
+      _stopPdfPolling()
+      return
+    }
+    try {
+      const job = await menuImportApi.getImportJob(jobId)
+      if (!pdfJob.value || pdfJob.value.id !== jobId) return
+      applyPdfJobSnapshot(job)
+      if (job.status === 'complete') {
+        if (!hydrateCompletedPdfJob(job)) {
+          await failPdfJob('Import PDF finalizat fără rezultat.')
+          return
+        }
+        toast.success('Import PDF finalizat!')
+        writePdfPersisted(null)
+        await _disconnect()
+      } else if (job.status === 'failed') {
+        await failPdfJob(messageFromJob(job, 'Import PDF eșuat.'))
+      } else if (job.status === 'cancelled') {
+        writePdfPersisted(null)
+        await _disconnect()
+      }
+    } catch {
+      // Polling is a fallback; keep the active job visible and try again on the next tick.
+    }
+  }
+
+  async function startPdfImport(file: File) {
+    mode.value = 'pdf'
+    importError.value = null
+    _stopPdfPolling()
+    pdfJob.value = makeUploadingPdfJob(file)
+    const startingJob = pdfJob.value
+
+    let jobId: string
+    try {
+      ;({ jobId } = await menuImportApi.startPdfImport(file))
+    } catch (err) {
+      importError.value = err instanceof Error ? err.message : 'Eroare la pornirea importului PDF.'
+      if (pdfJob.value === startingJob) {
+        pdfJob.value = null
+        mode.value = 'photos'
+      }
+      throw err
+    }
+
+    if (pdfJob.value !== startingJob) return
+    if (startingJob.status === 'cancelled') {
+      try {
+        await menuImportApi.cancelImportJob(jobId)
+      } catch {
+        // best-effort cleanup if the user cancelled while the upload was still starting
+      }
+      return
+    }
+
+    pdfJob.value = {
+      ...pdfJob.value,
+      id: jobId,
+      status: 'pending',
+    }
+
+    const auth = useAuthStore()
+    const restaurantId = auth.activeRestaurantId ?? ''
+    writePdfPersisted({
+      jobId,
+      restaurantId,
+      fileName: file.name,
+      fileSizeBytes: file.size,
+    })
+    _startPdfPolling(jobId)
+    try {
+      await _connectAndSubscribe(jobId, restaurantId)
+    } catch (err) {
+      importError.value = err instanceof Error ? err.message : 'Conexiunea live pentru importul PDF a eșuat.'
+    }
+  }
+
+  async function cancelPdfImport() {
+    if (!pdfJob.value) return
+    if (pdfJob.value.id) {
+      try {
+        await menuImportApi.cancelImportJob(pdfJob.value.id)
+      } catch {
+        // best-effort cancel
+      }
+    }
+    pdfJob.value.status = 'cancelled'
+    await _disconnect()
+    writePdfPersisted(null)
+    toast.info('Import PDF anulat.')
+  }
+
+  // ── Resume on app boot ─────────────────────────────────────────────────────
+
+  let resumeAttempted = false
+  async function tryResume() {
+    if (resumeAttempted) return
+    resumeAttempted = true
+
+    // PDF resume — uses persisted jobId to re-attach to the still-running backend job.
+    const pdfState = readPdfPersisted()
+    if (pdfState) {
+      const auth = useAuthStore()
+      if (auth.activeRestaurantId && pdfState.restaurantId && auth.activeRestaurantId !== pdfState.restaurantId) {
+        // User switched restaurants — this job is no longer in scope; drop it.
+        writePdfPersisted(null)
+      } else {
+        await _resumePdfJob(pdfState)
+      }
+    }
+
+    // Photo resume — restore files, optionally auto-restart scan that was interrupted.
+    const photoState = await idbGet<PersistedPhotoState>(IDB_KEY_PHOTOS)
+    if (photoState && photoState.files.length > 0) {
+      files.value = photoState.files.slice()
+      mode.value = 'photos'
+      if (photoState.wasScanning && pdfJob.value === null) {
+        // Auto-retry the scan on the next tick so subscribers see the loading state.
+        void scan().catch(() => {
+          // scan() already sets scanError; nothing more to do here.
+        })
+      }
+    }
+  }
+
+  async function _resumePdfJob(state: PersistedPdfState) {
+    // Optimistically hydrate the visible job so the UI shows it instantly while we fetch status.
+    mode.value = 'pdf'
+    pdfJob.value = {
+      id: state.jobId,
+      status: 'pending',
+      phase: 'parsing',
+      fileName: state.fileName,
+      fileSizeBytes: state.fileSizeBytes,
+      processedPages: 0,
+      totalPages: 0,
+      failedPages: 0,
+      etaSeconds: undefined,
+      errorMessage: undefined,
+      // We don't know the original start time after a refresh; use "now" so the
+      // time-based curve starts fresh. Real backend page progress will quickly
+      // override and become the floor anyway.
+      startedAt: Date.now(),
+    }
+
+    let job: MenuImportJobResponse
+    try {
+      job = await menuImportApi.getImportJob(state.jobId)
+    } catch {
+      // Job is gone (404, deleted, etc.) — clear state and bail silently.
+      pdfJob.value = null
+      mode.value = 'photos'
+      writePdfPersisted(null)
+      return
+    }
+
+    applyPdfJobSnapshot(job)
+
+    if (job.status === 'complete') {
+      if (hydrateCompletedPdfJob(job)) {
+        toast.success('Import PDF finalizat — reia revizuirea.')
+      }
+      writePdfPersisted(null)
+      return
+    }
+    if (job.status === 'failed') {
+      await failPdfJob(messageFromJob(job, 'Import PDF eșuat.'))
+      writePdfPersisted(null)
+      return
+    }
+    if (job.status === 'cancelled') {
+      pdfJob.value = null
+      mode.value = 'photos'
+      writePdfPersisted(null)
+      return
+    }
+
+    // Still active — reconnect SignalR and resume polling.
+    const auth = useAuthStore()
+    const restaurantId = auth.activeRestaurantId ?? state.restaurantId
+    _startPdfPolling(state.jobId)
+    try {
+      await _connectAndSubscribe(state.jobId, restaurantId)
+    } catch {
+      // Polling will keep the UI alive even if SignalR fails.
+    }
+    toast.info('Import PDF în curs — am reluat conexiunea.')
+  }
+
+  async function _connectAndSubscribe(jobId: string, restaurantId: string) {
+    const hub = createStaffHubClient()
+    pdfHub.value = hub
+
+    hub.on<Record<string, unknown>>('MenuImportProgress', async (payload) => {
+      if (!pdfJob.value || payload['jobId'] !== jobId) return
+      if (payload['processedPages'] !== undefined)
+        pdfJob.value.processedPages = payload['processedPages'] as number
+      if (payload['totalPages'] !== undefined)
+        pdfJob.value.totalPages = payload['totalPages'] as number
+      if (payload['failedPages'] !== undefined)
+        pdfJob.value.failedPages = payload['failedPages'] as number
+      if (payload['phase'] !== undefined)
+        pdfJob.value.phase = payload['phase'] as PdfJobUiState['phase']
+      if (payload['etaSeconds'] !== undefined)
+        pdfJob.value.etaSeconds = (payload['etaSeconds'] as number | null) ?? undefined
+      if (payload['status'] === 'failed') {
+        await failPdfJob(messageFromFailedPayload(payload, 'Import PDF eșuat.'))
+      } else if (payload['status'] === 'cancelled') {
+        pdfJob.value.status = 'cancelled'
+        await _disconnect()
+      } else if (payload['status'] === 'complete') {
+        void _pollPdfJob(jobId)
+      } else {
+        pdfJob.value.status = 'extracting'
+      }
+    })
+
+    hub.on<Record<string, unknown>>('MenuImportCompleted', async (payload) => {
+      if (payload['jobId'] !== jobId) return
+      try {
+        const job = await menuImportApi.getImportJob(jobId)
+        if (!hydrateCompletedPdfJob(job)) {
+          await failPdfJob('Import PDF finalizat fără rezultat.')
+          return
+        }
+        toast.success('Import PDF finalizat!')
+      } catch (err) {
+        importError.value = err instanceof Error ? err.message : 'Eroare la finalizarea importului.'
+        toast.error(importError.value)
+      }
+      writePdfPersisted(null)
+      await _disconnect()
+    })
+
+    hub.on<Record<string, unknown>>('MenuImportFailed', async (payload) => {
+      if (payload['jobId'] !== jobId) return
+      await failPdfJob(messageFromFailedPayload(payload, 'Import PDF eșuat.'))
+    })
+
+    hub.onReconnected(async () => {
+      if (!pdfJob.value || pdfJob.value.id !== jobId || !isActivePdfStatus(pdfJob.value.status)) return
+      await hub.joinAdminGroup(restaurantId)
+    })
+
+    await hub.start()
+    await hub.joinAdminGroup(restaurantId)
+  }
+
+  async function _disconnect() {
+    _stopPdfPolling()
+    if (!pdfHub.value) return
+    try {
+      // activeRestaurantId may already be gone if store was reset
+      const auth = useAuthStore()
+      if (auth.activeRestaurantId) {
+        await pdfHub.value.leaveAdminGroup(auth.activeRestaurantId)
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      await pdfHub.value.stop()
+    } catch {
+      // ignore
+    }
+    pdfHub.value = null
+  }
+
+  // ── Hierarchy actions ──────────────────────────────────────────────────────
+
+  function hydrateHierarchy(input: MenuHierarchy) {
+    const clone = JSON.parse(JSON.stringify(input)) as MenuHierarchy // deep clone — safer than structuredClone for Pinia reactivity
+    const editable: EditableHierarchy = {
+      ...clone,
+      categories: clone.categories.map((c) => ({
+        ...c,
+        tempId: makeId(),
+        subcategories: c.subcategories.map((s) => ({
+          ...s,
+          tempId: makeId(),
+        })),
+      })),
+    }
+    hierarchy.value = editable
+  }
+
+  function moveItem(ref: ItemRef, target: HierarchyMoveTarget) {
+    if (!hierarchy.value) return
+    const sameRef = (r: ItemRef) => r.sourcePage === ref.sourcePage && r.sourceIndex === ref.sourceIndex
+    // Remove from current location
+    for (const c of hierarchy.value.categories) {
+      for (const s of c.subcategories) {
+        s.itemRefs = s.itemRefs.filter((r) => !sameRef(r))
+      }
+      c.directItemRefs = c.directItemRefs.filter((r) => !sameRef(r))
+    }
+    hierarchy.value.uncategorizedItemRefs = hierarchy.value.uncategorizedItemRefs.filter(
+      (r) => !sameRef(r),
+    )
+    // Insert in target
+    const refClone: ItemRef = {
+      sourcePage: ref.sourcePage,
+      sourceIndex: ref.sourceIndex,
+      confidence: ref.confidence ?? 0.5,
+    }
+    if (target.kind === 'uncategorized') {
+      hierarchy.value.uncategorizedItemRefs.push(refClone)
+      return
+    }
+    const cat = hierarchy.value.categories.find((c) => c.name === target.categoryName)
+    if (!cat) return
+    if (target.kind === 'direct') {
+      cat.directItemRefs.push(refClone)
+      return
+    }
+    const sub = cat.subcategories.find((s) => s.name === target.subcategoryName)
+    if (sub) sub.itemRefs.push(refClone)
+  }
+
+  function renameCategory(oldName: string, newName: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === oldName)
+    if (!cat) return
+    cat.name = newName
+  }
+
+  function renameSubcategory(categoryName: string, oldName: string, newName: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    const sub = cat.subcategories.find((s) => s.name === oldName)
+    if (!sub) return
+    sub.name = newName
+  }
+
+  function addSubcategory(categoryName: string, name: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    cat.subcategories.push({
+      name,
+      sortOrder: cat.subcategories.length,
+      itemRefs: [],
+      tempId: makeId(),
+    })
+  }
+
+  function removeSubcategory(categoryName: string, name: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    const sub = cat.subcategories.find((s) => s.name === name)
+    if (!sub) return
+    // Items go to parent's directItemRefs (no data loss)
+    cat.directItemRefs.push(...sub.itemRefs)
+    cat.subcategories = cat.subcategories.filter((s) => s.name !== name)
+  }
+
+  function addCategory(name: string) {
+    if (!hierarchy.value) return
+    hierarchy.value.categories.push({
+      name,
+      sortOrder: hierarchy.value.categories.length,
+      subcategories: [],
+      directItemRefs: [],
+      tempId: makeId(),
+    })
+  }
+
+  function removeCategory(categoryName: string) {
+    if (!hierarchy.value) return
+    const cat = hierarchy.value.categories.find((c) => c.name === categoryName)
+    if (!cat) return
+    // Items go to uncategorized (no data loss)
+    const orphans = [
+      ...cat.directItemRefs,
+      ...cat.subcategories.flatMap((s) => s.itemRefs),
+    ]
+    hierarchy.value.uncategorizedItemRefs.push(...orphans)
+    hierarchy.value.categories = hierarchy.value.categories.filter((c) => c.name !== categoryName)
+  }
+
+  function buildHierarchyPayload(): BulkCreateHierarchyRequest {
+    if (!hierarchy.value) return { categories: [], products: [] }
+
+    // Drop empty subcategories — the backend would otherwise create unreachable empty
+    // subcategory rows. Direct items on the parent category are kept regardless.
+    const categories = hierarchy.value.categories.map((c) => ({
+      tempId: c.tempId,
+      name: c.name,
+      sortOrder: c.sortOrder,
+      subcategories: c.subcategories
+        .filter((s) => s.itemRefs.length > 0)
+        .map((s) => ({
+          tempId: s.tempId,
+          name: s.name,
+          sortOrder: s.sortOrder,
+        })),
+    }))
+
+    const itemByKey = new Map(
+      extractedItems.value.map((it) => [`${it.sourcePage}:${it.sourceIndex}`, it]),
+    )
+
+    const products: BulkCreateHierarchyRequest['products'] = []
+    let order = 0
+    for (const c of hierarchy.value.categories) {
+      for (const s of c.subcategories) {
+        if (s.itemRefs.length === 0) continue // mirrors the filter above
+        for (const ref of s.itemRefs) {
+          if (skippedItemKeys.has(refKey(ref))) continue
+          const it = itemByKey.get(`${ref.sourcePage}:${ref.sourceIndex}`)
+          if (!it) continue
+          products.push({
+            name: it.name,
+            price: it.price,
+            description: it.description ?? null,
+            categoryTempId: c.tempId,
+            subcategoryTempId: s.tempId,
+            sortOrder: order++,
+            isAvailable: true,
+          })
+        }
+      }
+      for (const ref of c.directItemRefs) {
+        if (skippedItemKeys.has(refKey(ref))) continue
+        const it = itemByKey.get(`${ref.sourcePage}:${ref.sourceIndex}`)
+        if (!it) continue
+        products.push({
+          name: it.name,
+          price: it.price,
+          description: it.description ?? null,
+          categoryTempId: c.tempId,
+          subcategoryTempId: null,
+          sortOrder: order++,
+          isAvailable: true,
+        })
+      }
+    }
+
+    return { categories, products }
+  }
+
+  async function importHierarchy() {
+    isImporting.value = true
+    importError.value = null
+    try {
+      await menuImportApi.bulkCreateHierarchy(buildHierarchyPayload())
+    } catch (err) {
+      importError.value = err instanceof Error ? err.message : 'Import failed.'
+      throw err
+    } finally {
+      isImporting.value = false
+    }
+  }
+
   function $reset() {
     step.value = 1
     files.value = []
     isScanning.value = false
+    scanStartedAt.value = null
     scanError.value = null
     isImporting.value = false
     importError.value = null
@@ -234,6 +1034,13 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     for (const k of Object.keys(categoryMapping)) delete categoryMapping[k]
     unassignedMapping.value = null
     reviewItems.value = []
+    hierarchy.value = null
+    skippedItemKeys.clear()
+    mode.value = 'photos'
+    pdfJob.value = null
+    void idbDel(IDB_KEY_PHOTOS)
+    writePdfPersisted(null)
+    void _disconnect()
   }
 
   return {
@@ -241,6 +1048,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     step,
     files,
     isScanning,
+    scanStartedAt,
     scanError,
     isImporting,
     importError,
@@ -250,6 +1058,10 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     categoryMapping,
     unassignedMapping,
     reviewItems,
+    hierarchy,
+    // PDF state
+    mode,
+    pdfJob,
     // getters
     canAdvanceFromStep1,
     unassignedCount,
@@ -268,6 +1080,28 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     validateRow,
     buildBulkPayload,
     importAll,
+    // Hierarchy actions
+    hydrateHierarchy,
+    moveItem,
+    renameCategory,
+    renameSubcategory,
+    addSubcategory,
+    removeSubcategory,
+    addCategory,
+    removeCategory,
+    buildHierarchyPayload,
+    importHierarchy,
+    // Per-item edit / skip
+    skippedItemKeys,
+    isSkipped,
+    updateExtractedItem,
+    skipItem,
+    unskipItem,
+    // PDF actions
+    startPdfImport,
+    cancelPdfImport,
+    // Persistence resume
+    tryResume,
     $reset,
   }
 })

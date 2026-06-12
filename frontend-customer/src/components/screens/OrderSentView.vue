@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from 'vue'
+import { computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useSessionStore } from '@/stores/useSessionStore'
@@ -10,7 +10,6 @@ import BigButton from '@/components/ui/BigButton.vue'
 const props = defineProps<{ total: number }>()
 const emit = defineEmits<{
   (e: 'order-again'): void
-  (e: 'call-waiter'): void
 }>()
 
 const sessionStore = useSessionStore()
@@ -43,15 +42,13 @@ const totalHintColor = computed(() =>
   theme.value === 'dark' ? T.value.ink40 : 'rgba(251,247,236,0.45)',
 )
 
-const submittedAt = ref(new Date())
-const inPrepAt = ref<Date | null>(null)
-const servedAt = ref<Date | null>(null)
+// Stamp the submitted time as soon as this screen first appears. Timestamps
+// live in the store so they persist if the diner leaves and re-opens progress;
+// stamping in setup (before first paint) avoids a "—" flash on the timeline.
+orderStatusStore.markSubmitted()
 
-onMounted(() => {
-  submittedAt.value = new Date()
-})
-
-function fmt(d: Date) {
+function fmt(d: Date | null) {
+  if (!d) return '—'
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
@@ -62,53 +59,35 @@ const tableLabel = computed(() => {
   return `${t('common.table')} ${tail}`
 })
 
-// Live status arrives via SignalR. We only stamp a timestamp on the *first*
-// transition into each stage so the displayed time matches when the kitchen
-// actually moved the order, not when the customer re-rendered.
+// Live status arrives via SignalR; the store stamps each stage's timestamp on
+// the first transition into it, so the displayed times match when the kitchen
+// actually moved the order rather than when this screen re-rendered.
 const currentStatus = computed(() => orderStatusStore.status)
 const isPreparing = computed(() =>
   currentStatus.value === 'preparing' || currentStatus.value === 'ready' || currentStatus.value === 'completed',
 )
 const isServed = computed(() => currentStatus.value === 'completed')
 
-if (isPreparing.value && !inPrepAt.value) inPrepAt.value = new Date()
-if (isServed.value && !servedAt.value) servedAt.value = new Date()
-
-watch(currentStatus, (s) => {
-  if ((s === 'preparing' || s === 'ready' || s === 'completed') && !inPrepAt.value) {
-    inPrepAt.value = new Date()
-  }
-  if (s === 'completed' && !servedAt.value) {
-    servedAt.value = new Date()
-  }
-})
-
-const steps = computed(() => {
-  const submitted = submittedAt.value
-  const inPrep = inPrepAt.value
-  const served = servedAt.value
-
-  return [
-    {
-      t: fmt(submitted),
-      label: t('sent.stepSubmitted'),
-      done: true,
-      active: !isPreparing.value,
-    },
-    {
-      t: inPrep ? fmt(inPrep) : '—',
-      label: t('sent.stepPreparing'),
-      done: isPreparing.value,
-      active: isPreparing.value && !isServed.value,
-    },
-    {
-      t: served ? fmt(served) : '—',
-      label: t('sent.stepServed'),
-      done: isServed.value,
-      active: isServed.value,
-    },
-  ]
-})
+const steps = computed(() => [
+  {
+    t: fmt(orderStatusStore.submittedAt),
+    label: t('sent.stepSubmitted'),
+    done: true,
+    active: !isPreparing.value,
+  },
+  {
+    t: fmt(orderStatusStore.preparingAt),
+    label: t('sent.stepPreparing'),
+    done: isPreparing.value,
+    active: isPreparing.value && !isServed.value,
+  },
+  {
+    t: fmt(orderStatusStore.servedAt),
+    label: t('sent.stepServed'),
+    done: isServed.value,
+    active: isServed.value,
+  },
+])
 </script>
 
 <template>
@@ -192,11 +171,6 @@ const steps = computed(() => {
     </div>
 
     <div class="cta">
-      <button
-        class="secondary"
-        :style="{ background: T.card, border: `1px solid ${T.ink12}`, color: T.ink }"
-        @click="emit('call-waiter')"
-      >{{ t('sent.callWaiter') }}</button>
       <BigButton :theme="theme" :font-size="16" @click="emit('order-again')">{{ t('sent.orderAgain') }}</BigButton>
     </div>
   </PhoneScreen>
@@ -253,21 +227,21 @@ const steps = computed(() => {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 130px;
+  padding-bottom: calc(120px + var(--safe-bottom, 0px));
 }
 .hero {
   position: relative;
-  padding: 32px 24px 0;
+  padding: clamp(20px, 4vh, 32px) clamp(18px, 6vw, 24px) 0;
 }
 .title {
   font-weight: 700;
-  font-size: 48px;
+  font-size: clamp(34px, 12.3vw, 48px);
   line-height: 0.95;
   letter-spacing: -0.03em;
   margin: 0 0 16px;
 }
 .lede {
-  font-size: 18px;
+  font-size: clamp(15px, 4.6vw, 18px);
   line-height: 1.55;
   margin: 0 0 22px;
 }
@@ -315,7 +289,7 @@ const steps = computed(() => {
   font-weight: 500;
 }
 .total-value {
-  font-size: 36px;
+  font-size: clamp(28px, 9.2vw, 36px);
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -331,20 +305,11 @@ const steps = computed(() => {
 .cta {
   position: absolute;
   z-index: 2;
-  bottom: 28px;
-  left: 18px;
-  right: 18px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(14px, 4.6vw, 18px);
+  right: clamp(14px, 4.6vw, 18px);
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
-}
-.secondary {
-  padding: 18px 16px;
-  border-radius: 999px;
-  font-size: 16px;
-  font-weight: 700;
-  cursor: pointer;
-  font-family: inherit;
-  min-height: 56px;
 }
 </style>

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { toneFromKey } from '@/design/tokens'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useGuestStore } from '@/stores/useGuestStore'
 import { apiClient } from '@/services/api-client'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
+import PartyPanel from '@/components/PartyPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -17,8 +19,24 @@ const emit = defineEmits<{
 
 const cartStore = useCartStore()
 const sessionStore = useSessionStore()
+const guestStore = useGuestStore()
 const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
+
+// Refresh the party panel when the cart opens so each phone sees the others'
+// current carts (also kept live via SignalR PartyMemberJoined / PartyMerged).
+onMounted(() => guestStore.refreshParty(sessionStore.qrToken))
+
+// Initiator path: after merging, the backend order already holds everyone's
+// items, so mirror the consolidated order back into this cart to review/submit.
+async function handleMerge() {
+  try {
+    const res = await guestStore.merge(sessionStore.qrToken)
+    if (res) cartStore.replaceFromServer(res.activeOrder.items)
+  } catch (e) {
+    submitError.value = e instanceof Error ? e.message : t('cart.errorSubmit')
+  }
+}
 
 // Defensive against HMR: the store may not yet expose `wasRecommended`
 // after a hot reload until Pinia re-evaluates the setup. Wrap the call so
@@ -167,6 +185,8 @@ async function submit() {
       </div>
     </div>
 
+    <PartyPanel @merge="handleMerge" />
+
     <div
       v-if="submitError"
       class="error"
@@ -244,15 +264,15 @@ async function submit() {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 130px;
+  padding-bottom: calc(120px + var(--safe-bottom, 0px));
 }
 .lede {
-  font-size: 16px;
-  margin: 0 22px 16px;
+  font-size: clamp(14px, 4.1vw, 16px);
+  margin: 0 clamp(18px, 5.6vw, 22px) 16px;
   line-height: 1.45;
 }
 .items {
-  padding: 0 16px;
+  padding: 0 clamp(12px, 4vw, 16px);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -269,7 +289,7 @@ async function submit() {
   height: 68px;
 }
 .item-name {
-  font-size: 18px;
+  font-size: clamp(16px, 4.6vw, 18px);
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.2;
@@ -291,7 +311,7 @@ async function submit() {
   margin-top: 8px;
 }
 .item-price {
-  font-size: 22px;
+  font-size: clamp(19px, 5.6vw, 22px);
   font-weight: 700;
 }
 .item-price-unit {
@@ -321,7 +341,7 @@ async function submit() {
   font-weight: 700;
 }
 .summary-wrap {
-  padding: 16px 22px 0;
+  padding: 16px clamp(16px, 5.6vw, 22px) 0;
 }
 .summary {
   border-radius: 20px;
@@ -347,7 +367,7 @@ async function submit() {
   font-weight: 600;
 }
 .total-value {
-  font-size: 32px;
+  font-size: clamp(26px, 8.2vw, 32px);
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -366,8 +386,8 @@ async function submit() {
 .cta {
   position: absolute;
   z-index: 2;
-  bottom: 28px;
-  left: 18px;
-  right: 18px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(14px, 4.6vw, 18px);
+  right: clamp(14px, 4.6vw, 18px);
 }
 </style>
