@@ -19,22 +19,35 @@ Example used below: `smartrestaurant.app`.
 5. Create a Resend **API key**.
 
 ## 3. Railway env vars (backend service)
-Set these on the backend Railway service (NOT committed — the password is a secret):
 
-| Key | Value |
-|-----|-------|
-| `Smtp__Host` | `smtp.resend.com` |
-| `Smtp__Port` | `587` |
-| `Smtp__Username` | `resend` |
-| `Smtp__Password` | `<RESEND_API_KEY>` |
-| `Smtp__UseStartTls` | `true` |
-| `Smtp__FromAddress` | `no-reply@smartrestaurant.app` |
-| `Smtp__FromName` | `Smart Restaurant` |
-| `App__AdminBaseUrl` | `https://<existing-admin-railway-url>` |
+> **Important — Railway blocks outbound SMTP.** Railway (like most PaaS) blocks
+> outbound TCP on SMTP ports (25/465/587, and the 2xxx alternates), so the backend
+> **cannot** send through `smtp.resend.com`. A connection attempt hangs for the full
+> ~2-minute MailKit timeout and never delivers. Production therefore sends through
+> Resend's **HTTP API** (port 443), selected with `Email__Provider=resend`. The
+> `ResendEmailSender` reuses the `Smtp__*` values below, so no extra credentials are
+> needed — `Smtp__Password` holds the Resend API key (it is the same key Resend uses
+> as the SMTP password).
 
-(`__` maps to nested config keys. `App__AdminBaseUrl` is the click-through link in
-the email; keeping the Railway admin URL is fine — Gmail authenticates the `From`
-domain, not the link.)
+Set these on the backend Railway service (NOT committed — the API key is a secret):
+
+| Key | Value | Notes |
+|-----|-------|-------|
+| `Email__Provider` | `resend` | **Required** — switches to the HTTP API transport |
+| `Smtp__Password` | `<RESEND_API_KEY>` | the Resend API key (`re_…`) |
+| `Smtp__FromAddress` | `no-reply@vibedine.ro` | must be on your verified domain |
+| `Smtp__FromName` | `Smart Restaurant` | sender display name |
+| `App__AdminBaseUrl` | `https://<admin-railway-url>` | click-through link in the email |
+
+The `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__UseStartTls` vars are only
+used by the local-dev SMTP sender and are ignored when `Email__Provider=resend`; you
+can leave or remove them.
+
+(`__` maps to nested config keys. `App__AdminBaseUrl` is just the click-through link;
+keeping the Railway admin URL is fine — Gmail authenticates the `From` domain, not the
+link.)
+
+After setting these, **redeploy the backend** so the new variables take effect.
 
 ## 4. Verify delivery
 1. Register a new account using a real Gmail address.
