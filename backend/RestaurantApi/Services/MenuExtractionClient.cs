@@ -23,6 +23,19 @@ public class MenuExtractionClient
         CancellationToken cancellationToken,
         string locale = "ro-RO")
     {
+        // Delegate with the photo flag off. The form is built without the
+        // extract_item_photos part, so the upstream request is byte-identical to
+        // before this feature existed.
+        var result = await ExtractWithPhotosAsync(photos, cancellationToken, locale, extractItemPhotos: false);
+        return result.Response;
+    }
+
+    public async Task<MenuScanResult> ExtractWithPhotosAsync(
+        IReadOnlyList<(string FileName, string ContentType, byte[] Bytes)> photos,
+        CancellationToken cancellationToken,
+        string locale = "ro-RO",
+        bool extractItemPhotos = false)
+    {
         using var form = new MultipartFormDataContent();
         foreach (var p in photos)
         {
@@ -31,6 +44,9 @@ public class MenuExtractionClient
             form.Add(content, "photos", p.FileName);
         }
         form.Add(new StringContent(locale), "locale");
+        // Only append the part when opted in — keeps the off-path request identical.
+        if (extractItemPhotos)
+            form.Add(new StringContent("true"), "extract_item_photos");
 
         using var response = await _http.PostAsync("/menu/extract", form, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -52,6 +68,9 @@ public class MenuExtractionClient
         var failed = parsed.FailedPages
             .Select(f => new FailedPageResponse(f.SourcePage, f.Reason))
             .ToList();
+        var itemPhotos = (parsed.ItemPhotos ?? new())
+            .Select(ph => new ItemPhotoPayload(ph.SourcePage, ph.SourceIndex, ph.ImageBase64, ph.Confidence))
+            .ToList();
 
         // Re-extract `hierarchy` as an opaque JsonElement so its snake_case keys survive
         // unchanged through to the frontend (same approach as MenuImportController.MapToResponse).
@@ -66,7 +85,8 @@ public class MenuExtractionClient
             }
         }
 
-        return new MenuScanResponse(items, failed, parsed.Model, parsed.SchemaVersion, hierarchy);
+        var scanResponse = new MenuScanResponse(items, failed, parsed.Model, parsed.SchemaVersion, hierarchy);
+        return new MenuScanResult(scanResponse, itemPhotos);
     }
 
     // Internal mirror of Python's snake_case shape — deserialized with SnakeCaseJson options.
@@ -76,6 +96,7 @@ public class MenuExtractionClient
         public List<PythonFailedPage> FailedPages { get; init; } = new();
         public string Model { get; init; } = "";
         public int SchemaVersion { get; init; }
+        public List<PythonItemPhoto>? ItemPhotos { get; init; }
     }
 
     private record PythonItem
@@ -94,4 +115,19 @@ public class MenuExtractionClient
         public int SourcePage { get; init; }
         public string Reason { get; init; } = "";
     }
+
+    private record PythonItemPhoto
+    {
+        public int SourcePage { get; init; }
+        public int SourceIndex { get; init; }
+        public string ImageBase64 { get; init; } = "";
+        public double Confidence { get; init; }
+    }
 }
+
+/// <summary>One dish-photo crop returned by the Python extractor, base64-encoded.</summary>
+public sealed record ItemPhotoPayload(int SourcePage, int SourceIndex, string ImageBase64, double Confidence);
+
+/// <summary>Bundles the scan response with the (transient) base64 photo crops the
+/// controller persists and stamps onto items before returning to the client.</summary>
+public sealed record MenuScanResult(MenuScanResponse Response, IReadOnlyList<ItemPhotoPayload> ItemPhotos);

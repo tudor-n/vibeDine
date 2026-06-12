@@ -41,8 +41,21 @@ public static class ProductValidator
         if (string.IsNullOrWhiteSpace(raw)) return ValidationResult<string?>.Ok(null);
         if (raw.Length > ImageUrlMaxLength)
             return ValidationResult<string?>.Fail($"ImageUrl must be at most {ImageUrlMaxLength} characters.");
+
+        // Accept root-relative paths (e.g. "/uploads/menu-items/{id}.jpg") so locally
+        // stored crops validate, while rejecting protocol-relative "//host/x" which would
+        // resolve to an external origin. Absolute http(s) URLs keep working.
+        if (raw.StartsWith('/'))
+        {
+            if (raw.StartsWith("//"))
+                return ValidationResult<string?>.Fail("ImageUrl must be an absolute URL or a root-relative path.");
+            if (raw.Any(char.IsWhiteSpace))
+                return ValidationResult<string?>.Fail("ImageUrl must not contain whitespace.");
+            return ValidationResult<string?>.Ok(raw);
+        }
+
         if (!Uri.TryCreate(raw, UriKind.Absolute, out _))
-            return ValidationResult<string?>.Fail("ImageUrl must be a valid absolute URL.");
+            return ValidationResult<string?>.Fail("ImageUrl must be a valid absolute URL or root-relative path.");
         return ValidationResult<string?>.Ok(raw);
     }
 }

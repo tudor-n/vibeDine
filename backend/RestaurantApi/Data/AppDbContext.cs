@@ -278,6 +278,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(j => j.StorageKey).HasColumnName("storage_key");
             e.Property(j => j.OriginalFileName).HasColumnName("original_file_name");
             e.Property(j => j.FileSizeBytes).HasColumnName("file_size_bytes");
+            e.Property(j => j.ExtractItemPhotos).HasColumnName("extract_item_photos").HasDefaultValue(false);
             e.Property(j => j.ProviderUsed).HasColumnName("provider_used");
             e.Property(j => j.ResultJson).HasColumnName("result_json").HasColumnType("jsonb");
             e.Property(j => j.ErrorMessage).HasColumnName("error_message");

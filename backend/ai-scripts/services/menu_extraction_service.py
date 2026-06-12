@@ -5,9 +5,16 @@ from typing import Callable, List
 from pydantic import ValidationError
 
 from models.menu_extraction import (
+    ExtractedItemPhoto,
     ExtractedMenuItem,
     FailedPage,
     MenuExtractionResponse,
+)
+from services.item_photo_extractor import (
+    ItemOnPage,
+    ItemPhotoExtractor,
+    build_item_photos,
+    resolve_item_photo_extractor,
 )
 from services.menu_organizer import (
     MenuOrganizer,
@@ -29,6 +36,7 @@ class MenuExtractionService:
         self,
         extractor_factory: Callable[[], VisionExtractor],
         organizer_factory: Callable[[], "MenuOrganizer | None"] | None = None,
+        photo_extractor_factory: Callable[[], "ItemPhotoExtractor | None"] | None = None,
     ):
         # Factory rather than instance so each page can be retried in isolation
         # and so tests can produce different fakes per page.
@@ -36,20 +44,33 @@ class MenuExtractionService:
         # Default to resolve_organizer (env-driven) so production stays wired
         # without explicit injection; tests pass their own factory.
         self._organizer_factory = organizer_factory or resolve_organizer
+        # Optional dish-photo detector. Only consulted when the per-import flag
+        # is on; env-driven default mirrors the organizer wiring.
+        self._photo_extractor_factory = photo_extractor_factory or resolve_item_photo_extractor
 
     async def extract(
         self,
         image_bytes_list: List[bytes],
         locale: str = "ro-RO",
+        extract_item_photos: bool = False,
     ) -> MenuExtractionResponse:
-        tasks = [self._extract_one(idx, b) for idx, b in enumerate(image_bytes_list)]
+        # Resolve the detector once per request — only when the feature is on, so
+        # that with the flag off the factory is never even consulted.
+        photo_extractor = self._photo_extractor_factory() if extract_item_photos else None
+
+        tasks = [
+            self._extract_one(idx, b, photo_extractor)
+            for idx, b in enumerate(image_bytes_list)
+        ]
         per_page = await asyncio.gather(*tasks)
 
         items: list[ExtractedMenuItem] = []
         failed: list[FailedPage] = []
+        photos: list[ExtractedItemPhoto] = []
         model_name = ""
-        for page_items, page_failure, page_model in per_page:
+        for page_items, page_failure, page_model, page_photos in per_page:
             items.extend(page_items)
+            photos.extend(page_photos)
             if page_failure is not None:
                 failed.append(page_failure)
             if not model_name and page_model:
@@ -75,21 +96,25 @@ class MenuExtractionService:
             model=model_name or "unknown",
             schema_version=2,
             hierarchy=hierarchy,
+            item_photos=photos or None,
         )
 
     async def _extract_one(
-        self, page_number: int, image_bytes: bytes
-    ) -> tuple[list[ExtractedMenuItem], FailedPage | None, str]:
+        self,
+        page_number: int,
+        image_bytes: bytes,
+        photo_extractor: "ItemPhotoExtractor | None",
+    ) -> tuple[list[ExtractedMenuItem], FailedPage | None, str, list[ExtractedItemPhoto]]:
         extractor = self._extractor_factory()
         try:
             raw = await extractor.extract(image_bytes=image_bytes, page_number=page_number)
         except VisionExtractionError:
             logger.warning("vision extractor failed for page %s", page_number, exc_info=True)
-            return [], FailedPage(source_page=page_number, reason="vision_api_error"), extractor.model_name
+            return [], FailedPage(source_page=page_number, reason="vision_api_error"), extractor.model_name, []
 
         raw_items = raw.get("items") if isinstance(raw, dict) else None
         if not raw_items:
-            return [], FailedPage(source_page=page_number, reason="no_items_detected"), extractor.model_name
+            return [], FailedPage(source_page=page_number, reason="no_items_detected"), extractor.model_name, []
 
         parsed: list[ExtractedMenuItem] = []
         try:
@@ -105,6 +130,27 @@ class MenuExtractionService:
                 )
         except (KeyError, TypeError, ValueError, ValidationError):
             logger.warning("invalid item payload for page %s", page_number, exc_info=True)
-            return [], FailedPage(source_page=page_number, reason="vision_api_error"), extractor.model_name
+            return [], FailedPage(source_page=page_number, reason="vision_api_error"), extractor.model_name, []
 
-        return parsed, None, extractor.model_name
+        photos = await self._detect_item_photos(photo_extractor, image_bytes, page_number, parsed)
+        return parsed, None, extractor.model_name, photos
+
+    async def _detect_item_photos(
+        self,
+        photo_extractor: "ItemPhotoExtractor | None",
+        image_bytes: bytes,
+        page_number: int,
+        items: list[ExtractedMenuItem],
+    ) -> list[ExtractedItemPhoto]:
+        """Optional dish-photo detection for one page. Always returns a list and
+        never raises — a detection failure must never fail an import."""
+        if photo_extractor is None or not items:
+            return []
+        try:
+            item_refs = [ItemOnPage(source_index=it.source_index, name=it.name) for it in items]
+            detections = await photo_extractor.detect(image_bytes, page_number, item_refs)
+            valid_indices = {it.source_index for it in items}
+            return build_item_photos(image_bytes, page_number, detections, valid_indices)
+        except Exception:
+            logger.warning("item photo detection failed for page %s", page_number, exc_info=True)
+            return []

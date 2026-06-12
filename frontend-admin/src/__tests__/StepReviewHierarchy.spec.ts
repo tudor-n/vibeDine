@@ -7,6 +7,7 @@ import { useMenuImportStore } from '@/stores/useMenuImportStore'
 
 vi.mock('@/services/menuImportApi', () => ({
   menuImportApi: { scan: vi.fn(), bulkCreate: vi.fn(), bulkCreateHierarchy: vi.fn() },
+  resolvePhotoUrl: (u: string | null | undefined) => u ?? '',
 }))
 
 beforeEach(() => setActivePinia(createPinia()))
@@ -105,5 +106,44 @@ describe('StepReviewHierarchy', () => {
     const wrapper = mount(StepReviewHierarchy)
     await wrapper.get('[data-test="skip-0-0"]').trigger('click')
     expect(store.isSkipped({ sourcePage: 0, sourceIndex: 0 })).toBe(true)
+  })
+
+  it('renders a dish thumbnail and removes it on click', async () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza', imageUrl: '/uploads/menu-items/r/x.jpg' },
+    ]
+    store.hydrateHierarchy({
+      source: 'ai',
+      categories: [{
+        name: 'Pizza', sortOrder: 0, subcategories: [],
+        directItemRefs: [{ sourcePage: 0, sourceIndex: 0, confidence: 0.9 }],
+      }],
+      uncategorizedItemRefs: [],
+      modelNotes: null,
+    })
+    const wrapper = mount(StepReviewHierarchy)
+    expect(wrapper.find('[data-testid="hier-thumb-0-0"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="hier-thumb-remove-0-0"]').trigger('click')
+    expect(wrapper.find('[data-testid="hier-thumb-0-0"]').exists()).toBe(false)
+  })
+
+  it('renders no thumbnail when the item has no photo', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza' },
+    ]
+    store.hydrateHierarchy({
+      source: 'ai',
+      categories: [{
+        name: 'Pizza', sortOrder: 0, subcategories: [],
+        directItemRefs: [{ sourcePage: 0, sourceIndex: 0, confidence: 0.9 }],
+      }],
+      uncategorizedItemRefs: [],
+      modelNotes: null,
+    })
+    const wrapper = mount(StepReviewHierarchy)
+    expect(wrapper.find('[data-testid="hier-thumb-0-0"]').exists()).toBe(false)
   })
 })

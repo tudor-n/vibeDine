@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using RestaurantApi.Data;
@@ -15,6 +19,7 @@ using RestaurantApi.Models;
 using RestaurantApi.Services;
 using RestaurantApi.Storage;
 using RestaurantApi.Tenancy;
+using RestaurantApi.Tests.Helpers;
 using Testcontainers.PostgreSql;
 using Xunit;
 using System.Linq;
@@ -57,12 +62,17 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         FakeFileStorage? fileStorage = null)
     {
         var sc = new ServiceCollection();
+        sc.AddLogging();
         sc.AddScoped<ICurrentTenant, CurrentTenant>();
         sc.AddDbContext<AppDbContext>(opts => opts.UseNpgsql(_pg.GetConnectionString()));
         sc.AddSingleton<IFileStorage>(fileStorage ?? new FakeFileStorage());
         sc.AddSingleton<IHubContext<StaffHub>>(hubContext ?? new FakeHubContext());
         sc.AddSingleton<MenuImportProgressNotifier>();
         sc.AddSingleton<IPdfExtractor>(pythonClient);
+        // Item-photo merge dependencies — used only when a job opts in.
+        sc.AddSingleton<IWebHostEnvironment>(new TestWebHostEnv());
+        sc.AddSingleton<ItemPhotoStorage>();
+        sc.AddScoped<MenuImportPhotoMerger>();
         sc.AddSingleton<IOptions<MenuImportOptions>>(Options.Create(new MenuImportOptions
         {
             MaxConcurrentJobs = 3,
@@ -87,7 +97,8 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         );
     }
 
-    private async Task<Guid> SeedPendingJob(ServiceProvider sp, Guid restaurantId, string fileName = "test.pdf")
+    private async Task<Guid> SeedPendingJob(
+        ServiceProvider sp, Guid restaurantId, string fileName = "test.pdf", bool extractItemPhotos = false)
     {
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -104,10 +115,89 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
             OriginalFileName = fileName,
             FileSizeBytes = 100,
             ProviderUsed = "gemini",
+            ExtractItemPhotos = extractItemPhotos,
         };
         db.MenuImportJobs.Add(job);
         await db.SaveChangesAsync();
         return job.Id;
+    }
+
+    // FF D8 FF .. — passes ItemPhotoStorage's JPEG magic check.
+    private static readonly string TinyJpegBase64 =
+        Convert.ToBase64String(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46 });
+
+    // ── Item photo merge (B5) ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Item_photos_are_merged_into_result_and_base64_is_stripped()
+    {
+        var fake = new FakePdfExtractor
+        {
+            ItemPhotos = new[]
+            {
+                new { source_page = 0, source_index = 0, image_base64 = TinyJpegBase64, confidence = 0.9 },
+            },
+        };
+        await using var sp = BuildServiceProvider(fake);
+        using (var scope = sp.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+
+        var rid = Guid.NewGuid();
+        var jobId = await SeedPendingJob(sp, rid, "with-photos.pdf", extractItemPhotos: true);
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        using var checkScope = sp.CreateScope();
+        var db = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await db.MenuImportJobs.IgnoreQueryFilters().FirstAsync(j => j.Id == jobId, cts.Token);
+        job.Status.Should().Be("complete");
+        job.ResultJson.Should().Contain("image_url");
+        job.ResultJson.Should().NotContain("image_base64");
+        job.ResultJson.Should().NotContain("item_photos");
+
+        CleanupPhotos(sp, rid);
+    }
+
+    [Fact]
+    public async Task Invalid_base64_photo_is_dropped_and_job_still_completes()
+    {
+        var fake = new FakePdfExtractor
+        {
+            ItemPhotos = new[]
+            {
+                new { source_page = 0, source_index = 0, image_base64 = "!!!not-base64!!!", confidence = 0.9 },
+            },
+        };
+        await using var sp = BuildServiceProvider(fake);
+        using (var scope = sp.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+
+        var rid = Guid.NewGuid();
+        var jobId = await SeedPendingJob(sp, rid, "bad-photo.pdf", extractItemPhotos: true);
+
+        var svc = CreateService(sp);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await svc.RunOnceForTestAsync(cts.Token);
+
+        using var checkScope = sp.CreateScope();
+        var db = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await db.MenuImportJobs.IgnoreQueryFilters().FirstAsync(j => j.Id == jobId, cts.Token);
+        job.Status.Should().Be("complete");
+        // The bad photo is dropped (no stamp) but base64 is still stripped.
+        job.ResultJson.Should().NotContain("image_url");
+        job.ResultJson.Should().NotContain("image_base64");
+        job.ResultJson.Should().NotContain("item_photos");
+
+        CleanupPhotos(sp, rid);
+    }
+
+    private static void CleanupPhotos(ServiceProvider sp, Guid restaurantId)
+    {
+        var env = sp.GetRequiredService<IWebHostEnvironment>();
+        var dir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "menu-items", restaurantId.ToString("N"));
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
     }
 
     // ── Test 1: Happy path state machine ─────────────────────────────────────
@@ -877,6 +967,22 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
             await _stealLease(payload.JobId);
             return JsonSerializer.SerializeToDocument(new { items = Array.Empty<object>() }).RootElement;
         }
+    }
+
+    private sealed class TestWebHostEnv : IWebHostEnvironment
+    {
+        public TestWebHostEnv()
+        {
+            ContentRootPath = Path.Combine(Path.GetTempPath(), "menu-import-bg-tests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(ContentRootPath);
+        }
+
+        public string ApplicationName { get; set; } = "Test";
+        public IFileProvider ContentRootFileProvider { get; set; } = null!;
+        public string ContentRootPath { get; set; }
+        public string EnvironmentName { get; set; } = "Test";
+        public IFileProvider WebRootFileProvider { get; set; } = null!;
+        public string WebRootPath { get; set; } = null!;
     }
 
     private sealed class FakeFileStorage : IFileStorage

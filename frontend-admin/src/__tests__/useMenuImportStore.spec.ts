@@ -141,6 +141,42 @@ describe('useMenuImportStore', () => {
     expect(Object.keys(store.categoryMapping)).toEqual([])
     expect(store.detectedHints).toEqual([])
   })
+
+  it('extractItemPhotos defaults off, is forwarded to scan, and resets', async () => {
+    ;(menuImportApi.scan as ReturnType<typeof vi.fn>).mockResolvedValueOnce(scanFixture)
+    const store = useMenuImportStore()
+    expect(store.extractItemPhotos).toBe(false)
+    store.extractItemPhotos = true
+    store.addFiles([new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })])
+    await store.scan()
+    expect(menuImportApi.scan).toHaveBeenCalledWith(store.files, 'ro-RO', true)
+    store.$reset()
+    expect(store.extractItemPhotos).toBe(false)
+  })
+
+  it('imageUrl flows scan → review → bulk payload, and removeReviewItemPhoto clears it', async () => {
+    const fixture: MenuScanResponse = {
+      items: [
+        { name: 'Pizza', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza', imageUrl: '/uploads/menu-items/r/x.jpg' },
+      ],
+      failedPages: [],
+      model: 'fake',
+      schemaVersion: 2,
+    }
+    ;(menuImportApi.scan as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fixture)
+    const store = useMenuImportStore()
+    store.addFiles([new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })])
+    await store.scan()
+    store.advanceToReview()
+
+    const row = store.reviewItems[0]
+    expect(row.imageUrl).toBe('/uploads/menu-items/r/x.jpg')
+    expect(store.buildBulkPayload().items[0].imageUrl).toBe('/uploads/menu-items/r/x.jpg')
+
+    store.removeReviewItemPhoto(row.clientId)
+    expect(store.reviewItems[0].imageUrl).toBeNull()
+    expect(store.buildBulkPayload().items[0].imageUrl).toBeNull()
+  })
 })
 
 const hierarchyFixture: MenuHierarchy = {
@@ -174,6 +210,22 @@ describe('useMenuImportStore — hierarchy', () => {
     store.hydrateHierarchy(hierarchyFixture)
     expect(store.hierarchy!.source).toBe('ai')
     expect(store.hierarchy!.categories[0].subcategories[0].name).toBe('Classic')
+  })
+
+  it('buildHierarchyPayload carries imageUrl; removeItemPhoto clears it', () => {
+    const store = useMenuImportStore()
+    store.extractedItems = [
+      { name: 'Margherita', price: 28, sourcePage: 0, sourceIndex: 0, categoryHint: 'Pizza', imageUrl: '/uploads/menu-items/r/x.jpg' },
+      { name: 'Calzone', price: 30, sourcePage: 0, sourceIndex: 1, categoryHint: 'Pizza' },
+    ]
+    store.hydrateHierarchy(hierarchyFixture)
+
+    const marg = store.buildHierarchyPayload().products.find((p) => p.name === 'Margherita')
+    expect(marg!.imageUrl).toBe('/uploads/menu-items/r/x.jpg')
+
+    store.removeItemPhoto({ sourcePage: 0, sourceIndex: 0 })
+    const after = store.buildHierarchyPayload().products.find((p) => p.name === 'Margherita')
+    expect(after!.imageUrl).toBeNull()
   })
 
   it('moveItem moves an item from a subcategory to directItemRefs', () => {

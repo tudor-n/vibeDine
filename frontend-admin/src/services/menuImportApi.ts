@@ -12,6 +12,7 @@ import type {
 } from '@shared/types/menu-import'
 import type { AdminProduct } from '@shared/types/models'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { resolveMediaUrl } from '@/services/mediaUrl'
 
 export interface StartPdfImportResponse {
   jobId: string
@@ -82,6 +83,8 @@ function normalizeExtractedItem(value: unknown): ExtractedMenuItem {
   }
   if ('description' in raw) item.description = asOptionalString(raw.description)
   if ('confidence' in raw) item.confidence = asOptionalNumber(raw.confidence)
+  if ('imageUrl' in raw || 'image_url' in raw)
+    item.imageUrl = asOptionalString(raw.imageUrl ?? raw.image_url)
   return item
 }
 
@@ -169,6 +172,16 @@ function resolveBaseUrl(): string {
   return raw.endsWith('/') ? raw.slice(0, -1) : raw
 }
 
+/**
+ * Resolve a stored item-photo URL to one the browser can load. Crops are stored
+ * as root-relative paths (e.g. "/uploads/menu-items/..."); in split-origin dev
+ * the admin SPA and API live on different hosts, so we prefix the API base. Empty
+ * and already-absolute URLs are returned untouched.
+ */
+export function resolvePhotoUrl(url: string | null | undefined): string {
+  return resolveMediaUrl(url)
+}
+
 /** Restaurant-scoped admin URL + bearer header from the active session. */
 function scopedAdmin(suffix: string): { url: string; authHeader: Record<string, string> } {
   const auth = useAuthStore()
@@ -179,10 +192,16 @@ function scopedAdmin(suffix: string): { url: string; authHeader: Record<string, 
   }
 }
 
-async function scan(files: File[], locale: string = 'ro-RO'): Promise<MenuScanResponse> {
+async function scan(
+  files: File[],
+  locale: string = 'ro-RO',
+  extractItemPhotos: boolean = false,
+): Promise<MenuScanResponse> {
   const form = new FormData()
   for (const file of files) form.append('photos', file, file.name)
   form.append('locale', locale)
+  // Only append when opted in — keeps the off-path request byte-identical.
+  if (extractItemPhotos) form.append('extractItemPhotos', 'true')
   const { url, authHeader } = scopedAdmin('/admin/menu/scan')
   const res = await fetch(url, { method: 'POST', body: form, headers: authHeader })
   if (!res.ok) {
@@ -228,9 +247,13 @@ async function bulkCreateHierarchy(payload: BulkCreateHierarchyRequest): Promise
   return (await res.json()) as BulkCreateHierarchyResponse
 }
 
-async function startPdfImport(file: File): Promise<StartPdfImportResponse> {
+async function startPdfImport(
+  file: File,
+  extractItemPhotos: boolean = false,
+): Promise<StartPdfImportResponse> {
   const form = new FormData()
   form.append('pdf', file, file.name)
+  if (extractItemPhotos) form.append('extractItemPhotos', 'true')
   const { url, authHeader } = scopedAdmin('/admin/menu/imports/pdf')
   const res = await fetch(url, { method: 'POST', body: form, headers: authHeader })
   if (!res.ok) {

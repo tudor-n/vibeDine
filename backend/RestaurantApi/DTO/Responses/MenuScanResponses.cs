@@ -9,7 +9,8 @@ public record ExtractedMenuItemResponse(
     int SourceIndex,
     string? Description = null,
     string? CategoryHint = null,
-    double? Confidence = null);
+    double? Confidence = null,
+    string? ImageUrl = null);
 
 public record FailedPageResponse(int SourcePage, string Reason);
 

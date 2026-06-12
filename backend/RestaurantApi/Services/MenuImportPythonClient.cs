@@ -31,6 +31,9 @@ public class MenuImportPythonClient : IPdfExtractor
         form.Add(new StringContent(payload.HmacSecret), "hmac_secret");
         form.Add(new StringContent(payload.Provider), "provider");
         form.Add(new StringContent(payload.Locale), "locale");
+        // Only append when opted in — keeps the off-path request byte-identical.
+        if (payload.ExtractItemPhotos)
+            form.Add(new StringContent("true"), "extract_item_photos");
 
         await using var pdfStream = File.OpenRead(payload.StoragePath);
         var fileContent = new StreamContent(pdfStream);
@@ -50,4 +53,5 @@ public sealed record PdfJobPayload(
     string ProgressCallbackUrl,
     string HmacSecret,
     string Provider = "gemini",
-    string Locale = "ro-RO");
+    string Locale = "ro-RO",
+    bool ExtractItemPhotos = false);

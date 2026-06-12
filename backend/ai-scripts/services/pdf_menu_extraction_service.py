@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from models.menu_extraction import (
     BatchTextExtractionPage,
+    ExtractedItemPhoto,
     ExtractedMenuItem,
     FailedPage,
     MenuExtractionResponse,
@@ -29,6 +30,11 @@ from models.menu_extraction import (
 from models.menu_organizer import OrganizerResult
 from services import pdf_text_extractor, page_classifier, pdf_renderer
 from services.dedup import dedup_items
+from services.item_photo_extractor import (
+    ItemOnPage,
+    ItemPhotoExtractor,
+    build_item_photos,
+)
 from services.menu_organizer import (
     MenuOrganizer,
     MenuOrganizerError,
@@ -173,6 +179,8 @@ class PdfMenuExtractionService:
         max_embedded_image_bytes: int = pdf_text_extractor.DEFAULT_MAX_EMBEDDED_IMAGE_BYTES,
         metrics: PdfExtractionTimings | None = None,
         organizer_factory: Callable[[], "MenuOrganizer | None"] | None = None,
+        item_photo_extractor_factory: Callable[[], "ItemPhotoExtractor | None"] | None = None,
+        item_photo_max_pages: int = 50,
     ):
         self._text_factory = text_extractor_factory
         self._vision_factory = vision_extractor_factory
@@ -209,8 +217,16 @@ class PdfMenuExtractionService:
         self._render_scale = render_scale
         self._render_quality = render_quality
         self._max_embedded_image_bytes = max_embedded_image_bytes
+        if item_photo_max_pages < 0:
+            raise ValueError("item_photo_max_pages must be >= 0")
         self._metrics = metrics
         self._organizer_factory = organizer_factory or resolve_organizer
+        # Optional dish-photo detector. None (the default) means the feature is
+        # off and the pipeline behaves byte-identically to before. Resolved once
+        # per run() so a single detector instance is reused for the whole job.
+        self._item_photo_factory = item_photo_extractor_factory
+        self._item_photo_max_pages = item_photo_max_pages
+        self._photo_extractor: "ItemPhotoExtractor | None" = None
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -285,6 +301,11 @@ class PdfMenuExtractionService:
             self._vision_batch_size,
         )
 
+        # Resolve the optional dish-photo detector once for the whole job. Only
+        # consulted when the per-import flag wired a factory; otherwise None and
+        # the pipeline is unchanged.
+        self._photo_extractor = self._item_photo_factory() if self._item_photo_factory else None
+
         # Shared mutable state for progress tracking (protected by asyncio single-thread)
         state = _ExtractionState(
             total_pages=total_pages,
@@ -324,6 +345,9 @@ class PdfMenuExtractionService:
         # Deduplicate
         deduped = dedup_items(state.items)
 
+        # Keep only photos whose (source_page, source_index) survived dedup.
+        item_photos = self._finalize_item_photos(state.item_photos, deduped)
+
         # Organize into a Category -> Subcategory -> Item hierarchy
         hierarchy = await self._run_organizer(deduped, request)
 
@@ -351,7 +375,65 @@ class PdfMenuExtractionService:
             model=model_name,
             schema_version=2,
             hierarchy=hierarchy,
+            item_photos=item_photos or None,
         )
+
+    # ------------------------------------------------------------------
+    # Item photo detection (optional second vision pass)
+    # ------------------------------------------------------------------
+
+    async def _maybe_detect_item_photos(
+        self,
+        state: "_ExtractionState",
+        page_number: int,
+        image_bytes: Optional[bytes],
+        parsed_items: list[ExtractedMenuItem],
+        provider_semaphore: asyncio.Semaphore,
+    ) -> None:
+        """Single-attempt dish-photo detection for one item-bearing page.
+
+        Never raises and never adds a FailedPage — detection failures must never
+        fail an import. Respects the per-job page cap (the check + counter bump
+        are synchronous, so they are atomic under asyncio)."""
+        if self._photo_extractor is None or not parsed_items or image_bytes is None:
+            return
+        if state.photo_pages_done >= self._item_photo_max_pages:
+            return
+        state.photo_pages_done += 1
+        try:
+            item_refs = [
+                ItemOnPage(source_index=it.source_index, name=it.name)
+                for it in parsed_items
+            ]
+            async with provider_semaphore:
+                detections = await self._await_provider_call(
+                    self._photo_extractor.detect(image_bytes, page_number, item_refs)
+                )
+            valid_indices = {it.source_index for it in parsed_items}
+            state.item_photos.extend(
+                build_item_photos(image_bytes, page_number, detections, valid_indices)
+            )
+        except Exception:
+            logger.warning(
+                "item photo detection failed for page %s", page_number, exc_info=True
+            )
+
+    def _finalize_item_photos(
+        self,
+        photos: list[ExtractedItemPhoto],
+        deduped: list[ExtractedMenuItem],
+    ) -> list[ExtractedItemPhoto]:
+        """Drop photos for items that did not survive deduplication and collapse
+        any duplicate (page, index) refs to the first seen."""
+        valid_refs = {(it.source_page, it.source_index) for it in deduped}
+        seen: set[tuple[int, int]] = set()
+        result: list[ExtractedItemPhoto] = []
+        for photo in photos:
+            ref = (photo.source_page, photo.source_index)
+            if ref in valid_refs and ref not in seen:
+                seen.add(ref)
+                result.append(photo)
+        return result
 
     # ------------------------------------------------------------------
     # Organizer (post-dedup hierarchy)
@@ -521,6 +603,27 @@ class PdfMenuExtractionService:
                     state.failed_pages.append(parsed)
                 else:
                     state.items.extend(parsed)
+                    # Digital PDFs can embed dish photographs on otherwise-text
+                    # pages. Render the page and detect only when the feature is
+                    # on, the page reports images, and the cap allows it — never
+                    # pay the render cost otherwise.
+                    if (
+                        self._photo_extractor is not None
+                        and getattr(page_content, "has_images", False)
+                        and state.photo_pages_done < self._item_photo_max_pages
+                    ):
+                        try:
+                            image_bytes = await page_renderer.render_page(pnum)
+                        except Exception:
+                            logger.warning(
+                                "page render for item-photo detection failed for page %s",
+                                pnum,
+                                exc_info=True,
+                            )
+                            image_bytes = None
+                        await self._maybe_detect_item_photos(
+                            state, pnum, image_bytes, parsed, provider_semaphore
+                        )
 
         state.processed_pages += len(unit.page_numbers)
 
@@ -663,12 +766,16 @@ class PdfMenuExtractionService:
                     if src_page in items_by_page:
                         items_by_page[src_page].append(raw_item)
 
+                image_by_page = {bp.page_number: bp.image_bytes for bp in batch_pages}
                 for pnum in unit.page_numbers:
                     parsed = _parse_items(items_by_page.get(pnum, []), pnum)
                     if isinstance(parsed, FailedPage):
                         state.failed_pages.append(parsed)
                     else:
                         state.items.extend(parsed)
+                        await self._maybe_detect_item_photos(
+                            state, pnum, image_by_page.get(pnum), parsed, provider_semaphore
+                        )
                 return
 
             except (VisionExtractionError, ValueError, asyncio.TimeoutError) as exc:
@@ -746,6 +853,9 @@ class PdfMenuExtractionService:
                     state.failed_pages.append(parsed)
                 else:
                     state.items.extend(parsed)
+                    await self._maybe_detect_item_photos(
+                        state, page_number, image_bytes, parsed, provider_semaphore
+                    )
                 return  # success
 
             except (VisionExtractionError, ValueError, asyncio.TimeoutError) as exc:
@@ -948,6 +1058,7 @@ class _ExtractionState:
     __slots__ = (
         "total_pages", "processed_pages", "items",
         "failed_pages", "model_name", "reclassified", "last_send_time",
+        "item_photos", "photo_pages_done",
     )
 
     def __init__(self, total_pages: int, last_send_time: float):
@@ -958,6 +1069,8 @@ class _ExtractionState:
         self.model_name: str = ""
         self.reclassified: int = 0
         self.last_send_time = last_send_time
+        self.item_photos: list[ExtractedItemPhoto] = []
+        self.photo_pages_done: int = 0
 
 
 # ---------------------------------------------------------------------------

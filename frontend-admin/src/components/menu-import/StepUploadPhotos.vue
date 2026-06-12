@@ -204,6 +204,19 @@ function thumbUrl(file: File): string {
 
 <template>
   <section class="space-y-4">
+    <!-- Opt-in BEFORE any file is added: a dropped PDF auto-starts the import,
+         so the choice must be made first. -->
+    <label class="photo-toggle">
+      <input
+        type="checkbox"
+        data-testid="extract-photos-toggle"
+        v-model="store.extractItemPhotos"
+      />
+      <span class="photo-toggle-text">
+        Extrage și fotografiile preparatelor (se aplică și la PDF)
+      </span>
+    </label>
+
     <div
       class="dropzone"
       :class="{ 'is-drag': dragOver, 'has-files': store.files.length > 0 }"
