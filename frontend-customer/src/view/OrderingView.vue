@@ -33,11 +33,39 @@ const { t } = useLocale()
 
 useWebSocket()
 
-const screen = ref<Screen>('language')
-const activeCategoryId = ref<string | null>(null)
+// Navigation state is persisted so an accidental tab refresh keeps the diner on
+// the screen they were on instead of bouncing them back to the language picker
+// (their cart already survives via restoreFromServerIfEmpty). sessionStorage is
+// per-tab and clears when the tab closes, so a genuinely fresh QR scan still
+// starts at the language screen — we only restore within the same tab session.
+const SCREEN_KEY = 'screen'
+const CATEGORY_KEY = 'activeCategoryId'
+const CART_ORIGIN_KEY = 'cartOrigin'
+const SCREENS: Screen[] = ['language', 'pebbles', 'menu', 'cart', 'sent', 'merged']
+
+function readScreen(key: string, fallback: Screen): Screen {
+  const stored = sessionStorage.getItem(key)
+  return stored && SCREENS.includes(stored as Screen) ? (stored as Screen) : fallback
+}
+
+const restoredCategory = sessionStorage.getItem(CATEGORY_KEY) || null
+const restoredScreen = readScreen(SCREEN_KEY, 'language')
+// The menu screen can't render without a category, so fall back to the category
+// list if the restored category is gone.
+const screen = ref<Screen>(
+  restoredScreen === 'menu' && !restoredCategory ? 'pebbles' : restoredScreen,
+)
+const activeCategoryId = ref<string | null>(restoredCategory)
 // Screen the cart was opened from, so closing it returns there (the menu, or
 // the categories page when the cart was opened from its "Coșul meu" bar).
-const cartOrigin = ref<Screen>('menu')
+const cartOrigin = ref<Screen>(readScreen(CART_ORIGIN_KEY, 'menu'))
+
+watch(screen, (v) => sessionStorage.setItem(SCREEN_KEY, v))
+watch(activeCategoryId, (v) => {
+  if (v) sessionStorage.setItem(CATEGORY_KEY, v)
+  else sessionStorage.removeItem(CATEGORY_KEY)
+})
+watch(cartOrigin, (v) => sessionStorage.setItem(CART_ORIGIN_KEY, v))
 // lastTotal + orderInProgress are persisted so the "view order status" button
 // (and the total it shows) survive an accidental tab refresh while an order is
 // live — see useOrderStatusStore for the matching timeline persistence.
