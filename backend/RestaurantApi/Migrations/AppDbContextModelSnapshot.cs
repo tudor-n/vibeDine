@@ -500,6 +500,12 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("error_message");
 
+                    b.Property<bool>("ExtractItemPhotos")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("extract_item_photos");
+
                     b.Property<int>("FailedPages")
                         .HasColumnType("integer")
                         .HasColumnName("failed_pages");

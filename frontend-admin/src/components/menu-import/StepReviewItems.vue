@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useMenuManagementStore } from '@/stores/useMenuManagementStore'
+import { resolvePhotoUrl } from '@/services/menuImportApi'
 import { MENU_VALIDATION } from '@shared/types/menu-validation'
 
 const importStore = useMenuImportStore()
@@ -91,6 +92,24 @@ const activeCount = computed(() => importStore.reviewItems.filter((r) => !r.skip
             data-testid="review-row"
           >
             <span class="page-badge" :title="`Pagina ${row.sourcePage + 1}`">p{{ row.sourcePage + 1 }}</span>
+            <span class="row-thumb-slot">
+              <template v-if="row.imageUrl">
+                <img
+                  data-testid="row-thumb"
+                  class="row-thumb"
+                  :src="resolvePhotoUrl(row.imageUrl)"
+                  :alt="row.name"
+                />
+                <button
+                  type="button"
+                  class="row-thumb-remove"
+                  data-testid="row-thumb-remove"
+                  title="Elimină fotografia"
+                  aria-label="Elimină fotografia"
+                  @click="importStore.removeReviewItemPhoto(row.clientId)"
+                >×</button>
+              </template>
+            </span>
             <input
               data-testid="row-name"
               class="field-input row-name-input"
@@ -188,13 +207,45 @@ const activeCount = computed(() => importStore.reviewItems.filter((r) => !r.skip
 .row-list { list-style: none; padding: 0; display: grid; gap: 6px; margin: 0; }
 .review-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 110px auto;
+  grid-template-columns: auto auto minmax(0, 1fr) 110px auto;
   gap: 8px;
   align-items: center;
   padding: 6px 8px;
   border-radius: 10px;
   background: transparent;
   transition: background 0.12s ease;
+}
+
+/* The thumb column collapses to 0 for items without a photo, so rows without
+   crops keep their compact layout. */
+.row-thumb-slot {
+  position: relative;
+  display: inline-flex;
+  line-height: 0;
+}
+.row-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--ink06);
+  border: 1px solid var(--ink12);
+}
+.row-thumb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(21, 20, 15, 0.78);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
 }
 .review-row:hover { background: var(--ink06); }
 .review-row.is-skipped { opacity: 0.45; }
@@ -234,12 +285,13 @@ const activeCount = computed(() => importStore.reviewItems.filter((r) => !r.skip
 
 @media (max-width: 640px) {
   .review-row {
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto auto 1fr auto;
     grid-template-areas:
-      'badge name skip'
-      '. price price';
+      'badge thumb name skip'
+      '. . price price';
   }
   .page-badge { grid-area: badge; }
+  .row-thumb-slot { grid-area: thumb; }
   .row-name-input { grid-area: name; }
   .row-price-input { grid-area: price; }
   .review-row .icon-btn { grid-area: skip; }

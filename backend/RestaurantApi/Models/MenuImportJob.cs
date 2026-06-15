@@ -13,6 +13,7 @@ public class MenuImportJob : ITenantScoped
     public string OriginalFileName { get; set; } = null!;
     public long FileSizeBytes { get; set; }
     public string ProviderUsed { get; set; } = "gemini";
+    public bool ExtractItemPhotos { get; set; }  // opt-in dish-photo extraction for this import
     public string? ResultJson { get; set; }  // jsonb in Postgres
     public string? ErrorMessage { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

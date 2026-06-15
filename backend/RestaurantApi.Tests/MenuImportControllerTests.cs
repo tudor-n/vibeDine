@@ -173,6 +173,25 @@ public class MenuImportControllerTests : IAsyncLifetime
         job.Status.Should().Be("pending");
         job.Phase.Should().Be("parsing");
         job.OriginalFileName.Should().Be("menu.pdf");
+        job.ExtractItemPhotos.Should().BeFalse("the flag defaults off when the part is omitted");
+    }
+
+    [Fact]
+    public async Task POST_pdf_persists_extract_item_photos_flag_when_set()
+    {
+        var form = ValidPdfForm();
+        form.Add(new StringContent("true"), "extractItemPhotos");
+
+        var resp = await _client.PostAsync(
+            $"/api/restaurants/{RestaurantA}/admin/menu/imports/pdf", form);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var body = await resp.Content.ReadFromJsonAsync<StartPdfImportResponse>();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var job = await db.MenuImportJobs.IgnoreQueryFilters().FirstAsync(j => j.Id == body!.JobId);
+        job.ExtractItemPhotos.Should().BeTrue();
     }
 
     // ──────────────────────────────────────────────────────────────────────────

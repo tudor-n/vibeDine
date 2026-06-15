@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using RestaurantApi.Auth;
 using RestaurantApi.Data;
@@ -97,7 +98,38 @@ builder.Services.AddAuthorization();
 // ── Email ────────────────────────────────────────────────────────────────────
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.Configure<AppUrlOptions>(builder.Configuration.GetSection(AppUrlOptions.SectionName));
-builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+
+// Railway (and most PaaS) block outbound SMTP ports, so production sends through Resend's
+// HTTP API (port 443). Local dev keeps the MailKit SMTP sender (e.g. mailpit). Selected
+// by Email:Provider. The HttpClient timeout caps the register request so a slow/blocked
+// provider can never freeze it (the old SMTP path hung for the full ~2-minute timeout).
+var emailProvider = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>()?.Provider ?? "smtp";
+var usingResend = string.Equals(emailProvider, "resend", StringComparison.OrdinalIgnoreCase);
+if (usingResend)
+{
+    builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>(c =>
+        c.Timeout = TimeSpan.FromSeconds(15));
+}
+else
+{
+    builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+}
+
+// Warn loudly if Production is about to send mail through the SMTP dev defaults —
+// a misconfigured SMTP host/From silently breaks confirmation emails. Skipped when
+// using Resend, where Smtp:Host/From are irrelevant.
+if (builder.Environment.IsProduction() && !usingResend)
+{
+    var smtpCheck = builder.Configuration.GetSection(SmtpOptions.SectionName).Get<SmtpOptions>() ?? new SmtpOptions();
+    if (smtpCheck.Host is "localhost" or "127.0.0.1"
+        || smtpCheck.FromAddress.EndsWith(".local", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            "[WARN] SMTP is using development defaults in Production — confirmation emails will NOT be delivered. " +
+            "Set Email__Provider=resend (recommended on Railway) or Smtp__Host/Smtp__FromAddress (see docs/email-deliverability-setup.md).");
+    }
+}
 
 // ── AI microservice clients ──────────────────────────────────────────────────
 builder.Services.AddHttpClient("AiService", (sp, client) =>
@@ -170,6 +202,8 @@ builder.Services.AddTransient<IPdfExtractor, MenuImportPythonClient>(sp =>
 
 builder.Services.Configure<MenuImportOptions>(builder.Configuration.GetSection("MenuImport"));
 builder.Services.AddSingleton<MenuImportProgressNotifier>();
+builder.Services.AddSingleton<ItemPhotoStorage>();
+builder.Services.AddScoped<MenuImportPhotoMerger>();
 builder.Services.AddHostedService<MenuImportBackgroundService>();
 
 builder.Services.AddScoped<RecommendationService>();
@@ -221,11 +255,15 @@ if (app.Environment.IsDevelopment())
 app.UseRouting();
 app.UseCors();
 
-// Serve uploaded files (avatars, etc.) out of wwwroot/uploads.
-// Ensures the directory exists so the very first upload doesn't 500.
-var uploadsRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads", "avatars");
-Directory.CreateDirectory(uploadsRoot);
-app.UseStaticFiles();
+// Serve uploaded files out of ContentRoot/wwwroot even when the published
+// container starts without a checked-in wwwroot directory.
+var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "avatars"));
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "menu-items"));
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(webRoot),
+});
 
 app.UseAuthentication();
 app.UseAuthorization();

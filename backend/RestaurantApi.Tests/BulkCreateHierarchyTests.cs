@@ -284,4 +284,42 @@ public class BulkCreateHierarchyTests : IAsyncLifetime
         beta.SortOrder.Should().Be(1);  // Same bucket as Alpha
         gamma.SortOrder.Should().Be(0); // Different bucket (no subcategory)
     }
+
+    [Fact]
+    public async Task Product_image_url_is_persisted_and_invalid_is_rejected()
+    {
+        var ok = new
+        {
+            categories = new[] { new { tempId = "c1", name = "Pizza", sortOrder = 0, subcategories = Array.Empty<object>() } },
+            products = new[]
+            {
+                new { name = "Margherita", price = 28m, description = "", categoryTempId = "c1",
+                      subcategoryTempId = (string?)null, sortOrder = 0, isAvailable = true,
+                      imageUrl = "/uploads/menu-items/abc/def.jpg" }
+            }
+        };
+        var res = await _client.PostAsJsonAsync($"/api/restaurants/{_restaurantId}/admin/menu/bulk-create-hierarchy", ok);
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+            tenant.SetRestaurant(_restaurantId);
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            (await db.Products.SingleAsync()).ImageUrl.Should().Be("/uploads/menu-items/abc/def.jpg");
+        }
+
+        var bad = new
+        {
+            categories = new[] { new { tempId = "c2", name = "Salads", sortOrder = 1, subcategories = Array.Empty<object>() } },
+            products = new[]
+            {
+                new { name = "Caesar", price = 15m, description = "", categoryTempId = "c2",
+                      subcategoryTempId = (string?)null, sortOrder = 0, isAvailable = true,
+                      imageUrl = "//evil.com/x.jpg" }
+            }
+        };
+        var badRes = await _client.PostAsJsonAsync($"/api/restaurants/{_restaurantId}/admin/menu/bulk-create-hierarchy", bad);
+        badRes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 }

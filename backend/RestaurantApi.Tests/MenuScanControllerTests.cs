@@ -1,10 +1,13 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using RestaurantApi.Data;
@@ -108,5 +111,97 @@ public class MenuScanControllerTests : IAsyncLifetime
     {
         var resp = await _client.PostAsync(ScanUrl, new MultipartFormDataContent());
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    // ── Item photo extraction ───────────────────────────────────────────────
+
+    // FF D8 FF E0 .. — passes ItemPhotoStorage's JPEG magic check.
+    private static readonly string TinyJpegBase64 =
+        Convert.ToBase64String(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46 });
+
+    private string MenuItemsDir
+    {
+        get
+        {
+            var env = _factory.Services.GetRequiredService<IWebHostEnvironment>();
+            return Path.Combine(env.ContentRootPath, "wwwroot", "uploads", "menu-items", _restaurantId.ToString("N"));
+        }
+    }
+
+    private static MultipartFormDataContent OnePhotoWith(string? extractItemPhotos)
+    {
+        var form = OnePhoto();
+        if (extractItemPhotos is not null)
+            form.Add(new StringContent(extractItemPhotos), "extractItemPhotos");
+        return form;
+    }
+
+    [Fact]
+    public async Task With_flag_on_persists_photo_and_stamps_image_url()
+    {
+        _python.Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody($$"""
+              { "items": [{ "name":"Pizza","price":28.0,"source_page":0,"source_index":0,"description":null,"category_hint":"Pizza","confidence":0.9 }],
+                "failed_pages": [], "model":"fake","schema_version":2,
+                "item_photos": [{ "source_page":0, "source_index":0, "image_base64":"{{TinyJpegBase64}}", "confidence":0.9 }] }
+            """));
+
+        try
+        {
+            var resp = await _client.PostAsync(ScanUrl, OnePhotoWith("true"));
+            resp.StatusCode.Should().Be(HttpStatusCode.OK);
+            var body = await resp.Content.ReadFromJsonAsync<MenuScanResponse>();
+            body!.Items[0].ImageUrl.Should().NotBeNull();
+            body.Items[0].ImageUrl!.Should().StartWith($"/uploads/menu-items/{_restaurantId:N}/");
+
+            var env = _factory.Services.GetRequiredService<IWebHostEnvironment>();
+            var relative = body.Items[0].ImageUrl!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+            File.Exists(Path.Combine(env.ContentRootPath, "wwwroot", relative)).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(MenuItemsDir)) Directory.Delete(MenuItemsDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task With_flag_off_does_not_forward_part_and_leaves_image_url_null()
+    {
+        _python.Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""
+              { "items": [{ "name":"Pizza","price":28.0,"source_page":0,"source_index":0,"description":null,"category_hint":"Pizza","confidence":0.9 }],
+                "failed_pages": [], "model":"fake","schema_version":2 }
+            """));
+
+        var resp = await _client.PostAsync(ScanUrl, OnePhoto());
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await resp.Content.ReadFromJsonAsync<MenuScanResponse>();
+        body!.Items[0].ImageUrl.Should().BeNull();
+
+        var upstreamBody = _python.LogEntries.Last().RequestMessage.Body ?? string.Empty;
+        upstreamBody.Should().NotContain("extract_item_photos");
+    }
+
+    [Fact]
+    public async Task With_broken_base64_returns_200_with_null_image_url()
+    {
+        _python.Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""
+              { "items": [{ "name":"Pizza","price":28.0,"source_page":0,"source_index":0,"description":null,"category_hint":"Pizza","confidence":0.9 }],
+                "failed_pages": [], "model":"fake","schema_version":2,
+                "item_photos": [{ "source_page":0, "source_index":0, "image_base64":"!!!not-base64!!!", "confidence":0.9 }] }
+            """));
+
+        try
+        {
+            var resp = await _client.PostAsync(ScanUrl, OnePhotoWith("true"));
+            resp.StatusCode.Should().Be(HttpStatusCode.OK);
+            var body = await resp.Content.ReadFromJsonAsync<MenuScanResponse>();
+            body!.Items[0].ImageUrl.Should().BeNull();
+        }
+        finally
+        {
+            if (Directory.Exists(MenuItemsDir)) Directory.Delete(MenuItemsDir, recursive: true);
+        }
     }
 }

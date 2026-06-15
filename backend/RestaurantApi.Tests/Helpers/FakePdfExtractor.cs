@@ -37,6 +37,13 @@ public sealed class FakePdfExtractor : IPdfExtractor
     /// <summary>All calls received by this extractor (for assertion).</summary>
     public IReadOnlyList<PdfJobPayload> Calls => _calls;
 
+    /// <summary>
+    /// Optional item_photos payload included in the canned response — mirrors the
+    /// Python extractor's sibling array of base64 dish crops. When null (default)
+    /// the key is omitted.
+    /// </summary>
+    public object? ItemPhotos { get; set; }
+
     public async Task<JsonElement> ExtractPdfAsync(PdfJobPayload payload, CancellationToken ct)
     {
         lock (_calls) _calls.Add(payload);
@@ -75,6 +82,9 @@ public sealed class FakePdfExtractor : IPdfExtractor
 
         if (Hierarchy is not null)
             payload["hierarchy"] = Hierarchy;
+
+        if (ItemPhotos is not null)
+            payload["item_photos"] = ItemPhotos;
 
         return JsonSerializer.Serialize(payload);
     }

@@ -151,4 +151,55 @@ public class BulkCreateProductsTests : IAsyncLifetime
         var product = await db.Products.SingleAsync();
         product.CategoryId.Should().Be(_existingCategoryId);
     }
+
+    [Fact]
+    public async Task Persists_root_relative_image_url()
+    {
+        var request = new BulkCreateProductsRequest(
+            Items: new List<BulkCreateProductItem>
+            {
+                new("Pizza", 28.00m, _existingCategoryId, ImageUrl: "/uploads/menu-items/abc/def.jpg"),
+            },
+            NewCategories: new List<BulkCreateCategoryItem>());
+
+        var resp = await _client.PostAsJsonAsync(BulkUrl, request);
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = TenantDb(scope);
+        (await db.Products.SingleAsync()).ImageUrl.Should().Be("/uploads/menu-items/abc/def.jpg");
+    }
+
+    [Fact]
+    public async Task Invalid_image_url_returns_400()
+    {
+        var request = new BulkCreateProductsRequest(
+            Items: new List<BulkCreateProductItem>
+            {
+                new("Pizza", 28.00m, _existingCategoryId, ImageUrl: "//evil.com/x.jpg"),
+            },
+            NewCategories: new List<BulkCreateCategoryItem>());
+
+        var resp = await _client.PostAsJsonAsync(BulkUrl, request);
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = TenantDb(scope);
+        (await db.Products.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Omitted_image_url_is_null()
+    {
+        var request = new BulkCreateProductsRequest(
+            Items: new List<BulkCreateProductItem> { new("Pizza", 28.00m, _existingCategoryId) },
+            NewCategories: new List<BulkCreateCategoryItem>());
+
+        var resp = await _client.PostAsJsonAsync(BulkUrl, request);
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = TenantDb(scope);
+        (await db.Products.SingleAsync()).ImageUrl.Should().BeNull();
+    }
 }

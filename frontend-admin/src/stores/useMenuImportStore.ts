@@ -61,6 +61,7 @@ export interface ReviewItem {
   categoryHint: string | null
   resolvedCategory: MappedCategory
   skipped: boolean
+  imageUrl: string | null
 }
 
 function normaliseHint(hint: string): string {
@@ -173,6 +174,9 @@ export const useMenuImportStore = defineStore('menuImport', () => {
 
   const step = ref<1 | 2 | 3>(1)
   const files = ref<File[]>([])
+  // Per-import opt-in for dish-photo extraction. Chosen on the upload step before
+  // any file is dropped (a dropped PDF auto-starts the import).
+  const extractItemPhotos = ref(false)
   const isScanning = ref(false)
   const scanStartedAt = ref<number | null>(null)
   const scanError = ref<string | null>(null)
@@ -286,7 +290,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     // Mark "was scanning" in storage so a refresh mid-scan can auto-retry on reload.
     await persistPhotoState({ wasScanning: true })
     try {
-      const result = await menuImportApi.scan(files.value)
+      const result = await menuImportApi.scan(files.value, 'ro-RO', extractItemPhotos.value)
       extractedItems.value = result.items
       failedPages.value = result.failedPages
 
@@ -368,6 +372,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
         categoryHint: it.categoryHint ?? null,
         resolvedCategory: resolveCategoryForItem(it),
         skipped: false,
+        imageUrl: it.imageUrl ?? null,
       }))
     step.value = 3
   }
@@ -382,6 +387,20 @@ export const useMenuImportStore = defineStore('menuImport', () => {
   function toggleSkip(clientId: string) {
     const target = reviewItems.value.find((r) => r.clientId === clientId)
     if (target) target.skipped = !target.skipped
+  }
+
+  /** Flat-review flow: drop the dish photo for one review row. */
+  function removeReviewItemPhoto(clientId: string) {
+    const target = reviewItems.value.find((r) => r.clientId === clientId)
+    if (target) target.imageUrl = null
+  }
+
+  /** Hierarchy flow: drop the dish photo for one extracted item by (page, index). */
+  function removeItemPhoto(ref: { sourcePage: number; sourceIndex: number }) {
+    const target = extractedItems.value.find(
+      (it) => it.sourcePage === ref.sourcePage && it.sourceIndex === ref.sourceIndex,
+    )
+    if (target) target.imageUrl = null
   }
 
   function validateRow(row: ReviewItem): { ok: boolean; field?: 'name' | 'price' } {
@@ -420,6 +439,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
         price: row.price,
         categoryId,
         isAvailable: true,
+        imageUrl: row.imageUrl ?? null,
       })
     }
     return { items, newCategories: Array.from(newCategoriesByTempId.values()) }
@@ -531,6 +551,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
           categoryHint: it.categoryHint ?? null,
           resolvedCategory: resolveCategoryForItem(it),
           skipped: false,
+          imageUrl: it.imageUrl ?? null,
         }))
       step.value = 3
     }
@@ -599,7 +620,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
 
     let jobId: string
     try {
-      ;({ jobId } = await menuImportApi.startPdfImport(file))
+      ;({ jobId } = await menuImportApi.startPdfImport(file, extractItemPhotos.value))
     } catch (err) {
       importError.value = err instanceof Error ? err.message : 'Eroare la pornirea importului PDF.'
       if (pdfJob.value === startingJob) {
@@ -985,6 +1006,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
             subcategoryTempId: s.tempId,
             sortOrder: order++,
             isAvailable: true,
+            imageUrl: it.imageUrl ?? null,
           })
         }
       }
@@ -1000,6 +1022,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
           subcategoryTempId: null,
           sortOrder: order++,
           isAvailable: true,
+          imageUrl: it.imageUrl ?? null,
         })
       }
     }
@@ -1023,6 +1046,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
   function $reset() {
     step.value = 1
     files.value = []
+    extractItemPhotos.value = false
     isScanning.value = false
     scanStartedAt.value = null
     scanError.value = null
@@ -1047,6 +1071,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     // state
     step,
     files,
+    extractItemPhotos,
     isScanning,
     scanStartedAt,
     scanError,
@@ -1077,6 +1102,8 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     advanceToReview,
     updateItem,
     toggleSkip,
+    removeReviewItemPhoto,
+    removeItemPhoto,
     validateRow,
     buildBulkPayload,
     importAll,

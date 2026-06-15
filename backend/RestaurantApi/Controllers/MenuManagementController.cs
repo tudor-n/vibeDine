@@ -414,6 +414,8 @@ public class MenuManagementController : ControllerBase
             if (!priceResult.IsValid) errors.Add(new { index = i, field = "price", message = priceResult.Error });
             var descResult = ProductValidator.ValidateDescription(item.Description);
             if (!descResult.IsValid) errors.Add(new { index = i, field = "description", message = descResult.Error });
+            var imageResult = ProductValidator.ValidateImageUrl(item.ImageUrl);
+            if (!imageResult.IsValid) errors.Add(new { index = i, field = "imageUrl", message = imageResult.Error });
         }
         if (errors.Count > 0) return BadRequest(new { errors });
 
@@ -496,7 +498,7 @@ public class MenuManagementController : ControllerBase
                 Name = item.Name.Trim(),
                 Description = item.Description ?? string.Empty,
                 Price = item.Price,
-                ImageUrl = null,
+                ImageUrl = ProductValidator.ValidateImageUrl(item.ImageUrl).Value,
                 IsAvailable = item.IsAvailable,
                 SortOrder = max,
             };
@@ -591,6 +593,8 @@ public class MenuManagementController : ControllerBase
             if (!pv.IsValid) return BadRequest(new { field = "price", message = pv.Error });
             var dv = ProductValidator.ValidateDescription(p.Description);
             if (!dv.IsValid) return BadRequest(new { field = "description", message = dv.Error });
+            var iv = ProductValidator.ValidateImageUrl(p.ImageUrl);
+            if (!iv.IsValid) return BadRequest(new { field = "imageUrl", message = iv.Error });
         }
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
@@ -641,6 +645,7 @@ public class MenuManagementController : ControllerBase
                 Name = p.Name.Trim(),
                 Description = p.Description ?? string.Empty,
                 Price = p.Price,
+                ImageUrl = ProductValidator.ValidateImageUrl(p.ImageUrl).Value,
                 IsAvailable = p.IsAvailable,
             };
             var bucketKey = (entity.CategoryId, entity.SubcategoryId);
