@@ -104,7 +104,11 @@ onMounted(async () => {
     return
   }
   try {
-    await sessionStore.initializeSession(tokenFromUrl)
+    const session = await sessionStore.initializeSession(tokenFromUrl)
+    // Refresh recovery: if this load lost its sessionStorage cart (a phone
+    // re-scanning the QR opens a fresh browser context), rebuild it from the
+    // backend's persisted draft so the diner keeps the order they were building.
+    cartStore.restoreFromServerIfEmpty(session.activeOrder.items)
     if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
   } catch (e) {
     console.error('Could not initialize session', e)
