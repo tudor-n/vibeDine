@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import type { Product } from '@shared/types/models'
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests'
 import { apiClient, type PartyOrderItem } from '@/services/api-client'
+import { roundMoney } from '@/utils/money'
 import { useSessionStore } from './useSessionStore'
 
 export interface CartItem extends Product {
@@ -65,8 +66,10 @@ export const useCartStore = defineStore('cart', () => {
   // stop syncing — its draft is now "merged" and PATCHes would 404.
   const frozen = ref(false)
 
+  // Round to the cent: a raw float sum (e.g. 73.9 * 2 + 36.95) would surface
+  // IEEE-754 noise like 226.85000000000002 in every total readout.
   const total = computed(() => {
-    return items.value.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    return roundMoney(items.value.reduce((sum, item) => sum + item.price * item.quantity, 0))
   })
 
   let syncTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -145,11 +148,8 @@ export const useCartStore = defineStore('cart', () => {
     recommendedItemIds.value.clear()
   }
 
-  // Replace the local cart with the authoritative server order (used by the
-  // merge initiator: after merging, the backend order already holds everyone's
-  // items, so we mirror them in WITHOUT re-syncing).
-  function replaceFromServer(serverItems: PartyOrderItem[]) {
-    items.value = serverItems.map((i) => ({
+  function mapServerItems(serverItems: PartyOrderItem[]): CartItem[] {
+    return serverItems.map((i) => ({
       id: i.productId,
       categoryId: '',
       name: i.productName,
@@ -159,6 +159,26 @@ export const useCartStore = defineStore('cart', () => {
       isAvailable: true,
       quantity: i.quantity,
     }))
+  }
+
+  // Replace the local cart with the authoritative server order (used by the
+  // merge initiator: after merging, the backend order already holds everyone's
+  // items, so we mirror them in WITHOUT re-syncing).
+  function replaceFromServer(serverItems: PartyOrderItem[]) {
+    items.value = mapServerItems(serverItems)
+    recommendedItemIds.value.clear()
+  }
+
+  // Re-hydrate the cart from the backend's persisted draft after a reload. The
+  // backend keeps every cart change (updateCartItems), so its draft order is the
+  // durable source of truth and survives the phone losing sessionStorage — e.g.
+  // re-scanning the QR opens a fresh browser tab/context with empty storage.
+  // Only fills an EMPTY cart, so it never clobbers items already restored from
+  // sessionStorage (a plain refresh) or added earlier this session.
+  function restoreFromServerIfEmpty(serverItems: PartyOrderItem[] | undefined | null) {
+    if (frozen.value || items.value.length > 0) return
+    if (!serverItems || serverItems.length === 0) return
+    items.value = mapServerItems(serverItems)
     recommendedItemIds.value.clear()
   }
 
@@ -200,6 +220,7 @@ export const useCartStore = defineStore('cart', () => {
     clearCart,
     addLocalItemOnly,
     replaceFromServer,
+    restoreFromServerIfEmpty,
     abandonForMerge,
     resetForNewOrder,
     wasRecommended,
