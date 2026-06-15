@@ -278,7 +278,8 @@ public sealed class MenuImportBackgroundService : BackgroundService
             ProgressCallbackUrl: callbackUrl,
             HmacSecret: _options.HmacSecret,
             Provider: job.ProviderUsed,
-            Locale: locale);
+            Locale: locale,
+            ExtractItemPhotos: job.ExtractItemPhotos);
 
         try
         {
@@ -301,6 +302,15 @@ public sealed class MenuImportBackgroundService : BackgroundService
                     {
                     }
                 }
+            }
+
+            // When dish-photo extraction was requested, persist the base64 crops and
+            // stamp their URLs onto items — and always strip item_photos so base64
+            // never reaches ResultJson. Best-effort: failures degrade to photoless.
+            if (job.ExtractItemPhotos)
+            {
+                var merger = scope.ServiceProvider.GetRequiredService<MenuImportPhotoMerger>();
+                resultElement = await merger.MergeAsync(job.RestaurantId, resultElement, ct);
             }
 
             using (var sup = tenant.SuppressResolution())

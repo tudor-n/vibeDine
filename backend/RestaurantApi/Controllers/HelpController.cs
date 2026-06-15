@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
 using RestaurantApi.Hubs;
 using RestaurantApi.Models;
+using RestaurantApi.Tenancy;
 
 namespace RestaurantApi.Controllers;
 
@@ -16,14 +17,19 @@ public class HelpController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IHubContext<StaffHub> _staffHub;
     private readonly IHubContext<CustomerHub> _customerHub;
+    private readonly ITenantAccess _access;
     private static readonly TimeSpan Cooldown = TimeSpan.FromMinutes(2);
 
-    public HelpController(AppDbContext db, IHubContext<StaffHub> staffHub, IHubContext<CustomerHub> customerHub)
+    public HelpController(AppDbContext db, IHubContext<StaffHub> staffHub, IHubContext<CustomerHub> customerHub, ITenantAccess access)
     {
         _db = db;
         _staffHub = staffHub;
         _customerHub = customerHub;
+        _access = access;
     }
+
+    private Guid UserId =>
+        Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
 
     [HttpPost("restaurants/{restaurantId:guid}/tables/{tableId:guid}/call-waiter")]
     public async Task<IActionResult> CallWaiter(Guid restaurantId, Guid tableId)
@@ -69,12 +75,15 @@ public class HelpController : ControllerBase
         });
     }
 
-    // Stubbed for the future waiter app. [Authorize] keeps endpoints unreachable
-    // anonymously until the waiter interface design lands.
+    // Staff dashboard (admin + waiter) lists the open calls. [Authorize] requires a
+    // signed-in user; the explicit tenant-access check stops a signed-in user from
+    // reading another restaurant's calls by swapping the {restaurantId} in the URL.
     [Authorize]
     [HttpGet("restaurants/{restaurantId:guid}/help-requests")]
     public async Task<IActionResult> List(Guid restaurantId)
     {
+        if (!await _access.CanAccessRestaurantAsync(UserId, restaurantId)) return Forbid();
+
         var items = await _db.HelpRequests
             .Where(h => h.Status == "open")
             .OrderBy(h => h.CreatedAt)
@@ -93,6 +102,8 @@ public class HelpController : ControllerBase
     [HttpPost("restaurants/{restaurantId:guid}/help-requests/{id:guid}/acknowledge")]
     public async Task<IActionResult> Acknowledge(Guid restaurantId, Guid id)
     {
+        if (!await _access.CanAccessRestaurantAsync(UserId, restaurantId)) return Forbid();
+
         var req = await _db.HelpRequests.FirstOrDefaultAsync(h => h.Id == id);
         if (req is null) return NotFound();
         if (req.Status != "open") return Ok(new { alreadyAcknowledged = true });
@@ -111,6 +122,6 @@ public class HelpController : ControllerBase
             .Group(TenantGroups.Table(restaurantId, req.TableId))
             .SendAsync("WaiterOnTheWay", new { requestId = req.Id });
 
-        return Ok();
+        return Ok(new { alreadyAcknowledged = false });
     }
 }

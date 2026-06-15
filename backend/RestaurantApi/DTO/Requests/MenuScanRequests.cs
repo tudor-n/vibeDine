@@ -10,7 +10,8 @@ public record BulkCreateProductItem(
     decimal Price,
     Guid CategoryId,
     string? Description = null,
-    bool IsAvailable = true);
+    bool IsAvailable = true,
+    string? ImageUrl = null);
 
 public record BulkCreateProductsRequest(
     IReadOnlyList<BulkCreateProductItem> Items,

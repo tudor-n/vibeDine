@@ -141,12 +141,21 @@ const acceptAction = computed(() => {
 
 .sticky-bar {
   position: sticky;
-  top: 0;
+  /* `<main>` is the scroll container and carries top padding (p-4 / md:p-10).
+     A plain `top: 0` would pin the bar at main's *content* box — i.e. one
+     padding-height below the visible top, leaving a gap. Pull the sticky stop
+     up by main's top padding so the bar pins flush with the viewport top. */
+  top: -1rem;
   z-index: 30;
   background: rgba(var(--paper-rgb), 0.92);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--ink12);
+}
+@media (min-width: 768px) {
+  .sticky-bar {
+    top: -2.5rem;
+  }
 }
 .sticky-bar-inner {
   max-width: 64rem;

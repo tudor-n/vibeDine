@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useGuestStore } from '@/stores/useGuestStore'
+import type { JoinTableResponse } from '@/services/api-client'
 
 export const useSessionStore = defineStore('session' , () => {
   const tableId = ref<string | null>(sessionStorage.getItem('tableId'))
@@ -12,7 +13,7 @@ export const useSessionStore = defineStore('session' , () => {
   const restaurantAddress = ref<string | null>(sessionStorage.getItem('restaurantAddress'))
   const organizationName = ref<string | null>(sessionStorage.getItem('organizationName'))
 
-  async function initializeSession(token: string){
+  async function initializeSession(token: string): Promise<JoinTableResponse>{
     try{
       // Guest-aware entry: this phone gets/keeps its OWN draft under the shared
       // table (so multiple people can order independently). orderId now points
@@ -37,6 +38,8 @@ export const useSessionStore = defineStore('session' , () => {
       sessionStorage.setItem('restaurantName', response.restaurantName)
       sessionStorage.setItem('restaurantAddress', response.restaurantAddress ?? '')
       sessionStorage.setItem('organizationName', response.organizationName)
+
+      return response
     }catch(error){
       console.error('Eroare la inițializarea sesiunii:', error)
       throw error

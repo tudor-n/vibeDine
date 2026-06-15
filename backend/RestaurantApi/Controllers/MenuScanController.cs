@@ -19,20 +19,27 @@ public class MenuScanController : ControllerBase
     };
 
     private readonly MenuExtractionClient _extractor;
+    private readonly ItemPhotoStorage _photoStorage;
     private readonly ILogger<MenuScanController> _logger;
 
-    public MenuScanController(MenuExtractionClient extractor, ILogger<MenuScanController> logger)
+    public MenuScanController(
+        MenuExtractionClient extractor,
+        ItemPhotoStorage photoStorage,
+        ILogger<MenuScanController> logger)
     {
         _extractor = extractor;
+        _photoStorage = photoStorage;
         _logger = logger;
     }
 
     [HttpPost]
     [RequestSizeLimit(MaxFiles * MaxFileBytes + 1024 * 1024)]  // 1 MB slack for form overhead
     public async Task<IActionResult> Scan(
+        Guid restaurantId,
         [FromForm(Name = "photos")] List<IFormFile>? photos,
         CancellationToken cancellationToken,
-        [FromForm(Name = "locale")] string locale = "ro-RO")
+        [FromForm(Name = "locale")] string locale = "ro-RO",
+        [FromForm(Name = "extractItemPhotos")] bool extractItemPhotos = false)
     {
         if (photos is null || photos.Count == 0)
             return BadRequest(new { message = "At least one photo is required." });
@@ -57,10 +64,10 @@ public class MenuScanController : ControllerBase
         }
 
         var sw = Stopwatch.StartNew();
-        MenuScanResponse result;
+        MenuScanResult scan;
         try
         {
-            result = await _extractor.ExtractAsync(prepared, cancellationToken, locale);
+            scan = await _extractor.ExtractWithPhotosAsync(prepared, cancellationToken, locale, extractItemPhotos);
         }
         catch (HttpRequestException ex)
         {
@@ -69,6 +76,40 @@ public class MenuScanController : ControllerBase
                 new { message = "Serviciul de scanare nu este disponibil. Încearcă din nou." });
         }
         sw.Stop();
+
+        var result = scan.Response;
+        // Persist any dish-photo crops and stamp their URLs onto matching items.
+        // The whole merge is best-effort: a failure here must never fail the scan,
+        // it just returns items without photos.
+        if (extractItemPhotos && scan.ItemPhotos.Count > 0)
+        {
+            try
+            {
+                var urlByRef = new Dictionary<(int Page, int Index), string>();
+                foreach (var photo in scan.ItemPhotos)
+                {
+                    byte[] bytes;
+                    try { bytes = Convert.FromBase64String(photo.ImageBase64); }
+                    catch (FormatException) { continue; }
+                    var url = await _photoStorage.SaveAsync(restaurantId, bytes, cancellationToken);
+                    if (url is not null)
+                        urlByRef[(photo.SourcePage, photo.SourceIndex)] = url;
+                }
+                if (urlByRef.Count > 0)
+                {
+                    var stamped = result.Items
+                        .Select(it => urlByRef.TryGetValue((it.SourcePage, it.SourceIndex), out var url)
+                            ? it with { ImageUrl = url }
+                            : it)
+                        .ToList();
+                    result = result with { Items = stamped };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Item photo merge failed for restaurant {RestaurantId}; continuing photoless", restaurantId);
+            }
+        }
 
         _logger.LogInformation(new EventId(7001, "MenuScan"),
             "MenuScan completed admin={Admin} files={FileCount} bytes={TotalBytes} ms={Duration} model={Model} items={Items} failed={Failed}",

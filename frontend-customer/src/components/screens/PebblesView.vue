@@ -4,19 +4,27 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useCartStore } from '@/stores/useCartStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import Pebble from '@/components/ui/Pebble.vue'
-import FoodTile from '@/components/ui/FoodTile.vue'
 
 const emit = defineEmits<{
   (e: 'open-category', id: string): void
+  (e: 'open-cart'): void
   (e: 'back'): void
 }>()
 
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const sessionStore = useSessionStore()
+const cartStore = useCartStore()
 const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
+
+// "Coșul meu" bar mirrors the one on the menu screen: surfaced here too so the
+// diner can jump straight to their cart from the categories page.
+const cartCount = computed(() =>
+  cartStore.items.reduce((sum, i) => sum + i.quantity, 0),
+)
 
 const active = ref<string | null>(null)
 const warp = ref<{ x: number; y: number } | null>(null)
@@ -100,9 +108,6 @@ const panelStyle = computed(() => {
   }
 })
 
-// First main category is the "Recomandarea zilei" anchor; sticky bar links to it.
-const dailyTarget = computed(() => pebbles.value[0] ?? null)
-
 function handlePebbleClick(id: string, ev: MouseEvent) {
   if (navigateTimer) return
   active.value = id
@@ -125,21 +130,6 @@ function handlePebbleClick(id: string, ev: MouseEvent) {
 
   navigateTimer = setTimeout(() => {
     emit('open-category', id)
-  }, 360)
-}
-
-function openDaily() {
-  if (!dailyTarget.value) return
-  // Reuse the warp by faking an event from the sticky bar centre.
-  const phone = document.querySelector('.phone-screen') as HTMLElement | null
-  const phoneRect = phone?.getBoundingClientRect()
-  if (phoneRect) {
-    warp.value = { x: phoneRect.width / 2, y: phoneRect.height - 100 }
-  }
-  active.value = dailyTarget.value.id
-  if (navigateTimer) clearTimeout(navigateTimer)
-  navigateTimer = setTimeout(() => {
-    emit('open-category', dailyTarget.value!.id)
   }, 360)
 }
 
@@ -177,7 +167,7 @@ onBeforeUnmount(() => {
       {{ error }}
     </div>
 
-    <div v-else class="grid-wrap">
+    <div v-else class="grid-wrap" :class="{ 'has-cart-bar': cartCount > 0 }">
       <!-- Background blooms (behind cards, never over interactive elements) -->
       <div
         class="bloom bloom-lime"
@@ -212,42 +202,24 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Sticky "Recomandarea zilei" bar — fades in on the bottom edge. -->
-    <div
-      v-if="dailyTarget"
-      class="sticky-wrap"
-      :style="{
-        background: `linear-gradient(to bottom, transparent, ${T.paper} 28%)`,
-      }"
-    >
-      <button
-        class="daily-card"
-        type="button"
-        :style="{ background: T.ink, color: T.paperHi }"
-        @click="openDaily"
-      >
-        <FoodTile
-          tone="terra"
-          :label="t('welcome.today')"
-          :radius="12"
-          class="daily-tile"
-        />
-        <div class="daily-body">
-          <div class="daily-eyebrow" :style="{ color: T.lime }">
-            {{ t('pebbles.dailyRecommendation') }}
-          </div>
-          <div class="daily-name">{{ t('welcome.featuredName') }}</div>
-          <div
-            class="daily-meta"
-            :style="{ color: theme === 'dark' ? T.ink70 : 'rgba(251,247,236,0.55)' }"
-          >{{ t('welcome.featuredMeta') }}</div>
+    <!-- "Coșul meu" bar — appears once the cart has items, jumps to the cart. -->
+    <div v-if="cartCount > 0" class="cart-bar" :style="{ background: T.ink, color: T.paperHi }">
+      <div>
+        <div
+          class="cart-eyebrow"
+          :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
+        >{{ t('menu.cartLabel') }}</div>
+        <div class="cart-summary">
+          {{ cartStore.total }} {{ t('common.ron') }} ·
+          {{ cartCount === 1 ? t('menu.cartCountOne', { count: cartCount }) : t('menu.cartCountMany', { count: cartCount }) }}
         </div>
-        <span
-          class="daily-arrow"
-          :style="{ background: T.accent, color: T.onAccent }"
-          aria-hidden="true"
-        >→</span>
-      </button>
+      </div>
+      <button
+        class="cart-cta"
+        type="button"
+        :style="{ background: T.accent, color: T.onAccent }"
+        @click="emit('open-cart')"
+      >{{ t('menu.cartGo') }}</button>
     </div>
 
     <!-- Warp transition overlay: lime circle expanding from the tapped pebble. -->
@@ -311,7 +283,11 @@ onBeforeUnmount(() => {
   position: relative;
   flex: 1;
   overflow: hidden auto;
-  padding: 12px clamp(12px, 4vw, 16px) calc(110px + var(--safe-bottom, 0px));
+  padding: 12px clamp(12px, 4vw, 16px) calc(24px + var(--safe-bottom, 0px));
+}
+/* Reserve room for the floating "Coșul meu" bar so it never covers a pebble. */
+.grid-wrap.has-cart-bar {
+  padding-bottom: calc(104px + var(--safe-bottom, 0px));
 }
 .bloom {
   position: absolute;
@@ -353,65 +329,37 @@ onBeforeUnmount(() => {
   align-items: start;
 }
 
-/* Sticky bottom bar */
-.sticky-wrap {
+/* "Coșul meu" bar — same treatment as the menu screen's cart bar. */
+.cart-bar {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 10px clamp(12px, 4vw, 16px) calc(18px + var(--safe-bottom, 0px));
-  z-index: 20;
-  pointer-events: none;
-}
-.daily-card {
-  width: 100%;
-  pointer-events: auto;
-  border: none;
-  border-radius: 22px;
-  padding: 14px 16px;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(12px, 3.6vw, 14px);
+  right: clamp(12px, 3.6vw, 14px);
+  padding: 14px 16px 14px clamp(16px, 5.6vw, 22px);
+  border-radius: 999px;
   display: flex;
-  gap: 14px;
   align-items: center;
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  box-shadow: 0 16px 40px -12px rgba(21, 20, 15, 0.5);
+  justify-content: space-between;
+  box-shadow: 0 20px 40px -16px rgba(21, 20, 15, 0.4);
+  z-index: 5;
 }
-.daily-tile {
-  width: 58px;
-  height: 68px;
-  flex-shrink: 0;
-}
-.daily-body {
-  flex: 1;
-  min-width: 0;
-}
-.daily-eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.daily-name {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.2;
-  margin-bottom: 2px;
-}
-.daily-meta {
+.cart-eyebrow {
   font-size: 13px;
   font-weight: 500;
+  margin-bottom: 2px;
 }
-.daily-arrow {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  font-size: 18px;
+.cart-summary {
+  font-size: clamp(17px, 5.1vw, 20px);
   font-weight: 700;
+}
+.cart-cta {
+  border: none;
+  border-radius: 999px;
+  padding: 13px clamp(15px, 5.1vw, 20px);
+  font-size: clamp(14px, 3.8vw, 15px);
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 /* Warp transition: circle clip expanding from the tapped pebble centre. */

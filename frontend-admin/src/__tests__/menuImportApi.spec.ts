@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { createPinia, setActivePinia } from 'pinia'
 
-import { menuImportApi } from '@/services/menuImportApi'
+import { menuImportApi, resolvePhotoUrl } from '@/services/menuImportApi'
 import { useAuthStore } from '@/stores/useAuthStore'
 import type { BulkCreateProductsRequest, MenuScanResponse } from '@shared/types/menu-import'
 
@@ -113,6 +113,79 @@ describe('menuImportApi.scan', () => {
     await expect(
       menuImportApi.scan([new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })]),
     ).rejects.toThrowError(/scan/i)
+  })
+
+  it('appends extractItemPhotos only when enabled, and parses imageUrl', async () => {
+    let sawPart = false
+    server.use(
+      http.post(`${baseUrl}/api/restaurants/${restaurantId}/admin/menu/scan`, async ({ request }) => {
+        const form = await request.formData()
+        sawPart = form.get('extractItemPhotos') === 'true'
+        return HttpResponse.json({
+          items: [
+            { name: 'Pizza', price: 28, source_page: 0, source_index: 0, image_url: '/uploads/menu-items/r/x.jpg' },
+          ],
+          failed_pages: [],
+          model: 'fake',
+          schema_version: 2,
+        })
+      }),
+    )
+
+    const result = await menuImportApi.scan(
+      [new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })],
+      'ro-RO',
+      true,
+    )
+    expect(sawPart).toBe(true)
+    expect(result.items[0].imageUrl).toBe('/uploads/menu-items/r/x.jpg')
+  })
+
+  it('omits extractItemPhotos when disabled', async () => {
+    let hadPart = true
+    server.use(
+      http.post(`${baseUrl}/api/restaurants/${restaurantId}/admin/menu/scan`, async ({ request }) => {
+        const form = await request.formData()
+        hadPart = form.has('extractItemPhotos')
+        return HttpResponse.json<MenuScanResponse>({
+          items: [], failedPages: [], model: 'fake', schemaVersion: 2,
+        })
+      }),
+    )
+    await menuImportApi.scan([new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })])
+    expect(hadPart).toBe(false)
+  })
+})
+
+describe('menuImportApi.startPdfImport', () => {
+  it('appends extractItemPhotos only when enabled', async () => {
+    let sawPart = false
+    server.use(
+      http.post(`${baseUrl}/api/restaurants/${restaurantId}/admin/menu/imports/pdf`, async ({ request }) => {
+        const form = await request.formData()
+        sawPart = form.get('extractItemPhotos') === 'true'
+        return HttpResponse.json({ jobId: 'job-9' })
+      }),
+    )
+    const res = await menuImportApi.startPdfImport(
+      new File([new Uint8Array([1])], 'm.pdf', { type: 'application/pdf' }),
+      true,
+    )
+    expect(res.jobId).toBe('job-9')
+    expect(sawPart).toBe(true)
+  })
+})
+
+describe('resolvePhotoUrl', () => {
+  it('prefixes the API base for root-relative URLs', () => {
+    expect(resolvePhotoUrl('/uploads/menu-items/r/x.jpg')).toBe(`${baseUrl}/uploads/menu-items/r/x.jpg`)
+  })
+  it('leaves absolute URLs untouched', () => {
+    expect(resolvePhotoUrl('https://cdn.example.com/x.jpg')).toBe('https://cdn.example.com/x.jpg')
+  })
+  it('returns empty string for null/undefined', () => {
+    expect(resolvePhotoUrl(null)).toBe('')
+    expect(resolvePhotoUrl(undefined)).toBe('')
   })
 })
 

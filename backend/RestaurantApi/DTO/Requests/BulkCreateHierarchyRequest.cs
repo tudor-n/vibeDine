@@ -30,4 +30,5 @@ public class BulkHierarchyProduct
     public string? SubcategoryTempId { get; set; }
     public int SortOrder { get; set; }
     public bool IsAvailable { get; set; } = true;
+    public string? ImageUrl { get; set; }
 }

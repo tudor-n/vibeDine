@@ -1,14 +1,25 @@
+import io
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image, ImageDraw
 
 from main import app
 from models.menu_organizer import ItemRef, OrganizedCategory, OrganizerResult
 from routers import menu_extraction as router_module
+from services.item_photo_extractor import FakeItemPhotoExtractor
 from services.menu_extraction_service import MenuExtractionService
 from services.menu_organizer import FakeMenuOrganizer, MenuOrganizerError
 from services.vision_extractor import FakeVisionExtractor, VisionExtractionError
+
+
+def _menu_page_png() -> bytes:
+    img = Image.new("RGB", (1000, 1000), (255, 255, 255))
+    ImageDraw.Draw(img).rectangle([100, 100, 399, 399], fill=(220, 30, 30))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tiny_pixel.png"
@@ -187,3 +198,45 @@ def test_photo_extract_falls_back_to_hint_when_organizer_raises(client, use_serv
     assert body["hierarchy"]["source"] == "hint-fallback"
     # Hint-fallback should produce a Pizza category from the items' hints
     assert any(cat["name"] == "Pizza" for cat in body["hierarchy"]["categories"])
+
+
+def test_extract_attaches_item_photos_when_flag_on(client, use_service):
+    use_service(MenuExtractionService(
+        extractor_factory=lambda: FakeVisionExtractor(
+            canned_response={"items": [{"name": "Pizza", "price": 28.0, "source_index": 0}]},
+            model_name="fake-photos",
+        ),
+        photo_extractor_factory=lambda: FakeItemPhotoExtractor(
+            canned=[{"source_index": 0, "box_2d": [100, 100, 400, 400], "confidence": 0.9}]
+        ),
+    ))
+    response = client.post(
+        "/menu/extract",
+        files=[("photos", ("p0.png", _menu_page_png(), "image/png"))],
+        data={"extract_item_photos": "true"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["item_photos"] is not None
+    assert len(body["item_photos"]) == 1
+    assert body["item_photos"][0]["source_page"] == 0
+    assert body["item_photos"][0]["source_index"] == 0
+
+
+def test_extract_omits_item_photos_when_flag_off(client, use_service):
+    fake = FakeItemPhotoExtractor(
+        canned=[{"source_index": 0, "box_2d": [100, 100, 400, 400], "confidence": 0.9}]
+    )
+    use_service(MenuExtractionService(
+        extractor_factory=lambda: FakeVisionExtractor(
+            canned_response={"items": [{"name": "Pizza", "price": 28.0, "source_index": 0}]},
+        ),
+        photo_extractor_factory=lambda: fake,
+    ))
+    response = client.post(
+        "/menu/extract",
+        files=[("photos", ("p0.png", _menu_page_png(), "image/png"))],
+    )
+    assert response.status_code == 200
+    assert response.json()["item_photos"] is None
+    assert fake.calls == []

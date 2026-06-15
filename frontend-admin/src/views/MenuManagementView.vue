@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import BrandSelect from '@/components/BrandSelect.vue'
 import { useMenuManagementStore } from '@/stores/useMenuManagementStore'
 import { useToast } from '@/composables/useToast'
+import { resolveMediaUrl } from '@/services/mediaUrl'
 import type { AdminMenuCategoryNode, AdminProduct } from '@shared/types/models'
 
 const store = useMenuManagementStore()
@@ -229,6 +230,11 @@ function matchesFilter(p: AdminProduct): boolean {
     if (productFilter.value === 'active') return p.isAvailable
     if (productFilter.value === 'hidden') return !p.isAvailable
     return true
+}
+
+function backgroundImageStyle(url: string | null | undefined) {
+    const resolved = resolveMediaUrl(url)
+    return resolved ? { backgroundImage: `url(${resolved})` } : {}
 }
 
 const visibleCategories = computed(() => {
@@ -556,7 +562,7 @@ function formatPrice(n: number) {
 
                         <div
                             class="cat-thumb"
-                            :style="entry.cat.imageUrl ? `background-image: url('${entry.cat.imageUrl}');` : ''"
+                            :style="backgroundImageStyle(entry.cat.imageUrl)"
                             :aria-label="entry.cat.imageUrl ? 'imagine categorie' : 'fără imagine'"
                         >
                             <span v-if="!entry.cat.imageUrl" class="font-mono text-xs text-ink-40">·</span>
@@ -644,7 +650,7 @@ function formatPrice(n: number) {
 
                                 <div
                                     class="prod-thumb"
-                                    :style="p.imageUrl ? `background-image: url('${p.imageUrl}');` : ''"
+                                    :style="backgroundImageStyle(p.imageUrl)"
                                 >
                                     <span v-if="!p.imageUrl" class="font-mono text-[10px] text-ink-40">no img</span>
                                 </div>
@@ -744,16 +750,16 @@ function formatPrice(n: number) {
                             <span class="field-label">URL imagine</span>
                             <input
                                 v-model="categoryForm.imageUrl"
-                                type="url"
+                                type="text"
                                 class="field-input"
-                                placeholder="https://..."
+                                placeholder="https://... sau /uploads/..."
                                 maxlength="500"
                             />
-                            <span class="field-hint">URL absolut (https://). Lasă gol pentru a elimina.</span>
+                            <span class="field-hint">URL absolut sau cale /uploads. Lasă gol pentru a elimina.</span>
                         </label>
 
                         <div v-if="categoryForm.imageUrl" class="preview-box">
-                            <img :src="categoryForm.imageUrl" alt="previzualizare" />
+                            <img :src="resolveMediaUrl(categoryForm.imageUrl)" alt="previzualizare" />
                         </div>
 
                         <div class="flex items-center justify-end gap-2 pt-2">
@@ -853,16 +859,16 @@ function formatPrice(n: number) {
                             <span class="field-label">URL imagine</span>
                             <input
                                 v-model="productForm.imageUrl"
-                                type="url"
+                                type="text"
                                 class="field-input"
-                                placeholder="https://..."
+                                placeholder="https://... sau /uploads/..."
                                 maxlength="500"
                             />
-                            <span class="field-hint">URL absolut (https://). Lasă gol pentru a elimina.</span>
+                            <span class="field-hint">URL absolut sau cale /uploads. Lasă gol pentru a elimina.</span>
                         </label>
 
                         <div v-if="productForm.imageUrl" class="preview-box">
-                            <img :src="productForm.imageUrl" alt="previzualizare" />
+                            <img :src="resolveMediaUrl(productForm.imageUrl)" alt="previzualizare" />
                         </div>
 
                         <div class="flex items-center justify-end gap-2 pt-2">
