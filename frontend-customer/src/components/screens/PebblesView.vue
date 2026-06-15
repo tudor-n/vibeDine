@@ -4,18 +4,27 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useCartStore } from '@/stores/useCartStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import Pebble from '@/components/ui/Pebble.vue'
 
 const emit = defineEmits<{
   (e: 'open-category', id: string): void
+  (e: 'open-cart'): void
   (e: 'back'): void
 }>()
 
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const sessionStore = useSessionStore()
+const cartStore = useCartStore()
 const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
+
+// "Coșul meu" bar mirrors the one on the menu screen: surfaced here too so the
+// diner can jump straight to their cart from the categories page.
+const cartCount = computed(() =>
+  cartStore.items.reduce((sum, i) => sum + i.quantity, 0),
+)
 
 const active = ref<string | null>(null)
 const warp = ref<{ x: number; y: number } | null>(null)
@@ -159,7 +168,7 @@ onBeforeUnmount(() => {
       {{ error }}
     </div>
 
-    <div v-else class="grid-wrap">
+    <div v-else class="grid-wrap" :class="{ 'has-cart-bar': cartCount > 0 }">
       <!-- Background blooms (behind cards, never over interactive elements) -->
       <div
         class="bloom bloom-lime"
@@ -192,6 +201,26 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- "Coșul meu" bar — appears once the cart has items, jumps to the cart. -->
+    <div v-if="cartCount > 0" class="cart-bar" :style="{ background: T.ink, color: T.paperHi }">
+      <div>
+        <div
+          class="cart-eyebrow"
+          :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
+        >{{ t('menu.cartLabel') }}</div>
+        <div class="cart-summary">
+          {{ cartStore.total }} {{ t('common.ron') }} ·
+          {{ cartCount === 1 ? t('menu.cartCountOne', { count: cartCount }) : t('menu.cartCountMany', { count: cartCount }) }}
+        </div>
+      </div>
+      <button
+        class="cart-cta"
+        type="button"
+        :style="{ background: T.accent, color: T.onAccent }"
+        @click="emit('open-cart')"
+      >{{ t('menu.cartGo') }}</button>
     </div>
 
     <!-- Warp transition overlay: lime circle expanding from the tapped pebble. -->
@@ -257,6 +286,10 @@ onBeforeUnmount(() => {
   overflow: hidden auto;
   padding: 12px clamp(12px, 4vw, 16px) calc(24px + var(--safe-bottom, 0px));
 }
+/* Reserve room for the floating "Coșul meu" bar so it never covers a pebble. */
+.grid-wrap.has-cart-bar {
+  padding-bottom: calc(104px + var(--safe-bottom, 0px));
+}
 .bloom {
   position: absolute;
   border-radius: 50%;
@@ -295,6 +328,39 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr 1fr;
   gap: 0 10px;
   align-items: start;
+}
+
+/* "Coșul meu" bar — same treatment as the menu screen's cart bar. */
+.cart-bar {
+  position: absolute;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  left: clamp(12px, 3.6vw, 14px);
+  right: clamp(12px, 3.6vw, 14px);
+  padding: 14px 16px 14px clamp(16px, 5.6vw, 22px);
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 20px 40px -16px rgba(21, 20, 15, 0.4);
+  z-index: 5;
+}
+.cart-eyebrow {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.cart-summary {
+  font-size: clamp(17px, 5.1vw, 20px);
+  font-weight: 700;
+}
+.cart-cta {
+  border: none;
+  border-radius: 999px;
+  padding: 13px clamp(15px, 5.1vw, 20px);
+  font-size: clamp(14px, 3.8vw, 15px);
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 /* Warp transition: circle clip expanding from the tapped pebble centre. */
