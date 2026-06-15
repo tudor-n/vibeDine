@@ -55,10 +55,9 @@ function fmt(d: Date) {
 }
 
 const tableLabel = computed(() => {
-  const id = sessionStore.tableId
-  if (!id) return t('common.table')
-  const tail = id.slice(-2).replace(/^0+/, '') || id.slice(-2)
-  return `${t('common.table')} ${tail}`
+  const number = sessionStore.tableNumber
+  if (!number) return t('common.table')
+  return `${t('common.table')} ${number}`
 })
 
 // Live status arrives via SignalR. We only stamp a timestamp on the *first*
