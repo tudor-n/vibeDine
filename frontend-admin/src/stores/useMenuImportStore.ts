@@ -868,6 +868,30 @@ export const useMenuImportStore = defineStore('menuImport', () => {
         })),
       })),
     }
+
+    // Safety net: the AI organizer can silently omit items from the hierarchy
+    // (observed dropping 50-77% of items on large menus, varying per run). Any
+    // extracted item it didn't place would otherwise vanish from the review and
+    // the saved menu. Re-attach every missing item to the uncategorized bucket
+    // so the admin sees and can place all of them — no product is ever lost.
+    const referenced = new Set<string>()
+    for (const c of editable.categories) {
+      for (const r of c.directItemRefs) referenced.add(`${r.sourcePage}:${r.sourceIndex}`)
+      for (const s of c.subcategories)
+        for (const r of s.itemRefs) referenced.add(`${r.sourcePage}:${r.sourceIndex}`)
+    }
+    for (const r of editable.uncategorizedItemRefs) referenced.add(`${r.sourcePage}:${r.sourceIndex}`)
+    for (const it of extractedItems.value) {
+      const key = `${it.sourcePage}:${it.sourceIndex}`
+      if (!referenced.has(key)) {
+        editable.uncategorizedItemRefs.push({
+          sourcePage: it.sourcePage,
+          sourceIndex: it.sourceIndex,
+          confidence: 0,
+        })
+      }
+    }
+
     hierarchy.value = editable
   }
 
@@ -990,6 +1014,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     )
 
     const products: BulkCreateHierarchyRequest['products'] = []
+    const placed = new Set<string>()
     let order = 0
     for (const c of hierarchy.value.categories) {
       for (const s of c.subcategories) {
@@ -1008,6 +1033,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
             isAvailable: true,
             imageUrl: it.imageUrl ?? null,
           })
+          placed.add(`${ref.sourcePage}:${ref.sourceIndex}`)
         }
       }
       for (const ref of c.directItemRefs) {
@@ -1019,6 +1045,38 @@ export const useMenuImportStore = defineStore('menuImport', () => {
           price: it.price,
           description: it.description ?? null,
           categoryTempId: c.tempId,
+          subcategoryTempId: null,
+          sortOrder: order++,
+          isAvailable: true,
+          imageUrl: it.imageUrl ?? null,
+        })
+        placed.add(`${ref.sourcePage}:${ref.sourceIndex}`)
+      }
+    }
+
+    // Safety net: never drop a product just because the AI organizer left it
+    // uncategorized or omitted it from the hierarchy. Save every remaining
+    // (non-skipped) extracted item under a fallback category the admin can
+    // re-sort, so the import always keeps all products.
+    const leftovers = extractedItems.value.filter(
+      (it) =>
+        !placed.has(`${it.sourcePage}:${it.sourceIndex}`) &&
+        !skippedItemKeys.has(`${it.sourcePage}:${it.sourceIndex}`),
+    )
+    if (leftovers.length > 0) {
+      const fallbackTempId = makeId()
+      categories.push({
+        tempId: fallbackTempId,
+        name: 'Necategorizate',
+        sortOrder: categories.length,
+        subcategories: [],
+      })
+      for (const it of leftovers) {
+        products.push({
+          name: it.name,
+          price: it.price,
+          description: it.description ?? null,
+          categoryTempId: fallbackTempId,
           subcategoryTempId: null,
           sortOrder: order++,
           isAvailable: true,

@@ -140,6 +140,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
         minimum=0,
     )
     item_photo_max_pages = _read_int_env("ITEM_PHOTO_MAX_PAGES", 50, minimum=0)
+    organizer_chunk_size = _read_int_env("PDF_ORGANIZER_CHUNK_SIZE", 40, minimum=1)
 
     text_extractor_factory = _build_text_extractor_factory()
 
@@ -161,6 +162,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
             render_quality=render_quality,
             max_embedded_image_bytes=max_embedded_image_bytes,
             organizer_factory=resolve_organizer,
+            organizer_chunk_size=organizer_chunk_size,
             # Only wire the detector when this import opted in, so the default
             # path is byte-identical to before.
             item_photo_extractor_factory=(
