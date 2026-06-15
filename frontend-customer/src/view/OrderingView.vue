@@ -35,15 +35,50 @@ useWebSocket()
 
 const screen = ref<Screen>('language')
 const activeCategoryId = ref<string | null>(null)
-const lastTotal = ref(0)
+// Screen the cart was opened from, so closing it returns there (the menu, or
+// the categories page when the cart was opened from its "Coșul meu" bar).
+const cartOrigin = ref<Screen>('menu')
+// lastTotal + orderInProgress are persisted so the "view order status" button
+// (and the total it shows) survive an accidental tab refresh while an order is
+// live — see useOrderStatusStore for the matching timeline persistence.
+const lastTotal = ref(Number(sessionStorage.getItem('lastTotal')) || 0)
 // True once the diner has sent at least one order this session. Keeps the
 // top "view progress" button available after they leave the progress screen.
-const orderInProgress = ref(false)
-// Once the order reaches "Servire la masă" (completed), the timeline is final.
-// We keep the re-open button for a short grace window so the diner can catch
-// the last update, then retire it for the rest of this round.
+const orderInProgress = ref(sessionStorage.getItem('orderInProgress') === 'true')
+watch(lastTotal, (v) => sessionStorage.setItem('lastTotal', String(v)))
+watch(orderInProgress, (v) => sessionStorage.setItem('orderInProgress', v ? 'true' : 'false'))
+// The order is "archived to the order log" when its status flips to completed:
+// the kitchen's 45s ready-grace elapses, the order leaves the admin's active
+// list, and the customer gets that completed event (stamped as servedAt). We
+// keep the re-open button for 30s past that, then retire it for the round.
+const PROGRESS_DISMISS_MS = 30_000
 const progressDismissed = ref(false)
 let progressDismissTimer: ReturnType<typeof setTimeout> | null = null
+
+// Derive the button's retirement from the persisted archive timestamp rather
+// than a fired-once timer, so it stays correct across a refresh (e.g. the order
+// was already archived 10s before reload → hide it 20s after reload).
+function evaluateProgressDismissal() {
+  if (progressDismissTimer) {
+    clearTimeout(progressDismissTimer)
+    progressDismissTimer = null
+  }
+  const archivedAt = orderStatusStore.servedAt
+  if (!archivedAt) {
+    progressDismissed.value = false
+    return
+  }
+  const remaining = PROGRESS_DISMISS_MS - (Date.now() - archivedAt.getTime())
+  if (remaining <= 0) {
+    progressDismissed.value = true
+    return
+  }
+  progressDismissed.value = false
+  progressDismissTimer = setTimeout(() => {
+    progressDismissed.value = true
+    progressDismissTimer = null
+  }, remaining)
+}
 const sessionError = ref<null | 'missing' | 'invalid'>(null)
 // First time a deal arrives we pop the full-screen offer; once the user
 // dismisses it the icon takes over and stays visible for the remaining 2 min.
@@ -78,6 +113,9 @@ onMounted(async () => {
   }
   partyPoll = setInterval(() => guestStore.refreshParty(sessionStore.qrToken), PARTY_POLL_MS)
   document.addEventListener('visibilitychange', onVisibilityChange)
+  // After a refresh the order may already be archived (or partway through its
+  // 30s grace) — reconcile the button's retirement against the restored state.
+  evaluateProgressDismissal()
 })
 
 onUnmounted(() => {
@@ -94,8 +132,12 @@ function openCategory(id: string) {
   screen.value = 'menu'
 }
 function backToPebbles() { screen.value = 'pebbles' }
-function openCart() { screen.value = 'cart' }
-function backFromCart() { screen.value = 'menu' }
+function openCart() {
+  // Remember where we came from (menu or pebbles) so close returns there.
+  if (screen.value === 'menu' || screen.value === 'pebbles') cartOrigin.value = screen.value
+  screen.value = 'cart'
+}
+function backFromCart() { screen.value = cartOrigin.value }
 
 function handleSubmitted() {
   lastTotal.value = cartStore.total
@@ -103,12 +145,9 @@ function handleSubmitted() {
   // Drop the previous round's status so the timeline starts fresh instead of
   // instantly showing the last order's "completed" stage.
   orderStatusStore.clear()
-  // New round → revive the progress button and cancel any pending auto-hide.
-  progressDismissed.value = false
-  if (progressDismissTimer) {
-    clearTimeout(progressDismissTimer)
-    progressDismissTimer = null
-  }
+  // New round → revive the progress button and cancel any pending auto-hide
+  // (clear() nulled servedAt, so this resets dismissal to "not archived yet").
+  evaluateProgressDismissal()
   orderInProgress.value = true
   screen.value = 'sent'
   // Deliberately NO re-join here: the backend freed this guest's seat when the
@@ -207,20 +246,10 @@ const showProgressButton = computed(
     !flashOverlayActive.value,
 )
 
-// When the order is served (status "completed" / Servire la masă), the diner no
-// longer needs to track it — retire the re-open button after a short grace.
-const PROGRESS_DISMISS_MS = 12_000
-watch(
-  () => orderStatusStore.status,
-  (status) => {
-    if (status === 'completed' && !progressDismissed.value && !progressDismissTimer) {
-      progressDismissTimer = setTimeout(() => {
-        progressDismissed.value = true
-        progressDismissTimer = null
-      }, PROGRESS_DISMISS_MS)
-    }
-  },
-)
+// Re-arm the retirement whenever the archive timestamp changes (set on the
+// completed event, nulled on a new round). evaluateProgressDismissal reads the
+// timestamp itself, so it handles both fresh archival and post-refresh revival.
+watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 </script>
 
 <template>
@@ -252,6 +281,7 @@ watch(
           v-else-if="screen === 'pebbles'"
           key="pebbles"
           @open-category="openCategory"
+          @open-cart="openCart"
           @back="screen = 'language'"
         />
         <MenuView

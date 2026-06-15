@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Product } from '@shared/types/models'
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests'
 import { apiClient, type PartyOrderItem } from '@/services/api-client'
@@ -9,11 +9,57 @@ export interface CartItem extends Product {
   quantity: number
 }
 
+// Persist the in-progress cart in sessionStorage (same scope as the session
+// info in useSessionStore) so an accidental tab refresh while ordering keeps
+// the cart intact. It's wiped when the order is sent to the kitchen (clearCart)
+// and when the tab closes — exactly the lifetime of one ordering session.
+const CART_STORAGE_KEY = 'cart'
+
+interface PersistedCart {
+  items: CartItem[]
+  recommendedItemIds: string[]
+}
+
+function loadPersistedCart(): PersistedCart {
+  try {
+    const raw = sessionStorage.getItem(CART_STORAGE_KEY)
+    if (!raw) return { items: [], recommendedItemIds: [] }
+    const parsed = JSON.parse(raw) as Partial<PersistedCart>
+    return {
+      items: Array.isArray(parsed?.items) ? parsed.items : [],
+      recommendedItemIds: Array.isArray(parsed?.recommendedItemIds) ? parsed.recommendedItemIds : [],
+    }
+  } catch {
+    return { items: [], recommendedItemIds: [] }
+  }
+}
+
 export const useCartStore = defineStore('cart', () => {
 
-  const items = ref<CartItem[]>([])
-  const recommendedItemIds = ref<Set<string>>(new Set())
+  const persisted = loadPersistedCart()
+  const items = ref<CartItem[]>(persisted.items)
+  const recommendedItemIds = ref<Set<string>>(new Set(persisted.recommendedItemIds))
   const sessionStore = useSessionStore()
+
+  // Mirror every cart change back to sessionStorage. clearCart()/abandonForMerge()
+  // empty `items`, so a submitted or merged-away cart is persisted as empty too.
+  watch(
+    [items, recommendedItemIds],
+    () => {
+      try {
+        sessionStorage.setItem(
+          CART_STORAGE_KEY,
+          JSON.stringify({
+            items: items.value,
+            recommendedItemIds: Array.from(recommendedItemIds.value),
+          }),
+        )
+      } catch (error) {
+        console.error('Nu s-a putut salva coșul în sessionStorage:', error)
+      }
+    },
+    { deep: true },
+  )
 
   // When this phone's draft has been merged into someone else's order it must
   // stop syncing — its draft is now "merged" and PATCHes would 404.
