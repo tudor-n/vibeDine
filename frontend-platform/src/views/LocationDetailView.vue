@@ -121,6 +121,8 @@ async function deleteLocation() {
     toast.error(e instanceof Error ? e.message : 'Failed to delete location.')
   }
 }
+
+onMounted(load)
 </script>
 
 <template>
