@@ -22,6 +22,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<RestaurantTable> Tables => Set<RestaurantTable>();
+    public DbSet<TableZone> TableZones => Set<TableZone>();
     public DbSet<FlashDealOffer> FlashDealOffers => Set<FlashDealOffer>();
     public DbSet<AIDirective> AIDirectives => Set<AIDirective>();
     public DbSet<RecommendationDirective> RecommendationDirectives => Set<RecommendationDirective>();
@@ -103,11 +104,32 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(t => t.RestaurantId).HasColumnName("restaurant_id");
             e.Property(t => t.TableNumber).HasColumnName("table_number");
             e.Property(t => t.QrToken).HasColumnName("qr_token");
+            e.Property(t => t.ZoneId).HasColumnName("zone_id");
+            e.Property(t => t.PositionX).HasColumnName("position_x");
+            e.Property(t => t.PositionY).HasColumnName("position_y");
             e.Property(t => t.DeletedAt).HasColumnName("deleted_at");
             // qr_token is the customer's globally-unique entry point; it must resolve a
             // single table across the whole platform.
             e.HasIndex(t => t.QrToken).IsUnique();
             e.HasIndex(t => t.RestaurantId);
+
+            // Optional FK to a floor-plan zone. Deleting a zone unassigns its
+            // tables rather than removing them.
+            e.HasOne<TableZone>()
+             .WithMany()
+             .HasForeignKey(t => t.ZoneId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<TableZone>(e =>
+        {
+            e.ToTable("table_zones");
+            e.Property(z => z.Id).HasColumnName("id");
+            e.Property(z => z.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(z => z.Name).HasColumnName("name");
+            e.Property(z => z.SortOrder).HasColumnName("sort_order");
+            e.Property(z => z.DeletedAt).HasColumnName("deleted_at");
+            e.HasIndex(z => new { z.RestaurantId, z.SortOrder });
         });
 
         modelBuilder.Entity<Order>(e =>
@@ -432,6 +454,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<Subcategory>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Product>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<RestaurantTable>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<TableZone>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Order>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<OrderItem>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<FlashDealOffer>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);

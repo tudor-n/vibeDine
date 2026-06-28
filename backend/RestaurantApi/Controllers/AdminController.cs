@@ -403,6 +403,7 @@ public class AdminController : ControllerBase
                 orderNumber = order.OrderNumber,
                 status = order.Status,
                 readyAt = order.ReadyAt,
+                tableId = order.TableId,
             });
 
         return Ok(new

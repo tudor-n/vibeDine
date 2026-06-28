@@ -378,15 +378,37 @@ export interface TableSummary {
     id: string;
     tableNumber: string | null;
     qrToken: string;
+    zoneId: string | null;
+    positionX: number;
+    positionY: number;
 }
 
 export const tablesApi = {
     list: () => authedFetcher<TableSummary[]>(scoped('/admin/tables')),
 
-    create: (tableNumber: string) =>
+    create: (payload: {
+        tableNumber: string;
+        zoneId?: string | null;
+        positionX?: number;
+        positionY?: number;
+    }) =>
         authedFetcher<TableSummary>(scoped('/admin/tables'), {
             method: 'POST',
-            body: JSON.stringify({ tableNumber }),
+            body: JSON.stringify(payload),
+        }),
+
+    update: (
+        id: string,
+        patch: {
+            tableNumber?: string;
+            zoneId?: string | null;
+            positionX?: number;
+            positionY?: number;
+        },
+    ) =>
+        authedFetcher<TableSummary>(scoped(`/admin/tables/${id}`), {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
         }),
 
     regenerate: (id: string) =>
@@ -396,6 +418,34 @@ export const tablesApi = {
 
     remove: (id: string) =>
         authedFetcher<void>(scoped(`/admin/tables/${id}`), {
+            method: 'DELETE',
+        }),
+};
+
+// ── Zones (floor-plan areas, per active location) ────────────────────────────
+export interface ZoneSummary {
+    id: string;
+    name: string;
+    sortOrder: number;
+}
+
+export const zonesApi = {
+    list: () => authedFetcher<ZoneSummary[]>(scoped('/admin/zones')),
+
+    create: (name: string) =>
+        authedFetcher<ZoneSummary>(scoped('/admin/zones'), {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+        }),
+
+    update: (id: string, patch: { name?: string; sortOrder?: number }) =>
+        authedFetcher<ZoneSummary>(scoped(`/admin/zones/${id}`), {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
+        }),
+
+    remove: (id: string) =>
+        authedFetcher<void>(scoped(`/admin/zones/${id}`), {
             method: 'DELETE',
         }),
 };

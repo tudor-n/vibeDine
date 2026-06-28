@@ -89,6 +89,11 @@ const router = createRouter({
             component: () => import('@/views/WaiterCallsView.vue')
         },
         {
+            path: '/floor',
+            name: 'floor',
+            component: () => import('@/views/FloorPlanView.vue')
+        },
+        {
             path: '/tables',
             name: 'tables',
             component: () => import('@/views/TablesView.vue')

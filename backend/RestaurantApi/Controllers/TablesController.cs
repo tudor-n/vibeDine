@@ -25,8 +25,9 @@ public class TablesController : ControllerBase
         _logger = logger;
     }
 
-    public record TableResponse(Guid Id, string? TableNumber, Guid QrToken);
-    public record CreateTableRequest(string? TableNumber);
+    public record TableResponse(Guid Id, string? TableNumber, Guid QrToken, Guid? ZoneId, double PositionX, double PositionY);
+    public record CreateTableRequest(string? TableNumber, Guid? ZoneId, double? PositionX, double? PositionY);
+    public record UpdateTableRequest(string? TableNumber, Guid? ZoneId, double? PositionX, double? PositionY);
 
     [HttpGet]
     public async Task<IActionResult> List()
@@ -34,7 +35,7 @@ public class TablesController : ControllerBase
         var tables = await _db.Tables
             .Where(t => t.DeletedAt == null)
             .OrderBy(t => t.TableNumber)
-            .Select(t => new TableResponse(t.Id, t.TableNumber, t.QrToken ?? Guid.Empty))
+            .Select(t => new TableResponse(t.Id, t.TableNumber, t.QrToken ?? Guid.Empty, t.ZoneId, t.PositionX, t.PositionY))
             .ToListAsync();
 
         return Ok(tables);
@@ -57,13 +58,16 @@ public class TablesController : ControllerBase
             Id = Guid.NewGuid(),
             TableNumber = number,
             QrToken = Guid.NewGuid(),
+            ZoneId = request.ZoneId,
+            PositionX = request.PositionX ?? 0,
+            PositionY = request.PositionY ?? 0,
         };
 
         _db.Tables.Add(table);
         await _db.SaveChangesAsync();
         _logger.LogInformation("Created table {Id} (#{Number})", table.Id, number);
 
-        return Created((string?)null, new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value));
+        return Created((string?)null, new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value, table.ZoneId, table.PositionX, table.PositionY));
     }
 
     /// <summary>Rotates the QR token, invalidating any previously printed code.</summary>
@@ -77,7 +81,48 @@ public class TablesController : ControllerBase
         await _db.SaveChangesAsync();
         _logger.LogInformation("Regenerated QR token for table {Id}", id);
 
-        return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value));
+        return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value, table.ZoneId, table.PositionX, table.PositionY));
+    }
+
+    /// <summary>Updates only the provided (non-null) fields on a table.</summary>
+    [HttpPatch("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateTableRequest request)
+    {
+        var table = await _db.Tables.FindAsync(id);
+        if (table == null || table.DeletedAt != null)
+            return NotFound(new { message = "Table not found." });
+
+        if (request.TableNumber != null)
+        {
+            var number = request.TableNumber.Trim();
+            if (string.IsNullOrWhiteSpace(number))
+                return BadRequest(new { message = "Table number is required." });
+
+            // Mirror Create's uniqueness rule: only live tables collide, and a
+            // table never conflicts with itself.
+            if (number != table.TableNumber &&
+                await _db.Tables.AnyAsync(t => t.TableNumber == number && t.DeletedAt == null && t.Id != id))
+                return Conflict(new { message = $"Table \"{number}\" already exists for this location." });
+
+            table.TableNumber = number;
+        }
+
+        // Only reassign the zone when a value is supplied, so a position-only
+        // PATCH (drag-to-reposition, which omits zoneId) never clears the table's
+        // zone. Unassigning to "no zone" happens server-side on zone delete.
+        if (request.ZoneId.HasValue)
+            table.ZoneId = request.ZoneId;
+
+        if (request.PositionX.HasValue)
+            table.PositionX = request.PositionX.Value;
+
+        if (request.PositionY.HasValue)
+            table.PositionY = request.PositionY.Value;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("Updated table {Id}", id);
+
+        return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken ?? Guid.Empty, table.ZoneId, table.PositionX, table.PositionY));
     }
 
     // Orders that count as "someone is using this table right now". Drafts (a

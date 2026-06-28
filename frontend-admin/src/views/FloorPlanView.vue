@@ -1,0 +1,863 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useFloorStore } from '@/stores/useFloorStore'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useToast } from '@/composables/useToast'
+import type { TableSummary, ZoneSummary } from '@/services/api-client'
+
+const store = useFloorStore()
+const auth = useAuthStore()
+const toast = useToast()
+
+// ── Layout constants ─────────────────────────────────────────────────────────
+const CHIP = 64 // chip diameter in px (> the 56px floor)
+const GAP = 28 // spacing between auto-grid slots
+const PAD = 28 // inset from the canvas edges
+const MOVE_THRESHOLD = 4 // px the pointer must travel before a press counts as a drag
+const PANEL_W = 264 // edit-popover width
+
+// Canvas geometry. We track the live width so the auto-grid reflows on resize.
+const canvasEl = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
+const canvasWidth = ref(900)
+let resizeObs: ResizeObserver | null = null
+
+watch(canvasEl, (el) => {
+  if (resizeObs) {
+    resizeObs.disconnect()
+    resizeObs = null
+  }
+  if (el) {
+    canvasWidth.value = el.clientWidth || canvasWidth.value
+    resizeObs = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w) canvasWidth.value = w
+    })
+    resizeObs.observe(el)
+  }
+})
+
+const columns = computed(() => Math.max(1, Math.floor((canvasWidth.value - PAD) / (CHIP + GAP))))
+
+function gridSlot(i: number): { x: number; y: number } {
+  const cols = columns.value
+  const col = i % cols
+  const row = Math.floor(i / cols)
+  return { x: PAD + col * (CHIP + GAP), y: PAD + row * (CHIP + GAP) }
+}
+
+// ── Derived collections ──────────────────────────────────────────────────────
+const tablesInZone = computed<TableSummary[]>(() =>
+  store.tables.filter((t) => t.zoneId === store.selectedZoneId),
+)
+
+// Base render positions. Tables that were never placed (0,0) are tucked into a
+// tidy grid so they don't all stack at the origin — purely a render fallback,
+// the real coordinate is only persisted once the admin actually drags one.
+const basePositions = computed<Record<string, { x: number; y: number }>>(() => {
+  const map: Record<string, { x: number; y: number }> = {}
+  let gridIdx = 0
+  for (const t of tablesInZone.value) {
+    if (t.positionX === 0 && t.positionY === 0) {
+      map[t.id] = gridSlot(gridIdx++)
+    } else {
+      map[t.id] = { x: t.positionX, y: t.positionY }
+    }
+  }
+  return map
+})
+
+function posFor(t: TableSummary): { x: number; y: number } {
+  if (drag.id === t.id) return { x: drag.x, y: drag.y }
+  return basePositions.value[t.id] ?? { x: t.positionX, y: t.positionY }
+}
+
+function chipStyle(t: TableSummary): Record<string, string> {
+  const p = posFor(t)
+  return { left: `${p.x}px`, top: `${p.y}px` }
+}
+
+// ── Pointer drag ─────────────────────────────────────────────────────────────
+// A press that moves < MOVE_THRESHOLD px is treated as a click (opens the edit
+// popover); anything further is a free-form reposition. We update a local
+// reactive position on every move for a smooth drag and commit once on release.
+const drag = reactive({
+  id: null as string | null,
+  x: 0,
+  y: 0,
+  offsetX: 0,
+  offsetY: 0,
+  startClientX: 0,
+  startClientY: 0,
+  moved: false,
+})
+
+function onPointerDown(e: PointerEvent, t: TableSummary) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  if (editId.value) closeEdit()
+  const canvas = canvasEl.value
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  const base = posFor(t)
+  drag.id = t.id
+  drag.x = base.x
+  drag.y = base.y
+  drag.offsetX = e.clientX - rect.left - base.x
+  drag.offsetY = e.clientY - rect.top - base.y
+  drag.startClientX = e.clientX
+  drag.startClientY = e.clientY
+  drag.moved = false
+  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+}
+
+function onPointerMove(e: PointerEvent) {
+  if (drag.id === null) return
+  const canvas = canvasEl.value
+  if (!canvas) return
+  const rect = canvas.getBoundingClientRect()
+  drag.x = e.clientX - rect.left - drag.offsetX
+  drag.y = e.clientY - rect.top - drag.offsetY
+  if (
+    Math.abs(e.clientX - drag.startClientX) > MOVE_THRESHOLD ||
+    Math.abs(e.clientY - drag.startClientY) > MOVE_THRESHOLD
+  ) {
+    drag.moved = true
+  }
+}
+
+async function onPointerUp(e: PointerEvent, t: TableSummary) {
+  if (drag.id !== t.id) return
+  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
+
+  // A non-move press is a click → open the edit popover.
+  if (!drag.moved) {
+    drag.id = null
+    openEdit(t)
+    return
+  }
+
+  // Clamp to the canvas bounds before persisting.
+  const canvas = canvasEl.value
+  let x = drag.x
+  let y = drag.y
+  if (canvas) {
+    const maxX = Math.max(0, canvas.clientWidth - CHIP)
+    const maxY = Math.max(0, canvas.clientHeight - CHIP)
+    x = Math.min(Math.max(0, x), maxX)
+    y = Math.min(Math.max(0, y), maxY)
+  } else {
+    x = Math.max(0, x)
+    y = Math.max(0, y)
+  }
+  x = Math.round(x)
+  y = Math.round(y)
+  // Keep showing the dropped position while the PATCH is in flight, then let the
+  // store-backed coordinate take over (no snap-back flicker).
+  drag.x = x
+  drag.y = y
+  try {
+    await store.updateTablePosition(t.id, x, y)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Mutarea mesei a eșuat.')
+  } finally {
+    if (drag.id === t.id) drag.id = null
+  }
+}
+
+// ── Zones: select / add / rename / delete ────────────────────────────────────
+const busy = ref(false)
+const addingZone = ref(false)
+const newZoneName = ref('')
+const editingZoneId = ref<string | null>(null)
+const zoneNameDraft = ref('')
+
+function selectZone(id: string) {
+  store.selectedZoneId = id
+  closeEdit()
+}
+
+async function submitNewZone() {
+  if (busy.value) return
+  const name = newZoneName.value.trim()
+  if (!name) {
+    cancelAddZone()
+    return
+  }
+  busy.value = true
+  try {
+    const z = await store.createZone(name)
+    store.selectedZoneId = z.id
+    toast.success(`Zona „${z.name}” a fost creată.`)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Crearea zonei a eșuat.')
+  } finally {
+    busy.value = false
+    addingZone.value = false
+    newZoneName.value = ''
+  }
+}
+
+function cancelAddZone() {
+  addingZone.value = false
+  newZoneName.value = ''
+}
+
+function startRenameZone(z: ZoneSummary) {
+  editingZoneId.value = z.id
+  zoneNameDraft.value = z.name
+}
+
+async function commitRenameZone(z: ZoneSummary) {
+  if (editingZoneId.value !== z.id) return
+  editingZoneId.value = null
+  const name = zoneNameDraft.value.trim()
+  if (!name || name === z.name) return
+  try {
+    await store.renameZone(z.id, name)
+    toast.success('Zonă redenumită.')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Redenumirea zonei a eșuat.')
+  }
+}
+
+async function removeZone(z: ZoneSummary) {
+  if (!confirm(`Ștergi zona „${z.name}”? Mesele rămân, dar nu vor mai fi atribuite acestei zone.`)) return
+  try {
+    await store.deleteZone(z.id)
+    // The store re-selects the first zone on refetch; guard for safety.
+    if (!store.selectedZoneId) {
+      const first = store.zones[0]
+      store.selectedZoneId = first ? first.id : null
+    }
+    toast.success('Zonă ștearsă.')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Ștergerea zonei a eșuat.')
+  }
+}
+
+// ── Tables: add ──────────────────────────────────────────────────────────────
+const addingTable = ref(false)
+const newTableNumber = ref('')
+
+async function submitNewTable() {
+  if (busy.value) return
+  const n = newTableNumber.value.trim()
+  const zoneId = store.selectedZoneId
+  if (!n || !zoneId) {
+    cancelAddTable()
+    return
+  }
+  busy.value = true
+  try {
+    const slot = gridSlot(tablesInZone.value.length)
+    await store.createTable({ tableNumber: n, zoneId, positionX: slot.x, positionY: slot.y })
+    toast.success(`Masa ${n} a fost adăugată.`)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Adăugarea mesei a eșuat.')
+  } finally {
+    busy.value = false
+    addingTable.value = false
+    newTableNumber.value = ''
+  }
+}
+
+function cancelAddTable() {
+  addingTable.value = false
+  newTableNumber.value = ''
+}
+
+// ── Edit popover ─────────────────────────────────────────────────────────────
+const editId = ref<string | null>(null)
+const editNumber = ref('')
+const editMoveZoneId = ref('')
+
+const editTable = computed<TableSummary | null>(
+  () => store.tables.find((t) => t.id === editId.value) ?? null,
+)
+
+const editPanelStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = { width: `${PANEL_W}px` }
+  const t = editTable.value
+  if (!t) return style
+  const p = posFor(t)
+  let left = p.x + CHIP + 12
+  if (left + PANEL_W > canvasWidth.value) left = p.x - PANEL_W - 12
+  if (left < PAD) left = PAD
+  style.left = `${left}px`
+  style.top = `${Math.max(PAD, p.y)}px`
+  return style
+})
+
+function openEdit(t: TableSummary) {
+  editId.value = t.id
+  editNumber.value = t.tableNumber ?? ''
+  editMoveZoneId.value = t.zoneId ?? ''
+}
+
+function closeEdit() {
+  editId.value = null
+}
+
+async function commitRenameTable() {
+  const t = editTable.value
+  if (!t) return
+  const n = editNumber.value.trim()
+  if (!n || n === t.tableNumber) return
+  try {
+    await store.renameTable(t.id, n)
+    toast.success('Masă redenumită.')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Redenumirea mesei a eșuat.')
+  }
+}
+
+async function commitMoveZone() {
+  const t = editTable.value
+  if (!t) return
+  const zid = editMoveZoneId.value
+  // Contract: only ever move a table to a real zone id, never null.
+  if (!zid || zid === t.zoneId) return
+  try {
+    await store.moveTableToZone(t.id, zid)
+    toast.success('Masă mutată în altă zonă.')
+    closeEdit()
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Mutarea mesei a eșuat.')
+  }
+}
+
+async function removeTable() {
+  const t = editTable.value
+  if (!t) return
+  if (!confirm(`Ștergi masa ${t.tableNumber ?? ''}?`)) return
+  try {
+    await store.deleteTable(t.id)
+    closeEdit()
+    toast.success('Masă ștearsă.')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Ștergerea mesei a eșuat.')
+  }
+}
+
+// ── Lifecycle ────────────────────────────────────────────────────────────────
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && editId.value) closeEdit()
+}
+
+onMounted(async () => {
+  try {
+    await store.fetchZones()
+    await store.fetchTables()
+    await store.seedLiveState()
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Încărcarea planului de sală a eșuat.')
+  }
+  if (auth.activeRestaurantId) void store.startRealtime(auth.activeRestaurantId)
+  window.addEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => {
+  void store.stopRealtime()
+  window.removeEventListener('keydown', onKeydown)
+  if (resizeObs) {
+    resizeObs.disconnect()
+    resizeObs = null
+  }
+})
+
+// Auto-focus directive for revealed inline inputs.
+const vFocus = {
+  mounted: (el: HTMLElement) => el.focus(),
+}
+</script>
+
+<template>
+  <div class="max-w-6xl mx-auto relative">
+    <!-- Header -->
+    <div class="flex items-start justify-between gap-4 flex-wrap mb-8">
+      <div>
+        <div class="eyebrow mb-4">Sală &amp; mese</div>
+        <h1 class="display-title text-[44px] md:text-[56px]">Plan sală</h1>
+        <p class="text-ink-70 text-base mt-2 max-w-xl">
+          Grupează mesele pe zone și aranjează-le liber prin tragere. Punctul roșu arată o
+          comandă activă, iar clopoțelul o chemare de ospătar.
+        </p>
+      </div>
+      <div class="tag-pill" role="status" aria-live="polite">
+        <span
+          class="live-dot"
+          :style="store.isConnected ? '' : 'background: var(--ink40); box-shadow: none;'"
+          aria-hidden="true"
+        ></span>
+        <span>{{ store.isConnected ? 'Live' : 'Offline' }}</span>
+      </div>
+    </div>
+
+    <!-- Empty state: no zones yet -->
+    <section v-if="store.zones.length === 0" class="card-paper p-8 text-center">
+      <div class="eyebrow mb-3">Începe aici</div>
+      <h2 class="display-title text-3xl mb-2">Nicio zonă încă</h2>
+      <p class="text-ink-70 mb-5">
+        Creează prima zonă (ex: Terasă, Salon, Bar) ca să începi să aranjezi mesele.
+      </p>
+      <form class="flex gap-2 justify-center max-w-md mx-auto" @submit.prevent="submitNewZone">
+        <input
+          v-focus
+          v-model="newZoneName"
+          placeholder="Nume zonă (ex: Terasă)"
+          class="field-input"
+          required
+        />
+        <button type="submit" class="pill-btn" :disabled="busy">Creează zonă</button>
+      </form>
+    </section>
+
+    <template v-else>
+      <!-- Zone tab bar -->
+      <div class="zone-bar">
+        <div class="zone-tabs">
+          <div
+            v-for="z in store.zones"
+            :key="z.id"
+            class="zone-tab"
+            :class="{ 'zone-tab-active': z.id === store.selectedZoneId }"
+          >
+            <input
+              v-if="editingZoneId === z.id"
+              v-focus
+              v-model="zoneNameDraft"
+              class="zone-edit-input"
+              @keyup.enter="commitRenameZone(z)"
+              @keyup.esc="editingZoneId = null"
+              @blur="commitRenameZone(z)"
+            />
+            <template v-else>
+              <button type="button" class="zone-tab-label" @click="selectZone(z.id)">
+                {{ z.name }}
+              </button>
+              <span v-if="z.id === store.selectedZoneId" class="zone-tab-actions">
+                <button
+                  type="button"
+                  class="zone-mini"
+                  title="Redenumește zona"
+                  aria-label="Redenumește zona"
+                  @click.stop="startRenameZone(z)"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  class="zone-mini zone-mini-danger"
+                  title="Șterge zona"
+                  aria-label="Șterge zona"
+                  @click.stop="removeZone(z)"
+                >
+                  ✕
+                </button>
+              </span>
+            </template>
+          </div>
+
+          <!-- Add zone -->
+          <input
+            v-if="addingZone"
+            v-focus
+            v-model="newZoneName"
+            placeholder="Nume zonă"
+            class="zone-edit-input"
+            @keyup.enter="submitNewZone"
+            @keyup.esc="cancelAddZone"
+            @blur="submitNewZone"
+          />
+          <button v-else type="button" class="zone-tab zone-add-btn" @click="addingZone = true">
+            + Zonă nouă
+          </button>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="flex items-center gap-3 flex-wrap mb-4">
+        <input
+          v-if="addingTable"
+          v-focus
+          v-model="newTableNumber"
+          placeholder="Număr masă (ex: 12)"
+          class="field-input"
+          style="max-width: 220px"
+          @keyup.enter="submitNewTable"
+          @keyup.esc="cancelAddTable"
+          @blur="submitNewTable"
+        />
+        <button
+          v-else
+          type="button"
+          class="pill-btn"
+          :disabled="!store.selectedZoneId"
+          @click="addingTable = true"
+        >
+          + Masă
+        </button>
+        <span v-if="!store.selectedZoneId" class="field-hint">
+          Creează mai întâi o zonă pentru a adăuga mese.
+        </span>
+      </div>
+
+      <!-- Canvas -->
+      <div ref="canvasEl" class="canvas card-paper">
+        <div v-if="tablesInZone.length === 0" class="canvas-empty">
+          Nicio masă în această zonă încă — adaugă una cu „+ Masă”.
+        </div>
+
+        <button
+          v-for="t in tablesInZone"
+          :key="t.id"
+          type="button"
+          class="chip"
+          :class="{ 'chip-dragging': drag.id === t.id, 'chip-editing': editId === t.id }"
+          :style="chipStyle(t)"
+          @pointerdown="onPointerDown($event, t)"
+          @pointermove="onPointerMove($event)"
+          @pointerup="onPointerUp($event, t)"
+        >
+          <span class="seat seat-top" aria-hidden="true"></span>
+          <span class="seat seat-bottom" aria-hidden="true"></span>
+          <span class="seat seat-left" aria-hidden="true"></span>
+          <span class="seat seat-right" aria-hidden="true"></span>
+          <span class="table-top">
+            <span class="chip-num">{{ t.tableNumber || '—' }}</span>
+            <span
+              v-if="store.activeOrderTableIds.has(t.id)"
+              class="chip-badge chip-badge-order"
+              title="Comandă activă"
+              aria-label="Comandă activă"
+            ></span>
+            <span
+              v-if="store.waiterCallTableIds.has(t.id)"
+              class="chip-badge chip-badge-call"
+              title="Cheamă ospătar"
+              aria-label="Cheamă ospătar"
+            >🔔</span>
+          </span>
+        </button>
+
+        <!-- Edit popover (click-away backdrop + anchored card) -->
+        <div v-if="editId" class="edit-backdrop" @pointerdown="closeEdit"></div>
+        <div
+          v-if="editTable"
+          ref="panelEl"
+          class="edit-panel card-white"
+          :style="editPanelStyle"
+          @pointerdown.stop
+        >
+          <div class="flex items-center justify-between mb-3">
+            <div class="eyebrow">Masa {{ editTable.tableNumber || '—' }}</div>
+            <button type="button" class="icon-btn" aria-label="Închide" @click="closeEdit">✕</button>
+          </div>
+
+          <label class="field-label">Număr masă</label>
+          <div class="flex gap-2 mt-1 mb-4">
+            <input
+              v-model="editNumber"
+              class="field-input"
+              @keyup.enter="commitRenameTable"
+            />
+            <button type="button" class="btn-ghost" @click="commitRenameTable">Salvează</button>
+          </div>
+
+          <label class="field-label">Mută în zonă</label>
+          <select v-model="editMoveZoneId" class="field-input mt-1 mb-4" @change="commitMoveZone">
+            <option v-for="z in store.zones" :key="z.id" :value="z.id">{{ z.name }}</option>
+          </select>
+
+          <button type="button" class="btn-danger w-full" @click="removeTable">Șterge masa</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+/* ── Zone tab bar ───────────────────────────────────────────────────────────── */
+.zone-bar {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ink12);
+}
+.zone-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.zone-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  min-height: var(--tap-min);
+  border-radius: 999px;
+  background: var(--ink06);
+  border: 1px solid transparent;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 15px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.zone-tab-label {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.zone-tab-active {
+  background: var(--ink);
+  color: var(--paperHi);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-soft);
+}
+.zone-tab-active .zone-tab-label {
+  color: var(--paperHi);
+}
+.zone-tab-actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.zone-mini {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  color: rgba(245, 240, 232, 0.85);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.9;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.zone-mini:hover {
+  opacity: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+.zone-mini-danger:hover {
+  color: #fff;
+  background: var(--accent);
+}
+.zone-edit-input {
+  padding: 8px 14px;
+  min-height: var(--tap-min);
+  width: 170px;
+  max-width: 200px;
+  border-radius: 999px;
+  border: 1px solid var(--ink12);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.zone-add-btn {
+  border: 1px dashed var(--ink12);
+  background: transparent;
+  color: var(--ink70);
+  cursor: pointer;
+}
+.zone-add-btn:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+/* ── Canvas ─────────────────────────────────────────────────────────────────── */
+.canvas {
+  position: relative;
+  min-height: 60vh;
+  overflow: hidden;
+}
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 24px;
+  color: var(--ink40);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Table icon ─────────────────────────────────────────────────────────────── */
+/* The .chip is a transparent 64px hit area; the visible table is a rounded
+   tabletop with four chairs around it. */
+.chip {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 1;
+}
+.chip:active {
+  cursor: grabbing;
+}
+.chip-dragging {
+  z-index: 4;
+  cursor: grabbing;
+}
+.chip-editing {
+  z-index: 3;
+}
+
+/* Tabletop — the surface that carries the number and the live badges. */
+.table-top {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: var(--card);
+  border: 1.5px solid var(--ink12);
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  place-items: center;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.chip:hover .table-top {
+  border-color: var(--ink);
+}
+.chip-dragging .table-top {
+  box-shadow: var(--shadow-pop);
+  border-color: var(--ink);
+  transition: none;
+}
+.chip-editing .table-top {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentSoft);
+}
+
+/* Chairs — one seat on each side of the table. */
+.seat {
+  position: absolute;
+  background: var(--ink40);
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+.seat-top,
+.seat-bottom {
+  width: 22px;
+  height: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.seat-left,
+.seat-right {
+  width: 7px;
+  height: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.seat-top {
+  top: 1px;
+}
+.seat-bottom {
+  bottom: 1px;
+}
+.seat-left {
+  left: 1px;
+}
+.seat-right {
+  right: 1px;
+}
+.chip:hover .seat,
+.chip-dragging .seat {
+  background: var(--ink70);
+}
+
+.chip-num {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Live overlays — both can show at once (order top-right, bell top-left). */
+.chip-badge {
+  position: absolute;
+  pointer-events: none;
+}
+.chip-badge-order {
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--card);
+  animation: chip-pulse 1.6s ease-in-out infinite;
+}
+.chip-badge-call {
+  top: -12px;
+  left: -10px;
+  font-size: 16px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+  animation: chip-bell 1.2s ease-in-out infinite;
+  transform-origin: 50% 0;
+}
+@keyframes chip-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accentBorder);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+@keyframes chip-bell {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(14deg);
+  }
+  60% {
+    transform: rotate(-12deg);
+  }
+}
+
+/* ── Edit popover ───────────────────────────────────────────────────────────── */
+.edit-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+.edit-panel {
+  position: absolute;
+  z-index: 6;
+  padding: 16px;
+  box-shadow: var(--shadow-pop);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip-badge-order,
+  .chip-badge-call {
+    animation: none;
+  }
+}
+</style>

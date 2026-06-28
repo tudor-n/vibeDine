@@ -101,6 +101,7 @@ public sealed class OrderFinalizationService : BackgroundService
                 {
                     orderId = order.Id,
                     orderNumber = order.OrderNumber,
+                    tableId = order.TableId,
                 }, ct);
         }
 
