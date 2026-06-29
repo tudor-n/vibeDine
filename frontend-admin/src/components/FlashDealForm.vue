@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { apiClient } from '@/services/api-client'
 import type { FlashDealRule } from '@shared/types/models'
 import type { FlashDealPayload } from '@/stores/useFlashDealRuleStore'
@@ -58,14 +58,6 @@ watch(
 )
 
 onMounted(loadProducts)
-
-const canSubmit = computed(
-  () =>
-    !!productId.value &&
-    discountPercent.value >= 1 &&
-    discountPercent.value <= 99 &&
-    !props.isLoading,
-)
 
 function onSubmit() {
   error.value = null
@@ -176,7 +168,7 @@ function onSubmit() {
           >
             Șterge flash deal
           </button>
-          <button type="submit" class="hh-btn" :disabled="!canSubmit">
+          <button type="submit" class="hh-btn" :disabled="isLoading">
             <span v-if="isLoading" class="animate-spin" aria-hidden="true">↻</span>
             <span>{{ isLoading ? 'Se salvează...' : 'Salvează flash deal' }}</span>
           </button>

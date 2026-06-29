@@ -169,6 +169,10 @@ public class AdminController : ControllerBase
         rule.MinOrderTotal = request.MinOrderTotal;
         rule.IsEnabled = request.IsEnabled;
         rule.UpdatedAt = DateTime.UtcNow;
+        // Attach the product we just validated so the response carries productName
+        // (the nav isn't otherwise loaded on an upsert, which would echo back null
+        // and make the admin's "current deal" card show a placeholder until reload).
+        rule.Product = product;
 
         await _dbContext.SaveChangesAsync();
         return Ok(ToFlashDealResponse(rule));
