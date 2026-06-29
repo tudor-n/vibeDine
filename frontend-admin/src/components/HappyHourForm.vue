@@ -3,6 +3,7 @@ import { ref, watch, computed, onMounted } from 'vue'
 import { apiClient } from '@/services/api-client'
 import type { HappyHourDeal } from '@shared/types/models'
 import type { HappyHourPayload } from '@/stores/useHappyHourStore'
+import ProductCombobox from '@/components/ProductCombobox.vue'
 
 const props = defineProps<{
   config: HappyHourDeal | null
@@ -106,8 +107,10 @@ function onSubmit() {
 </script>
 
 <template>
-  <div class="hh-card mb-8 relative overflow-hidden">
-    <div class="bloom bloom-accent" style="top: -100px; left: -80px; width: 280px; height: 280px; opacity: 0.28;" />
+  <div class="hh-card mb-8 relative">
+    <div class="hh-bloom-clip">
+      <div class="bloom bloom-accent" style="top: -100px; left: -80px; width: 280px; height: 280px; opacity: 0.28;" />
+    </div>
 
     <div class="relative z-10">
       <div class="flex items-center justify-between mb-5">
@@ -115,7 +118,7 @@ function onSubmit() {
           <div class="hh-eyebrow mb-2">Happy hour</div>
           <h2 class="hh-title">Ce reducere oferim și când?</h2>
         </div>
-        <span class="hh-tag hh-tag-lime">⏰ automat zilnic</span>
+        <span class="hh-tag hh-tag-lime">automat zilnic</span>
       </div>
       <p class="hh-lede mb-6 leading-relaxed max-w-xl">
         Alege un produs, reducerea și intervalul orar. Oferta pornește automat în
@@ -126,19 +129,14 @@ function onSubmit() {
       <form @submit.prevent="onSubmit" class="hh-form">
         <div class="hh-field">
           <label for="hh-product" class="hh-label">Produs</label>
-          <select
-            id="hh-product"
+          <ProductCombobox
             v-model="productId"
-            class="hh-input"
-            :disabled="productsLoading || isLoading"
-          >
-            <option value="" disabled>
-              {{ productsLoading ? 'Se încarcă meniul...' : 'Selectează un produs' }}
-            </option>
-            <option v-for="p in products" :key="p.id" :value="p.id">
-              {{ p.name }} — {{ p.category }}
-            </option>
-          </select>
+            input-id="hh-product"
+            :products="products"
+            :loading="productsLoading"
+            :disabled="isLoading"
+            :fallback-name="config?.productName ?? null"
+          />
         </div>
 
         <div class="hh-grid">
@@ -217,6 +215,15 @@ function onSubmit() {
   padding: 32px;
   box-shadow: var(--shadow-pop);
   border: 1px solid var(--ink12);
+}
+/* Clip only the decorative bloom, not the card — so the product dropdown can
+   overflow past the card edge without being cut off. */
+.hh-bloom-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 28px;
+  pointer-events: none;
 }
 .hh-title {
   font-family: 'Inter Tight', sans-serif;
