@@ -193,22 +193,6 @@ onUnmounted(() => {
     <div class="bloom bloom-accent" style="top: -120px; right: -140px; width: 420px; height: 420px;" />
     <div class="bloom bloom-lime" style="bottom: -120px; left: 12%; width: 360px; height: 360px;" />
 
-    <!-- Single theme toggle, fixed top-right -->
-    <button
-      class="theme-toggle"
-      :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
-      :aria-pressed="theme === 'dark'"
-      @click="toggleTheme"
-    >
-      <svg v-if="theme === 'dark'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-      </svg>
-      <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-      </svg>
-    </button>
-
     <!-- Mobile top bar — the sidebar collapses into a drawer below md -->
     <header class="md:hidden mobile-topbar">
       <button
@@ -225,7 +209,24 @@ onUnmounted(() => {
         </svg>
       </button>
       <div class="display-title text-xl">Smart Restaurant</div>
-      <span v-if="waiterCalls.count" class="nav-badge ml-auto" aria-label="chemări active">{{ waiterCalls.count }}</span>
+      <div class="topbar-right ml-auto">
+        <span v-if="waiterCalls.count" class="nav-badge" aria-label="chemări active">{{ waiterCalls.count }}</span>
+        <button
+          type="button"
+          class="hamburger"
+          :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
+          :aria-pressed="theme === 'dark'"
+          @click="toggleTheme"
+        >
+          <svg v-if="theme === 'dark'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <!-- Drawer backdrop (mobile) -->
@@ -274,6 +275,22 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="account-actions">
+          <button
+            type="button"
+            class="icon-btn"
+            :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
+            :aria-pressed="theme === 'dark'"
+            :title="theme === 'dark' ? 'Temă deschisă' : 'Temă închisă'"
+            @click="toggleTheme"
+          >
+            <svg v-if="theme === 'dark'" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          </button>
           <RouterLink
             to="/settings/profile"
             class="icon-btn"
@@ -371,7 +388,7 @@ onUnmounted(() => {
       </button>
     </nav>
 
-    <main class="relative z-10 flex-1 p-4 md:p-10 overflow-y-auto">
+    <main class="app-main relative z-10 flex-1 md:ml-72 p-4 md:p-10 overflow-y-auto">
       <RouterView />
     </main>
 
@@ -412,9 +429,13 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(12px);
 }
 
-/* Sidebar shell — static left column on desktop, slide-in drawer on mobile */
+/* Sidebar shell — fixed left column on desktop (stays put while the main area
+   scrolls), slide-in drawer on mobile. Because it's fixed (out of flow), <main>
+   carries a matching left offset on desktop (md:ml-72) so content clears it. */
 .sidebar {
-  position: relative;
+  position: fixed;
+  top: 0;
+  left: 0;
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -431,14 +452,19 @@ onUnmounted(() => {
    Controlled here (not via Tailwind md:hidden) because scoped styles outrank
    utility classes. */
 .mobile-topbar {
-  position: sticky;
+  /* Fixed (not sticky): the root container has overflow-hidden and isn't itself a
+     scroll container on mobile, so a sticky bar scrolls away with the page. Fixed
+     pins it to the viewport top no matter which element scrolls. <main> carries a
+     matching padding-top below so the first content isn't hidden behind it. */
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 40;
   display: none;
   align-items: center;
   gap: 12px;
-  /* right padding clears the fixed top-right theme toggle */
-  padding: 12px 64px 12px 14px;
+  padding: 12px 14px;
   background: color-mix(in srgb, var(--paperHi) 88%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -459,6 +485,13 @@ onUnmounted(() => {
 }
 .hamburger:hover { background: var(--ink06); }
 .hamburger:active { transform: scale(0.94); }
+
+/* Right-hand cluster of the mobile top bar: calls badge + theme toggle */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
 /* Drawer backdrop */
 .nav-backdrop {
@@ -551,6 +584,9 @@ onUnmounted(() => {
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-topbar { display: flex; }
   .drawer-head { display: flex; }
+  /* Clear the fixed top bar (~44px tap target + 12px×2 padding + 1px border)
+     plus a small gap, so page content starts below it. */
+  .app-main { padding-top: calc(var(--tap-min) + 40px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
@@ -613,31 +649,6 @@ onUnmounted(() => {
   transform: translateX(0);
   color: var(--lime);
 }
-
-/* Single floating theme toggle — fixed top-right of the viewport */
-.theme-toggle {
-  position: fixed;
-  top: 18px;
-  right: 18px;
-  width: var(--tap-min);
-  height: var(--tap-min);
-  border-radius: 50%;
-  background: var(--card);
-  color: var(--ink);
-  border: 1px solid var(--ink12);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  z-index: 60;
-  font-family: inherit;
-  box-shadow: var(--shadow-soft);
-  transition: transform 0.15s ease, background 0.18s ease, box-shadow 0.18s ease;
-}
-.theme-toggle:hover {
-  background: var(--ink06);
-  transform: translateY(-1px);
-}
-.theme-toggle:active { transform: scale(0.92); }
 
 /* Account chip — at the top of the sidebar, contains the avatar, name/email,
    and small Settings + Logout icon buttons. */

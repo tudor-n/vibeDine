@@ -93,7 +93,7 @@ const ruleCount = computed(
 <template>
     <div class="max-w-6xl mx-auto relative">
         <!-- Status row -->
-        <div class="flex items-center justify-between mb-8">
+        <div class="flex items-center justify-between flex-wrap gap-3 mb-8">
             <div class="tag-pill" role="status" aria-label="Recomandările sunt active">
                 <span
                     class="live-dot"
@@ -153,12 +153,12 @@ const ruleCount = computed(
 
         <!-- Hand-written recommendation rules section -->
         <section class="mb-12">
-            <div class="flex items-center justify-between mb-5">
-                <div>
+            <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
+                <div class="min-w-0">
                     <div class="eyebrow mb-2">Scrise în limbaj natural</div>
                     <h2 class="display-title text-3xl">Reguli scrise de tine</h2>
                 </div>
-                <span class="tag-pill">
+                <span class="tag-pill shrink-0">
                     {{ recRulesStore.directives.length }} totale ·
                     {{ recRulesStore.activeDirectives.length }} active
                 </span>
@@ -187,8 +187,8 @@ const ruleCount = computed(
                     class="card-paper p-6 relative"
                     :style="d.isActive ? '' : 'opacity: 0.55;'"
                 >
-                    <div class="flex items-start justify-between gap-4 mb-4">
-                        <div class="flex-1">
+                    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+                        <div class="flex-1 min-w-0">
                             <div class="eyebrow mb-2">
                                 {{ d.isActive ? 'Regulă activă' : 'Regulă în pauză' }}
                             </div>

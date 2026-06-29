@@ -153,16 +153,16 @@ function selectLocation(r: RestaurantSummary) {
 
       <div v-if="!invitations.length" class="text-ink-70 italic text-sm">Nicio invitație încă.</div>
       <ul v-else class="divide-y divide-ink-12">
-        <li v-for="i in invitations" :key="i.id" class="py-3 flex items-center gap-3">
+        <li v-for="i in invitations" :key="i.id" class="py-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
           <div class="min-w-0 flex-1">
             <div class="font-semibold truncate">{{ i.email }}</div>
             <div class="text-ink-70 text-xs">
               {{ i.status }} · expiră {{ new Date(i.expiresAt).toLocaleDateString() }}
             </div>
           </div>
-          <div v-if="i.status === 'pending'" class="flex gap-2 flex-shrink-0">
-            <button type="button" class="btn" @click="copyLink(i)">Copiază link</button>
-            <button type="button" class="btn btn-danger" @click="revoke(i)">Revocă</button>
+          <div v-if="i.status === 'pending'" class="flex gap-2 flex-wrap shrink-0">
+            <button type="button" class="btn flex-1 sm:flex-none" @click="copyLink(i)">Copiază link</button>
+            <button type="button" class="btn btn-danger flex-1 sm:flex-none" @click="revoke(i)">Revocă</button>
           </div>
         </li>
       </ul>
@@ -178,6 +178,7 @@ function selectLocation(r: RestaurantSummary) {
   box-shadow: var(--shadow-soft);
 }
 .input {
+  width: 100%;
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid var(--ink12);
@@ -188,8 +189,10 @@ function selectLocation(r: RestaurantSummary) {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 10px 16px;
+  min-height: var(--tap-min);
   border-radius: 999px;
   border: 1px solid var(--ink12);
   background: transparent;

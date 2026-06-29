@@ -401,6 +401,15 @@ function thumbUrl(file: File): string {
 }
 .thumb:hover .thumb-remove { opacity: 1; }
 .thumb-remove:hover { transform: scale(1.08); }
+/* Touch devices have no hover — keep the remove button visible and tappable. */
+@media (hover: none) {
+  .thumb-remove {
+    opacity: 1;
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+  }
+}
 .thumb-name {
   display: block;
   padding: 6px 8px;

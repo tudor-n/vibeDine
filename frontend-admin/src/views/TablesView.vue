@@ -22,6 +22,11 @@ const busy = ref(false)
 
 const activeName = computed(() => auth.activeRestaurant?.name ?? 'locația curentă')
 
+// Zone filter — which area within this location to show. 'all' shows every zone
+// group; otherwise it matches a TableGroup id (a zone id, or null for the
+// "Fără zonă" group).
+const selectedGroupId = ref<string | null | 'all'>('all')
+
 // Tables grouped by zone (zones in sortOrder), with a trailing "Fără zonă" group
 // for tables that haven't been assigned to any zone yet.
 interface TableGroup {
@@ -39,6 +44,13 @@ const groups = computed<TableGroup[]>(() => {
   if (noZone.length) result.push({ id: null, name: 'Fără zonă', tables: noZone })
   return result
 })
+
+// Groups actually rendered: all of them, or just the one matching the zone chip.
+const visibleGroups = computed<TableGroup[]>(() =>
+  selectedGroupId.value === 'all'
+    ? groups.value
+    : groups.value.filter((g) => g.id === selectedGroupId.value),
+)
 
 function customerUrl(t: TableSummary) {
   return `${customerBase}/${t.qrToken}`
@@ -114,21 +126,50 @@ function downloadQr(t: TableSummary) {
     <div class="mb-6">
       <div class="eyebrow mb-4">Mese &amp; coduri QR</div>
       <h1 class="display-title text-[44px] md:text-[56px]">Coduri QR</h1>
-      <p class="text-ink-70 text-base mt-2">
+      <p class="hidden md:block text-ink-70 text-base mt-2">
         Coduri pentru <span class="font-semibold text-ink">{{ activeName }}</span>. Fiecare masă are
         propriul cod — clientul îl scanează sau deschide linkul direct.
       </p>
-      <p class="text-ink-70 text-sm mt-2">
+      <p class="hidden md:block text-ink-70 text-sm mt-2">
         Mesele se creează și se aranjează în tabul <span class="font-semibold text-ink">Sala</span>.
         Aici gestionezi codurile lor QR.
       </p>
+    </div>
+
+    <!-- Zone filter — show all areas, or narrow to a single zone of this location. -->
+    <div v-if="groups.length > 1" class="mb-8" role="group" aria-label="Filtrează după zonă">
+      <div class="eyebrow mb-3">Zonă</div>
+      <div class="zone-chips">
+        <button
+          type="button"
+          class="zone-chip"
+          :class="{ 'zone-chip--active': selectedGroupId === 'all' }"
+          :aria-pressed="selectedGroupId === 'all'"
+          @click="selectedGroupId = 'all'"
+        >
+          Toate
+          <span class="zone-chip-count">{{ store.tables.length }}</span>
+        </button>
+        <button
+          v-for="g in groups"
+          :key="g.id ?? 'no-zone'"
+          type="button"
+          class="zone-chip"
+          :class="{ 'zone-chip--active': selectedGroupId === g.id }"
+          :aria-pressed="selectedGroupId === g.id"
+          @click="selectedGroupId = g.id"
+        >
+          {{ g.name }}
+          <span class="zone-chip-count">{{ g.tables.length }}</span>
+        </button>
+      </div>
     </div>
 
     <div v-if="!store.tables.length" class="card-paper p-6 text-ink italic text-base">
       Nicio masă încă pentru această locație. Creează mesele în tabul <span class="font-semibold not-italic">Sala</span>.
     </div>
 
-    <section v-for="g in groups" :key="g.id ?? 'no-zone'" class="mb-8">
+    <section v-for="g in visibleGroups" :key="g.id ?? 'no-zone'" class="mb-8">
       <div class="eyebrow mb-3">{{ g.name }}</div>
 
       <div v-if="!g.tables.length" class="card-paper p-4 text-ink italic text-sm">
@@ -183,6 +224,46 @@ function downloadQr(t: TableSummary) {
 </template>
 
 <style scoped>
+/* Zone filter chips */
+.zone-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.zone-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--ink12);
+  background: var(--card, var(--paperHi));
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+.zone-chip:hover { background: var(--ink06); }
+.zone-chip--active {
+  background: var(--ink);
+  color: var(--paperHi);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-soft);
+}
+.zone-chip-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ink06);
+  color: var(--ink70, var(--ink));
+}
+.zone-chip--active .zone-chip-count {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--paperHi);
+}
 .qr-input {
   padding: 12px 14px;
   border-radius: 12px;

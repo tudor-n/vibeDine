@@ -2,10 +2,12 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiClient, type ActiveOrder, type ActiveOrderStatus } from '@/services/api-client'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 type ActiveStatus = ActiveOrderStatus
 
 const route = useRoute()
+const auth = useAuthStore()
 const orders = ref<ActiveOrder[]>([])
 const isLoading = ref(false)
 const error = ref<string | null>(null)
@@ -46,6 +48,17 @@ function nextLabel(status: ActiveStatus): string | null {
   return COLUMNS.find((c) => c.key === next)?.label ?? null
 }
 
+// Who may move/advance an order:
+//  • Managers (OrgOwner of the org, RestaurantAdmin of this location) — any order.
+//  • Waiters — only the orders they personally claimed in „Sala".
+// Everything else is shown read-only (greyed, no drag, no action button).
+const myUserId = computed(() => auth.user?.id ?? null)
+const isManager = computed(() => auth.canManageWaitersOfActive)
+function canInteract(order: ActiveOrder): boolean {
+  if (isManager.value) return true
+  return !!order.claimedByWaiterId && order.claimedByWaiterId === myUserId.value
+}
+
 // Desktop shows every column; mobile shows only the one picked in the filter.
 const visibleColumns = computed(() =>
   isMobile.value ? COLUMNS.filter((c) => c.key === activeStatus.value) : COLUMNS,
@@ -80,9 +93,9 @@ function secondsLeft(order: ActiveOrder): number | null {
 }
 
 function onDragStart(e: DragEvent, orderId: string) {
-  // Unclaimed orders are view-only until someone taps "Preia comanda" in Sala.
+  // Only orders the current user is allowed to act on can be dragged.
   const order = orders.value.find((o) => o.id === orderId)
-  if (!order?.claimedByWaiterId) {
+  if (!order || !canInteract(order)) {
     e.preventDefault()
     return
   }
@@ -111,8 +124,8 @@ function onDragLeave(col: ActiveStatus) {
 // Shared by drag-and-drop (desktop) and the per-card action button (mobile).
 async function changeStatus(order: ActiveOrder, target: ActiveStatus) {
   if (order.status === target) return
-  // Belt-and-braces: never move an unclaimed (immutable) order.
-  if (!order.claimedByWaiterId) return
+  // Permission gate: managers move anything, waiters only their own claimed orders.
+  if (!canInteract(order)) return
 
   // Optimistic update so the card snaps to the new column instantly.
   const prevStatus = order.status
@@ -240,9 +253,9 @@ onBeforeUnmount(() => {
             :class="{
               'kanban-card--focus': order.id === focusOrderId,
               'kanban-card--dragging': dragOrderId === order.id,
-              'kanban-card--unclaimed': !order.claimedByWaiterId,
+              'kanban-card--locked': !canInteract(order),
             }"
-            :draggable="!!order.claimedByWaiterId"
+            :draggable="canInteract(order)"
             @dragstart="onDragStart($event, order.id)"
             @dragend="onDragEnd"
           >
@@ -289,7 +302,7 @@ onBeforeUnmount(() => {
             <!-- Per-card status advance (primary control on touch, where drag
                  is impractical). Only claimed orders can move forward. -->
             <button
-              v-if="isMobile && order.claimedByWaiterId && nextLabel(order.status)"
+              v-if="isMobile && canInteract(order) && nextLabel(order.status)"
               type="button"
               class="advance-btn"
               @click="advance(order)"
@@ -411,13 +424,14 @@ onBeforeUnmount(() => {
 .kanban-card:active { cursor: grabbing; }
 .kanban-card--dragging { opacity: 0.5; }
 
-/* Unclaimed orders are visible but immutable until someone takes them in Sala. */
-.kanban-card--unclaimed {
+/* Orders the current user can't act on (unclaimed, or claimed by someone else
+   when you're a waiter) are visible but read-only. Managers see no locked cards. */
+.kanban-card--locked {
   opacity: 0.5;
   cursor: default;
   border-style: dashed;
 }
-.kanban-card--unclaimed:hover {
+.kanban-card--locked:hover {
   box-shadow: none;
   border-color: var(--ink12);
 }

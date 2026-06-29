@@ -389,6 +389,15 @@ public class AdminController : ControllerBase
         if (!ActiveStatuses.Contains(order.Status))
             return Conflict(new { message = $"Comanda nu mai e activă (stare curentă: {order.Status})." });
 
+        // Managers (OrgOwner of the org, RestaurantAdmin of this restaurant) may move
+        // any order on the board. A waiter may only move an order they personally
+        // claimed — never an unclaimed one, nor one claimed by a colleague or a
+        // manager. Mirrors the floor-plan claim model and the board's drag rules.
+        var canManage = await _access.CanManageRestaurantAsync(UserId, restaurantId);
+        if (!canManage && order.ClaimedByWaiterId != UserId)
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "Poți modifica doar comenzile preluate de tine." });
+
         order.Status = newStatus;
         // Stamp ReadyAt when entering "ready" (starts the soft-delete countdown);
         // clear it when the admin drags back out, so the timer resets cleanly.

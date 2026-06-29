@@ -22,6 +22,17 @@ const panelEl = ref<HTMLElement | null>(null)
 const canvasWidth = ref(900)
 let resizeObs: ResizeObserver | null = null
 
+// On phones the free-form canvas is impractical: stored coordinates from a wide
+// desktop layout fall off the narrow canvas, and dragging 64px chips is fiddly.
+// Below this width we lay every table out in a tidy auto-grid (so all stay
+// visible + tappable), disable drag-repositioning, and turn the edit popover
+// into a bottom-sheet. Mirrors the shell's sidebar→drawer breakpoint.
+const isMobile = ref(false)
+let mql: MediaQueryList | null = null
+function onMqlChange(e: MediaQueryListEvent) {
+  isMobile.value = e.matches
+}
+
 watch(canvasEl, (el) => {
   if (resizeObs) {
     resizeObs.disconnect()
@@ -58,13 +69,27 @@ const basePositions = computed<Record<string, { x: number; y: number }>>(() => {
   const map: Record<string, { x: number; y: number }> = {}
   let gridIdx = 0
   for (const t of tablesInZone.value) {
-    if (t.positionX === 0 && t.positionY === 0) {
+    // On mobile, ignore persisted coordinates entirely and grid-place every
+    // table, so none can sit off the narrow canvas.
+    if (isMobile.value || (t.positionX === 0 && t.positionY === 0)) {
       map[t.id] = gridSlot(gridIdx++)
     } else {
       map[t.id] = { x: t.positionX, y: t.positionY }
     }
   }
   return map
+})
+
+// Absolutely-positioned chips don't stretch the canvas, so on mobile (where the
+// grid can run past the 60vh floor) we set an explicit min-height that fits all
+// rows — otherwise overflow:hidden would clip the lower tables.
+const canvasStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = {}
+  if (!isMobile.value) return style
+  const cols = columns.value
+  const rows = Math.max(1, Math.ceil(tablesInZone.value.length / cols))
+  style.minHeight = `${PAD * 2 + rows * (CHIP + GAP)}px`
+  return style
 })
 
 function posFor(t: TableSummary): { x: number; y: number } {
@@ -114,6 +139,8 @@ function onPointerMove(e: PointerEvent) {
   if (drag.id === null) return
   // Waiters get a read-only floor — tables can be tapped (to claim) but not moved.
   if (!canEditFloor.value) return
+  // On mobile the layout is a fixed auto-grid; presses are taps only, never drags.
+  if (isMobile.value) return
   const canvas = canvasEl.value
   if (!canvas) return
   const rect = canvas.getBoundingClientRect()
@@ -280,6 +307,8 @@ const editTable = computed<TableSummary | null>(
 )
 
 const editPanelStyle = computed<Record<string, string>>(() => {
+  // On mobile the panel is a CSS-driven bottom-sheet — no inline anchoring.
+  if (isMobile.value) return {}
   const style: Record<string, string> = { width: `${PANEL_W}px` }
   const t = editTable.value
   if (!t) return style
@@ -411,6 +440,10 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  mql = window.matchMedia('(max-width: 767.98px)')
+  isMobile.value = mql.matches
+  mql.addEventListener('change', onMqlChange)
+
   try {
     await store.fetchZones()
     await store.fetchTables()
@@ -425,6 +458,7 @@ onUnmounted(() => {
   // The active-order realtime connection is owned by App.vue (so the sidebar dot
   // and Comenzi board stay live everywhere) — we don't tear it down here.
   window.removeEventListener('keydown', onKeydown)
+  mql?.removeEventListener('change', onMqlChange)
   if (resizeObs) {
     resizeObs.disconnect()
     resizeObs = null
@@ -583,7 +617,7 @@ const vFocus = {
       </div>
 
       <!-- Canvas -->
-      <div ref="canvasEl" class="canvas card-paper">
+      <div ref="canvasEl" class="canvas card-paper" :style="canvasStyle">
         <div v-if="tablesInZone.length === 0" class="canvas-empty">
           Nicio masă în această zonă încă — adaugă una cu „+ Masă”.
         </div>
@@ -1047,6 +1081,37 @@ const vFocus = {
   z-index: 6;
   padding: 16px;
   box-shadow: var(--shadow-pop);
+}
+
+/* Mobile: the anchored popover would be clipped by the canvas's overflow:hidden,
+   so it becomes a bottom-sheet escaping to the viewport (fixed). The backdrop
+   covers the whole screen. Inline anchoring is dropped (editPanelStyle → {}). */
+@media (max-width: 767.98px) {
+  .edit-backdrop {
+    position: fixed;
+    z-index: 80;
+    background: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+  .edit-panel {
+    position: fixed;
+    z-index: 81;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    padding: 20px;
+    max-height: 86vh;
+    overflow-y: auto;
+    border-radius: 20px 20px 0 0;
+  }
+  /* No drag on touch — let presses on a chip scroll the page instead of locking it. */
+  .chip {
+    touch-action: manipulation;
+    cursor: pointer;
+  }
 }
 
 /* Read-only floor (waiters): tables can be tapped to claim, not dragged. */

@@ -27,7 +27,7 @@ const handleNewPrompt = async (prompt: string) => {
   <div class="max-w-4xl mx-auto relative">
 
     <!-- Status row -->
-    <div class="flex items-center justify-between mb-8">
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-8">
       <div class="tag-pill" role="status" aria-label="AI activ">
         <span class="live-dot" style="background: var(--lime); box-shadow: 0 0 10px var(--lime);" aria-hidden="true"></span>
         <span>AI activ</span>
@@ -56,13 +56,13 @@ const handleNewPrompt = async (prompt: string) => {
     <div class="card-paper p-7 relative overflow-hidden">
       <div class="bloom bloom-lime" style="top: -60px; right: -60px; width: 220px; height: 220px; opacity: 0.16;" />
       <div class="relative z-10">
-        <div class="flex items-center justify-between mb-5">
-          <div>
+        <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
+          <div class="min-w-0">
             <div class="eyebrow mb-1">Directivă activă acum</div>
             <h3 class="display-title text-2xl">Ce ascultă AI-ul</h3>
           </div>
           <span
-            class="tag-pill"
+            class="tag-pill shrink-0"
             :style="directivesStore.activeDirective ? 'background: var(--lime); color: var(--onLime); border-color: var(--ink12);' : ''"
             :aria-label="directivesStore.activeDirective ? 'Directivă activă' : 'Nicio directivă activă'"
           >
