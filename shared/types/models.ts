@@ -170,6 +170,28 @@ export interface HappyHourDeal {
   updatedAt: ISODateString;
 }
 
+// Deterministic flash-deal config (admin). Drives the post-order claimable popup.
+export interface FlashDealRule {
+  id: UUID;
+  productId: UUID;
+  productName: string | null;
+  discountPercent: number;
+  minOrderTotal: number | null; // null = offer after every order
+  isEnabled: boolean;
+  updatedAt: ISODateString;
+}
+
+// The customer-facing happy hour when it's live now (from GET /happy-hour).
+export interface ActiveHappyHour {
+  productId: UUID;
+  productName: string;
+  discountPercent: number;
+  originalPrice: number;
+  discountedPrice: number;
+  startTime: string; // "HH:mm"
+  endTime: string; // "HH:mm"
+}
+
 export interface RecommendationDirective {
   id: UUID;
   rawPrompt: string | null;

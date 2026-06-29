@@ -232,6 +232,12 @@ function logout() {
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
+      <RouterLink v-if="!auth.isWaiter" to="/flash-deal" class="nav-link" active-class="nav-link-active">
+        <span class="nav-icon" aria-hidden="true">◈</span>
+        <span class="nav-label">Flash Deal</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
       <RouterLink v-if="!auth.isWaiter" to="/rules" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">∞</span>
         <span class="nav-label">Reguli</span>

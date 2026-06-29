@@ -1,5 +1,6 @@
 import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
+import type { ActiveHappyHour } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
@@ -90,6 +91,10 @@ async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
 export const apiClient = {
   getMenu: () => fetcher<MenuResponse>(`/api/restaurants/${rid()}/menu`),
+
+  // The live happy hour for this restaurant (204 → {} when none is active).
+  getActiveHappyHour: () =>
+    fetcher<ActiveHappyHour | null>(`/api/restaurants/${rid()}/happy-hour`),
 
   initSession: async (qrToken: string) => {
     const session = await fetcher<TableSession>(`/api/tables/${qrToken}/session`);

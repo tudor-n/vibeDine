@@ -1,5 +1,6 @@
 import type {
     HappyHourDeal,
+    FlashDealRule,
     RecommendationDirective,
     SimilarityRule,
     DailyMetrics,
@@ -451,6 +452,25 @@ export const apiClient = {
 
     clearHappyHour: () =>
         authedFetcher<void>(scoped('/admin/happy-hour'), {
+            method: 'DELETE',
+        }),
+
+    getFlashDeal: () =>
+        authedFetcher<FlashDealRule | null>(scoped('/admin/flash-deal')),
+
+    saveFlashDeal: (payload: {
+        productId: string;
+        discountPercent: number;
+        minOrderTotal: number | null;
+        isEnabled: boolean;
+    }) =>
+        authedFetcher<FlashDealRule>(scoped('/admin/flash-deal'), {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        }),
+
+    clearFlashDeal: () =>
+        authedFetcher<void>(scoped('/admin/flash-deal'), {
             method: 'DELETE',
         }),
 

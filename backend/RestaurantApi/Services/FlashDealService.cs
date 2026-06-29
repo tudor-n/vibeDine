@@ -139,41 +139,36 @@ public class FlashDealService : IFlashDealService
 
         if (!availableProducts.Any()) return false;
 
-        // --- Happy-hour selection (deterministic; no AI) ---
-        // One enabled happy-hour config per restaurant. Outside its daily window
-        // (interpreted in the restaurant's local timezone) nothing is offered — the
-        // promotion is dormant, not deleted. This replaces the old AI directive.
-        var config = await _context.HappyHourDeals
-            .FirstOrDefaultAsync(h => h.IsEnabled == true);
+        // --- Flash-deal selection (deterministic; no AI) ---
+        // One enabled flash-deal rule per restaurant. Unlike happy hour this is NOT
+        // time-gated — it fires after an order is submitted, optionally gated by a
+        // minimum order total. The configured product, or nothing (no random fallback).
+        var rule = await _context.FlashDealRules
+            .FirstOrDefaultAsync(r => r.IsEnabled == true);
 
-        if (config == null) return false;
+        if (rule == null) return false;
 
-        var restaurant = await _context.Restaurants
-            .FirstOrDefaultAsync(r => r.Id == order.RestaurantId);
-
-        var tz = ResolveTimeZone(restaurant?.Timezone);
-        var localNow = TimeOnly.FromDateTime(
-            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz));
-
-        if (!IsWithinWindow(localNow, config.StartTime, config.EndTime))
+        if (rule.MinOrderTotal is decimal threshold)
         {
-            _logger.LogInformation(
-                "Happy hour skipped: local time {LocalNow} is outside window {Start}-{End} ({Tz})",
-                localNow, config.StartTime, config.EndTime, tz.Id);
-            return false;
+            var orderTotal = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
+            if (orderTotal < threshold)
+            {
+                _logger.LogInformation(
+                    "Flash deal skipped: order total {Total} below minimum {Threshold}",
+                    orderTotal, threshold);
+                return false;
+            }
         }
 
-        // The configured product must still be available and not already on the
-        // order — availableProducts already excludes ordered items. Deterministic:
-        // the configured item or nothing; there is no random fallback.
-        var selectedProduct = availableProducts.FirstOrDefault(p => p.Id == config.ProductId);
+        // availableProducts already excludes items already on the order and
+        // unavailable products. Deterministic: the configured item or nothing.
+        var selectedProduct = availableProducts.FirstOrDefault(p => p.Id == rule.ProductId);
         if (selectedProduct == null) return false;
 
-        var discountPercent = config.DiscountPercent;
+        var discountPercent = rule.DiscountPercent;
 
         _logger.LogInformation(
-            "Happy hour: offering '{Name}' at {Pct}% off (window {Start}-{End})",
-            selectedProduct.Name, discountPercent, config.StartTime, config.EndTime);
+            "Flash deal: offering '{Name}' at {Pct}% off", selectedProduct.Name, discountPercent);
 
         var discountPrice = Math.Round(selectedProduct.Price * (1 - discountPercent / 100m), 2);
         var expiresAt = DateTime.UtcNow.AddMinutes(2);
@@ -260,31 +255,5 @@ public class FlashDealService : IFlashDealService
         var mergedDrafts = await _context.Orders
             .CountAsync(o => o.MergedIntoOrderId == orderId);
         return mergedDrafts + 1;
-    }
-
-    private TimeZoneInfo ResolveTimeZone(string? timezoneId)
-    {
-        if (string.IsNullOrWhiteSpace(timezoneId))
-            return TimeZoneInfo.Utc;
-        try
-        {
-            // .NET 8 resolves IANA ids (e.g. "Europe/Bucharest") on both Linux and Windows.
-            return TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Unknown restaurant timezone '{Tz}'; falling back to UTC.", timezoneId);
-            return TimeZoneInfo.Utc;
-        }
-    }
-
-    // Inclusive of start, exclusive of end. Handles a window that wraps past
-    // midnight (start > end, e.g. 22:00-02:00); a zero-length window never matches.
-    private static bool IsWithinWindow(TimeOnly now, TimeOnly start, TimeOnly end)
-    {
-        if (start == end) return false;
-        return start < end
-            ? now >= start && now < end
-            : now >= start || now < end;
     }
 }

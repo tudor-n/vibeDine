@@ -299,6 +299,46 @@ namespace RestaurantApi.Migrations
                     b.ToTable("flash_deal_offers", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.FlashDealRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("DiscountPercent")
+                        .HasColumnType("integer")
+                        .HasColumnName("discount_percent");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<decimal?>("MinOrderTotal")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("min_order_total");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.ToTable("flash_deal_rules", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.HappyHourDeal", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1177,6 +1217,17 @@ namespace RestaurantApi.Migrations
                         .HasForeignKey("ProductId");
 
                     b.Navigation("Order");
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.FlashDealRule", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Product");
                 });

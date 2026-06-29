@@ -127,6 +127,75 @@ public class AdminController : ControllerBase
     };
 
 
+    // ── Flash deal ───────────────────────────────────────────────────────────
+    // One deterministic flash-deal rule per restaurant: a product offered at a
+    // discount as the post-order claimable popup, optionally gated by a minimum
+    // order total. Drives FlashDealService.EvaluateEligibilityAsync. Not time-gated
+    // (that's happy hour) — it fires after an order is submitted.
+
+    [HttpGet("flash-deal")]
+    public async Task<IActionResult> GetFlashDealRule()
+    {
+        var rule = await _dbContext.FlashDealRules
+            .Include(f => f.Product)
+            .FirstOrDefaultAsync();
+
+        return Ok(rule is null ? null : ToFlashDealResponse(rule));
+    }
+
+    [HttpPut("flash-deal")]
+    public async Task<IActionResult> SaveFlashDealRule([FromBody] SaveFlashDealRequest request)
+    {
+        if (request.DiscountPercent < 1 || request.DiscountPercent > 99)
+            return BadRequest(new { message = "Reducerea trebuie să fie între 1 și 99%." });
+
+        if (request.MinOrderTotal is < 0m)
+            return BadRequest(new { message = "Suma minimă nu poate fi negativă." });
+
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == request.ProductId);
+        if (product is null)
+            return BadRequest(new { message = "Produsul selectat nu există." });
+
+        // Upsert the single per-restaurant row (RestaurantId stamped on insert).
+        var rule = await _dbContext.FlashDealRules.FirstOrDefaultAsync();
+        if (rule is null)
+        {
+            rule = new FlashDealRule { Id = Guid.NewGuid() };
+            _dbContext.FlashDealRules.Add(rule);
+        }
+
+        rule.ProductId = request.ProductId;
+        rule.DiscountPercent = request.DiscountPercent;
+        rule.MinOrderTotal = request.MinOrderTotal;
+        rule.IsEnabled = request.IsEnabled;
+        rule.UpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync();
+        return Ok(ToFlashDealResponse(rule));
+    }
+
+    [HttpDelete("flash-deal")]
+    public async Task<IActionResult> DeleteFlashDealRule()
+    {
+        var rule = await _dbContext.FlashDealRules.FirstOrDefaultAsync();
+        if (rule is null) return NoContent();
+
+        _dbContext.FlashDealRules.Remove(rule);
+        await _dbContext.SaveChangesAsync();
+        return NoContent();
+    }
+
+    private static object ToFlashDealResponse(FlashDealRule f) => new
+    {
+        id = f.Id,
+        productId = f.ProductId,
+        productName = f.Product?.Name,
+        discountPercent = f.DiscountPercent,
+        minOrderTotal = f.MinOrderTotal,
+        isEnabled = f.IsEnabled,
+        updatedAt = f.UpdatedAt
+    };
+
     [HttpGet("recommendation-directives")]
     public async Task<IActionResult> GetRecommendationDirectives()
     {
@@ -477,6 +546,22 @@ public class SaveHappyHourRequest
 
     [JsonPropertyName("endTime")]
     public string EndTime { get; set; } = string.Empty;
+
+    [JsonPropertyName("isEnabled")]
+    public bool IsEnabled { get; set; } = true;
+}
+
+public class SaveFlashDealRequest
+{
+    [JsonPropertyName("productId")]
+    public Guid ProductId { get; set; }
+
+    [JsonPropertyName("discountPercent")]
+    public int DiscountPercent { get; set; }
+
+    // Optional minimum order total to gate the offer. Null = offer after every order.
+    [JsonPropertyName("minOrderTotal")]
+    public decimal? MinOrderTotal { get; set; }
 
     [JsonPropertyName("isEnabled")]
     public bool IsEnabled { get; set; } = true;

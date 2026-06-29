@@ -108,6 +108,24 @@ export interface HappyHourDeal {
     isEnabled: boolean;
     updatedAt: ISODateString;
 }
+export interface FlashDealRule {
+    id: UUID;
+    productId: UUID;
+    productName: string | null;
+    discountPercent: number;
+    minOrderTotal: number | null;
+    isEnabled: boolean;
+    updatedAt: ISODateString;
+}
+export interface ActiveHappyHour {
+    productId: UUID;
+    productName: string;
+    discountPercent: number;
+    originalPrice: number;
+    discountedPrice: number;
+    startTime: string;
+    endTime: string;
+}
 export type SimilarityRelationship = 'pairsWith' | 'upgradeTo' | 'followWith' | 'sameVibe';
 export interface SimilarityRule {
     id: UUID;

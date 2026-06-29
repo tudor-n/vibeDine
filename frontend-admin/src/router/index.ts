@@ -65,6 +65,11 @@ const router = createRouter({
             component: () => import('@/views/HappyHourView.vue')
         },
         {
+            path: '/flash-deal',
+            name: 'flash-deal',
+            component: () => import('@/views/FlashDealView.vue')
+        },
+        {
             path: '/rules',
             name: 'rules',
             component: () => import('@/views/RulesManagementView.vue')
