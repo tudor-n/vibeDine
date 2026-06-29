@@ -226,9 +226,9 @@ function logout() {
         <span v-else class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
-      <RouterLink v-if="!auth.isWaiter" to="/ai-config" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">✦</span>
-        <span class="nav-label">Configurare AI</span>
+      <RouterLink v-if="!auth.isWaiter" to="/happy-hour" class="nav-link" active-class="nav-link-active">
+        <span class="nav-icon" aria-hidden="true">⏰</span>
+        <span class="nav-label">Happy Hour</span>
         <span class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 

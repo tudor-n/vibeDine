@@ -98,12 +98,15 @@ export interface AdminAIConfig {
     createdBy: UUID;
     createdAt: ISODateString;
 }
-export interface AIDirective {
+export interface HappyHourDeal {
     id: UUID;
-    rawPrompt: string | null;
-    parsedRules: Record<string, unknown> | null;
-    createdAt: ISODateString;
-    isActive: boolean | null;
+    productId: UUID;
+    productName: string | null;
+    discountPercent: number;
+    startTime: string;
+    endTime: string;
+    isEnabled: boolean;
+    updatedAt: ISODateString;
 }
 export type SimilarityRelationship = 'pairsWith' | 'upgradeTo' | 'followWith' | 'sameVibe';
 export interface SimilarityRule {

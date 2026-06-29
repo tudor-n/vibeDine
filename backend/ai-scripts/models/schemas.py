@@ -33,10 +33,6 @@ class AutoGenerateRequest(BaseModel):
     order_history: List[List[str]]
 
 
-class ParseDirectiveRequest(BaseModel):
-    raw_prompt: str
-
-
 class RecommendationMenuItem(BaseModel):
     product_id: str
     name: str

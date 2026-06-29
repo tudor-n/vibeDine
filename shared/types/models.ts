@@ -159,12 +159,15 @@ export interface AdminAIConfig {
   createdAt: ISODateString;
 }
 
-export interface AIDirective {
+export interface HappyHourDeal {
   id: UUID;
-  rawPrompt: string | null;
-  parsedRules: Record<string, unknown> | null;
-  createdAt: ISODateString;
-  isActive: boolean | null;
+  productId: UUID;
+  productName: string | null;
+  discountPercent: number;
+  startTime: string; // "HH:mm" wall-clock, interpreted in the restaurant's timezone
+  endTime: string; // "HH:mm"
+  isEnabled: boolean;
+  updatedAt: ISODateString;
 }
 
 export interface RecommendationDirective {

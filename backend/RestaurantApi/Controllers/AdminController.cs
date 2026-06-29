@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
@@ -47,65 +48,83 @@ public class AdminController : ControllerBase
         _logger = logger;
     }
 
-    [HttpGet("directives")]
-    public async Task<IActionResult> GetDirectives()
+    // ── Happy hour ───────────────────────────────────────────────────────────
+    // One config per restaurant: a single product discounted by a fixed % during a
+    // daily time window (restaurant-local). Deterministic — no AI. Replaces the old
+    // free-text AI "directive". The per-order offer/claim pipeline downstream
+    // (FlashDealOffer + SignalR) is unchanged; only how eligibility is decided changes.
+
+    [HttpGet("happy-hour")]
+    public async Task<IActionResult> GetHappyHour()
     {
-        var directives = await _dbContext.AIDirectives
-            .OrderByDescending(d => d.CreatedAt)
-            .ToListAsync();
-        
-        return Ok(directives);
+        var config = await _dbContext.HappyHourDeals
+            .Include(h => h.Product)
+            .FirstOrDefaultAsync();
+
+        return Ok(config is null ? null : ToHappyHourResponse(config));
     }
 
-    [HttpPost("directives")]
-    public async Task<IActionResult> CreateDirective([FromBody] CreateDirectiveRequest request)
+    [HttpPut("happy-hour")]
+    public async Task<IActionResult> SaveHappyHour([FromBody] SaveHappyHourRequest request)
     {
-        var client = _httpClientFactory.CreateClient("AiService");
-        string? parsedRules = null;
-        
-        try
+        if (request.DiscountPercent < 1 || request.DiscountPercent > 99)
+            return BadRequest(new { message = "Reducerea trebuie să fie între 1 și 99%." });
+
+        if (!TimeOnly.TryParse(request.StartTime, CultureInfo.InvariantCulture, out var start) ||
+            !TimeOnly.TryParse(request.EndTime, CultureInfo.InvariantCulture, out var end))
+            return BadRequest(new { message = "Ore invalide. Folosește formatul HH:mm." });
+
+        if (start == end)
+            return BadRequest(new { message = "Ora de început și cea de sfârșit nu pot fi identice." });
+
+        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.Id == request.ProductId);
+        if (product is null)
+            return BadRequest(new { message = "Produsul selectat nu există." });
+
+        // Upsert the single per-restaurant row. RestaurantId is stamped on insert
+        // by the tenant SaveChanges hook.
+        var config = await _dbContext.HappyHourDeals.FirstOrDefaultAsync();
+        if (config is null)
         {
-            var aiResponse = await client.PostAsJsonAsync("/directives/parse", new { raw_prompt = request.RawPrompt });
-            if (aiResponse.IsSuccessStatusCode)
-            {
-                var result = await aiResponse.Content.ReadFromJsonAsync<JsonElement>();
-                if (result.TryGetProperty("parsed_rules", out var pr))
-                {
-                    parsedRules = pr.GetRawText();
-                }
-            }
-        }
-        catch(Exception ex)
-        {
-            _logger.LogWarning(ex, "Ai service failed to parse the directive");
+            config = new HappyHourDeal { Id = Guid.NewGuid() };
+            _dbContext.HappyHourDeals.Add(config);
         }
 
-        var directive = new AIDirective
-        {
-            Id = Guid.NewGuid(),
-            RawPrompt = request.RawPrompt,
-            ParsedRules = parsedRules,
-            CreatedAt = DateTime.UtcNow,
-            IsActive = true
-        };
+        config.ProductId = request.ProductId;
+        config.DiscountPercent = request.DiscountPercent;
+        config.StartTime = start;
+        config.EndTime = end;
+        config.IsEnabled = request.IsEnabled;
+        config.UpdatedAt = DateTime.UtcNow;
 
-        _dbContext.AIDirectives.Add(directive);
         await _dbContext.SaveChangesAsync();
 
-        return Ok(directive);
+        // `product` is tracked, so EF relationship fixup has populated config.Product.
+        return Ok(ToHappyHourResponse(config));
     }
 
-
-    [HttpPatch("directives/{id}")]
-    public async Task<IActionResult> ToggleDirective(Guid id, [FromBody] bool isActive)
+    [HttpDelete("happy-hour")]
+    public async Task<IActionResult> DeleteHappyHour()
     {
-        var directive = await _dbContext.AIDirectives.FindAsync(id);
-        if (directive == null) return NotFound();
+        var config = await _dbContext.HappyHourDeals.FirstOrDefaultAsync();
+        if (config is null) return NoContent();
 
-        directive.IsActive = isActive;
+        _dbContext.HappyHourDeals.Remove(config);
         await _dbContext.SaveChangesAsync();
-        return Ok(directive);
+        return NoContent();
     }
+
+    private static object ToHappyHourResponse(HappyHourDeal h) => new
+    {
+        id = h.Id,
+        productId = h.ProductId,
+        productName = h.Product?.Name,
+        discountPercent = h.DiscountPercent,
+        startTime = h.StartTime.ToString("HH:mm"),
+        endTime = h.EndTime.ToString("HH:mm"),
+        isEnabled = h.IsEnabled,
+        updatedAt = h.UpdatedAt
+    };
 
 
     [HttpGet("recommendation-directives")]
@@ -443,10 +462,24 @@ public class AdminController : ControllerBase
 
 }
 
-public class CreateDirectiveRequest
+public class SaveHappyHourRequest
 {
-    [JsonPropertyName("rawPrompt")]
-    public string RawPrompt { get; set; } = string.Empty;
+    [JsonPropertyName("productId")]
+    public Guid ProductId { get; set; }
+
+    [JsonPropertyName("discountPercent")]
+    public int DiscountPercent { get; set; }
+
+    // "HH:mm" wall-clock strings (from <input type="time">), parsed server-side to
+    // TimeOnly — avoids System.Text.Json TimeOnly format ambiguity over the wire.
+    [JsonPropertyName("startTime")]
+    public string StartTime { get; set; } = string.Empty;
+
+    [JsonPropertyName("endTime")]
+    public string EndTime { get; set; } = string.Empty;
+
+    [JsonPropertyName("isEnabled")]
+    public bool IsEnabled { get; set; } = true;
 }
 
 public class CreateRecommendationDirectiveRequest

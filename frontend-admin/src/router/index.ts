@@ -60,9 +60,9 @@ const router = createRouter({
             component: () => import('@/views/MenuManagementView.vue')
         },
         {
-            path: '/ai-config',
-            name: 'ai-config',
-            component: () => import('@/views/AIConfigView.vue')
+            path: '/happy-hour',
+            name: 'happy-hour',
+            component: () => import('@/views/HappyHourView.vue')
         },
         {
             path: '/rules',

@@ -1,8 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
-using System.Globalization;
-using System.Text;
-using System.Text.Json;
 using RestaurantApi.Data;
 using RestaurantApi.Models;
 using RestaurantApi.Hubs;
@@ -142,127 +139,41 @@ public class FlashDealService : IFlashDealService
 
         if (!availableProducts.Any()) return false;
 
-        // --- Directive-aware product selection ---
-        Product? selectedProduct = null;
-        int discountPercent = 20; // default
+        // --- Happy-hour selection (deterministic; no AI) ---
+        // One enabled happy-hour config per restaurant. Outside its daily window
+        // (interpreted in the restaurant's local timezone) nothing is offered — the
+        // promotion is dormant, not deleted. This replaces the old AI directive.
+        var config = await _context.HappyHourDeals
+            .FirstOrDefaultAsync(h => h.IsEnabled == true);
 
-        var activeDirective = await _context.AIDirectives
-            .Where(d => d.IsActive == true)
-            .OrderByDescending(d => d.CreatedAt)
-            .FirstOrDefaultAsync();
+        if (config == null) return false;
 
-        if (activeDirective != null)
+        var restaurant = await _context.Restaurants
+            .FirstOrDefaultAsync(r => r.Id == order.RestaurantId);
+
+        var tz = ResolveTimeZone(restaurant?.Timezone);
+        var localNow = TimeOnly.FromDateTime(
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz));
+
+        if (!IsWithinWindow(localNow, config.StartTime, config.EndTime))
         {
-            // Extract discount % from the raw prompt up-front so it applies regardless of
-            // which strategy locates the product
-            if (!string.IsNullOrWhiteSpace(activeDirective.RawPrompt))
-            {
-                var promptForPercent = activeDirective.RawPrompt.ToLowerInvariant();
-                var percentMatch = System.Text.RegularExpressions.Regex.Match(promptForPercent, @"(\d{1,3})\s*%");
-                if (percentMatch.Success && int.TryParse(percentMatch.Groups[1].Value, out var pct) && pct > 0 && pct < 100)
-                {
-                    discountPercent = pct;
-                }
-
-                // Extract a min-order-total threshold like "peste 190 de lei" / "over 190 RON".
-                // If the order doesn't meet it, no deal is offered for this submit.
-                var thresholdMatch = System.Text.RegularExpressions.Regex.Match(
-                    promptForPercent,
-                    @"\b(peste|over|above|cel\s+pu[țt]in|at\s+least|min(?:imum)?)\s+(\d+(?:[.,]\d+)?)\s*(?:de\s+)?(?:lei|ron)?",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                if (thresholdMatch.Success && decimal.TryParse(
-                        thresholdMatch.Groups[2].Value.Replace(',', '.'),
-                        System.Globalization.NumberStyles.Number,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        out var threshold))
-                {
-                    var orderTotal = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
-                    if (orderTotal < threshold)
-                    {
-                        _logger.LogInformation(
-                            "Flash deal skipped: order total {Total} below threshold {Threshold} (directive: {Prompt})",
-                            orderTotal, threshold, activeDirective.RawPrompt);
-                        return false;
-                    }
-                }
-            }
-
-            // Strategy 1: Try AI-parsed rules if available
-            if (activeDirective.ParsedRules != null)
-            {
-                try
-                {
-                    var rules = JsonSerializer.Deserialize<JsonElement>(activeDirective.ParsedRules);
-                    var itemHints = new List<string>();
-
-                    if (rules.TryGetProperty("rules", out var rulesArray))
-                    {
-                        foreach (var rule in rulesArray.EnumerateArray())
-                        {
-                            if (!rule.TryGetProperty("action", out var actionProp)) continue;
-                            var action = actionProp.GetString();
-
-                            if (action == "recommend" && rule.TryGetProperty("item_hints", out var hints))
-                            {
-                                foreach (var hint in hints.EnumerateArray())
-                                {
-                                    var h = hint.GetString()?.ToLowerInvariant().Trim();
-                                    if (!string.IsNullOrEmpty(h)) itemHints.Add(h);
-                                }
-                            }
-                            else if (action == "pair" && rule.TryGetProperty("item_hint", out var singleHint))
-                            {
-                                var h = singleHint.GetString()?.ToLowerInvariant().Trim();
-                                if (!string.IsNullOrEmpty(h)) itemHints.Add(h);
-                            }
-                        }
-                    }
-
-                    if (itemHints.Any())
-                    {
-                        // Diacritic-insensitive match so a hint like "limonada cu menta"
-                        // still finds a product named "Limonadă cu mentă"
-                        var normalizedHints = itemHints
-                            .Select(RemoveDiacritics)
-                            .ToList();
-
-                        selectedProduct = availableProducts.FirstOrDefault(p =>
-                        {
-                            var normalizedName = RemoveDiacritics(p.Name.ToLowerInvariant());
-                            return normalizedHints.Any(hint => normalizedName.Contains(hint));
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to parse directive rules for flash deal selection.");
-                }
-            }
-
-            // Strategy 2: Parse the raw prompt directly for product name
-            // Handles directives like "offer lemonade at 30% off" even when AI service is down
-            if (selectedProduct == null && !string.IsNullOrWhiteSpace(activeDirective.RawPrompt))
-            {
-                var prompt = RemoveDiacritics(activeDirective.RawPrompt.ToLowerInvariant());
-
-                // Match product by checking if any available product's full name appears in the prompt.
-                // Strict full-name match: admins must spell out the exact item ("Limonadă cu mentă"),
-                // since several variants of an item may exist on the menu.
-                selectedProduct = availableProducts
-                    .OrderByDescending(p => p.Name.Length)  // prefer longest match to avoid false positives
-                    .FirstOrDefault(p => prompt.Contains(RemoveDiacritics(p.Name.ToLowerInvariant())));
-
-                if (selectedProduct != null)
-                    _logger.LogInformation("Flash deal: directive raw prompt matched product '{Name}' at {Pct}% off", selectedProduct.Name, discountPercent);
-            }
+            _logger.LogInformation(
+                "Happy hour skipped: local time {LocalNow} is outside window {Start}-{End} ({Tz})",
+                localNow, config.StartTime, config.EndTime, tz.Id);
+            return false;
         }
 
-        // Fallback: random product, default discount
-        if (selectedProduct == null)
-        {
-            selectedProduct = availableProducts[Random.Shared.Next(availableProducts.Count)];
-            _logger.LogInformation("Flash deal: no directive match, selected random product '{Name}' at {Pct}% off", selectedProduct.Name, discountPercent);
-        }
+        // The configured product must still be available and not already on the
+        // order — availableProducts already excludes ordered items. Deterministic:
+        // the configured item or nothing; there is no random fallback.
+        var selectedProduct = availableProducts.FirstOrDefault(p => p.Id == config.ProductId);
+        if (selectedProduct == null) return false;
+
+        var discountPercent = config.DiscountPercent;
+
+        _logger.LogInformation(
+            "Happy hour: offering '{Name}' at {Pct}% off (window {Start}-{End})",
+            selectedProduct.Name, discountPercent, config.StartTime, config.EndTime);
 
         var discountPrice = Math.Round(selectedProduct.Price * (1 - discountPercent / 100m), 2);
         var expiresAt = DateTime.UtcNow.AddMinutes(2);
@@ -351,15 +262,29 @@ public class FlashDealService : IFlashDealService
         return mergedDrafts + 1;
     }
 
-    private static string RemoveDiacritics(string text)
+    private TimeZoneInfo ResolveTimeZone(string? timezoneId)
     {
-        var normalized = text.Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(normalized.Length);
-        foreach (var c in normalized)
+        if (string.IsNullOrWhiteSpace(timezoneId))
+            return TimeZoneInfo.Utc;
+        try
         {
-            if (char.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-                sb.Append(c);
+            // .NET 8 resolves IANA ids (e.g. "Europe/Bucharest") on both Linux and Windows.
+            return TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
         }
-        return sb.ToString().Normalize(NormalizationForm.FormC);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unknown restaurant timezone '{Tz}'; falling back to UTC.", timezoneId);
+            return TimeZoneInfo.Utc;
+        }
+    }
+
+    // Inclusive of start, exclusive of end. Handles a window that wraps past
+    // midnight (start > end, e.g. 22:00-02:00); a zero-length window never matches.
+    private static bool IsWithinWindow(TimeOnly now, TimeOnly start, TimeOnly end)
+    {
+        if (start == end) return false;
+        return start < end
+            ? now >= start && now < end
+            : now >= start || now < end;
     }
 }

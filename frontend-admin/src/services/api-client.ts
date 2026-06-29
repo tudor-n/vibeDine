@@ -1,5 +1,5 @@
 import type {
-    AIDirective,
+    HappyHourDeal,
     RecommendationDirective,
     SimilarityRule,
     DailyMetrics,
@@ -434,19 +434,24 @@ export const apiClient = {
             { method: 'POST' },
         ),
 
-    getDirectives: () =>
-        authedFetcher<AIDirective[]>(scoped('/admin/directives')),
+    getHappyHour: () =>
+        authedFetcher<HappyHourDeal | null>(scoped('/admin/happy-hour')),
 
-    postDirective: (prompt: string) =>
-        authedFetcher<AIDirective>(scoped('/admin/directives'), {
-            method: 'POST',
-            body: JSON.stringify({ rawPrompt: prompt }),
+    saveHappyHour: (payload: {
+        productId: string;
+        discountPercent: number;
+        startTime: string;
+        endTime: string;
+        isEnabled: boolean;
+    }) =>
+        authedFetcher<HappyHourDeal>(scoped('/admin/happy-hour'), {
+            method: 'PUT',
+            body: JSON.stringify(payload),
         }),
 
-    toggleActiveDirective: (id: string, isActive: boolean) =>
-        authedFetcher<void>(scoped(`/admin/directives/${id}`), {
-            method: 'PATCH',
-            body: JSON.stringify(isActive),
+    clearHappyHour: () =>
+        authedFetcher<void>(scoped('/admin/happy-hour'), {
+            method: 'DELETE',
         }),
 
     getRecommendationDirectives: () =>
