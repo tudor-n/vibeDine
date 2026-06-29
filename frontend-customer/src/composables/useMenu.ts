@@ -75,6 +75,16 @@ function productsByCategory(categoryId: string) {
   return products.value.filter((p) => p.categoryId === categoryId)
 }
 
+// Live stock update from SignalR: flip a product's availability in place so the
+// menu blurs / un-blurs reactively without a refetch.
+function setAvailability(productId: string, isAvailable: boolean, outOfStock: boolean) {
+  const p = products.value.find((x) => x.id === productId)
+  if (p) {
+    p.isAvailable = isAvailable
+    p.outOfStock = outOfStock
+  }
+}
+
 export function useMenu() {
   return {
     categories,
@@ -83,6 +93,7 @@ export function useMenu() {
     error,
     load,
     productsByCategory,
+    setAvailability,
     countByCategory: (categoryId: string) =>
       computed(() => productsByCategory(categoryId).length),
   }

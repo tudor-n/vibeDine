@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
+using RestaurantApi.Hubs;
 using RestaurantApi.Models;
 
 namespace RestaurantApi.Services;
@@ -19,16 +21,31 @@ public interface IStockService
     /// Idempotent: a no-op if the order was never decremented.
     /// </summary>
     Task ApplyRestoreForOrderAsync(Order order);
+
+    /// <summary>
+    /// The set of products that currently cannot be made: a recipe product any of whose
+    /// ingredients can't cover one portion, or a simple product with less than one unit in stock.
+    /// Pass null to evaluate every product; pass a subset to evaluate only those.
+    /// </summary>
+    Task<HashSet<Guid>> GetOutOfStockProductsAsync(IReadOnlyCollection<Guid>? productIds = null);
+
+    /// <summary>Pushes the current availability of the given products to the menu group.</summary>
+    Task BroadcastAvailabilityForProductsAsync(Guid restaurantId, IReadOnlyCollection<Guid> productIds);
+
+    /// <summary>Resolves which products use the given ingredients, then broadcasts their availability.</summary>
+    Task BroadcastAvailabilityForIngredientsAsync(Guid restaurantId, IReadOnlyCollection<Guid> ingredientIds);
 }
 
 public class StockService : IStockService
 {
     private readonly AppDbContext _db;
+    private readonly IHubContext<CustomerHub> _customerHub;
     private readonly ILogger<StockService> _logger;
 
-    public StockService(AppDbContext db, ILogger<StockService> logger)
+    public StockService(AppDbContext db, IHubContext<CustomerHub> customerHub, ILogger<StockService> logger)
     {
         _db = db;
+        _customerHub = customerHub;
         _logger = logger;
     }
 
@@ -81,6 +98,9 @@ public class StockService : IStockService
         _logger.LogInformation(
             "Stock {Action} for order {OrderId}: {Count} ingredient(s) adjusted.",
             restore ? "restored" : "decremented", order.Id, deltas.Count);
+
+        // Push live availability so the customer menu blurs / un-blurs affected items immediately.
+        await BroadcastAvailabilityForIngredientsAsync(order.RestaurantId, deltas.Keys.ToList());
     }
 
     /// <summary>
@@ -139,5 +159,77 @@ public class StockService : IStockService
         }
 
         return deltas;
+    }
+
+    public async Task<HashSet<Guid>> GetOutOfStockProductsAsync(IReadOnlyCollection<Guid>? productIds = null)
+    {
+        var ingredientQty = await _db.Ingredients
+            .Where(i => i.LinkedProductId == null)
+            .ToDictionaryAsync(i => i.Id, i => i.QuantityOnHand);
+
+        var outOfStock = new HashSet<Guid>();
+
+        var recipeQuery = _db.RecipeItems.AsQueryable();
+        if (productIds != null) recipeQuery = recipeQuery.Where(r => productIds.Contains(r.ProductId));
+        var recipeLines = await recipeQuery
+            .Select(r => new { r.ProductId, r.IngredientId, r.QuantityPerPortion })
+            .ToListAsync();
+        foreach (var grp in recipeLines.GroupBy(r => r.ProductId))
+        {
+            var cannotMake = grp.Any(line =>
+                ingredientQty.GetValueOrDefault(line.IngredientId, 0m) < line.QuantityPerPortion);
+            if (cannotMake) outOfStock.Add(grp.Key);
+        }
+
+        var simpleQuery = _db.Ingredients.Where(i => i.LinkedProductId != null);
+        if (productIds != null) simpleQuery = simpleQuery.Where(i => productIds.Contains(i.LinkedProductId!.Value));
+        var simpleLinks = await simpleQuery
+            .Select(i => new { ProductId = i.LinkedProductId!.Value, i.QuantityOnHand })
+            .ToListAsync();
+        foreach (var s in simpleLinks)
+        {
+            if (s.QuantityOnHand < 1m) outOfStock.Add(s.ProductId);
+        }
+
+        return outOfStock;
+    }
+
+    public async Task BroadcastAvailabilityForProductsAsync(Guid restaurantId, IReadOnlyCollection<Guid> productIds)
+    {
+        var ids = productIds.Distinct().ToList();
+        if (ids.Count == 0) return;
+
+        var outOfStock = await GetOutOfStockProductsAsync(ids);
+        var items = ids.Select(pid => new
+        {
+            productId = pid,
+            // Every staff-hidden product is already absent from the customer menu, so a guest
+            // only has makeable/visible items; availability here therefore hinges on stock alone.
+            isAvailable = !outOfStock.Contains(pid),
+            outOfStock = outOfStock.Contains(pid),
+        }).ToList();
+
+        await _customerHub.Clients
+            .Group(TenantGroups.Menu(restaurantId))
+            .SendAsync("MenuItemAvailabilityChanged", new { items });
+    }
+
+    public async Task BroadcastAvailabilityForIngredientsAsync(Guid restaurantId, IReadOnlyCollection<Guid> ingredientIds)
+    {
+        if (ingredientIds.Count == 0) return;
+
+        var recipeProductIds = await _db.RecipeItems
+            .Where(r => ingredientIds.Contains(r.IngredientId))
+            .Select(r => r.ProductId)
+            .Distinct()
+            .ToListAsync();
+
+        var simpleProductIds = await _db.Ingredients
+            .Where(i => i.LinkedProductId != null && ingredientIds.Contains(i.Id))
+            .Select(i => i.LinkedProductId!.Value)
+            .ToListAsync();
+
+        var affected = recipeProductIds.Concat(simpleProductIds).Distinct().ToList();
+        await BroadcastAvailabilityForProductsAsync(restaurantId, affected);
     }
 }

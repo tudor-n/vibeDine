@@ -460,6 +460,11 @@ export const apiClient = {
             body: JSON.stringify({ status }),
         }),
 
+    cancelOrder: (orderId: string) =>
+        authedFetcher<{ id: string; status: string }>(scoped(`/admin/orders/${orderId}/cancel`), {
+            method: 'POST',
+        }),
+
     // Waiter calls (help requests) — the live queue shown on the staff dashboard.
     getHelpRequests: () =>
         authedFetcher<WaiterCall[]>(scoped('/help-requests')),

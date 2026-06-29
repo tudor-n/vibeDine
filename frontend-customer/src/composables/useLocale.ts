@@ -95,6 +95,8 @@ const ro: Dict = {
   'sent.callWaiter': 'Chemați chelnerul',
   'sent.orderAgain': 'Mai comand',
   'sent.viewProgress': 'Vezi statusul comenzii',
+  'sent.cancelledTitle': 'Comanda a fost anulată',
+  'sent.cancelledBody': 'Restaurantul a anulat comanda ta. Te rugăm să întrebi personalul pentru detalii.',
 
   'flash.badge': 'Ofertă specială',
   'flash.dismiss': 'Închide oferta',
@@ -229,6 +231,8 @@ const en: Dict = {
   'sent.callWaiter': 'Call the waiter',
   'sent.orderAgain': 'Order again',
   'sent.viewProgress': 'View order status',
+  'sent.cancelledTitle': 'Order cancelled',
+  'sent.cancelledBody': 'The restaurant cancelled your order. Please ask the staff for details.',
 
   'flash.badge': 'Special offer',
   'flash.dismiss': 'Close offer',

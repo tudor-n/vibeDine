@@ -5,6 +5,7 @@ using RestaurantApi.Data;
 using RestaurantApi.DTOs.Requests;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Models;
+using RestaurantApi.Services;
 using RestaurantApi.Validators;
 
 namespace RestaurantApi.Controllers;
@@ -15,11 +16,13 @@ namespace RestaurantApi.Controllers;
 public class InventoryController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IStockService _stockService;
     private readonly ILogger<InventoryController> _logger;
 
-    public InventoryController(AppDbContext db, ILogger<InventoryController> logger)
+    public InventoryController(AppDbContext db, IStockService stockService, ILogger<InventoryController> logger)
     {
         _db = db;
+        _stockService = stockService;
         _logger = logger;
     }
 
@@ -131,7 +134,7 @@ public class InventoryController : ControllerBase
     }
 
     [HttpPost("ingredients/{id:guid}/adjust")]
-    public async Task<IActionResult> AdjustIngredient(Guid id, [FromBody] AdjustStockRequest request)
+    public async Task<IActionResult> AdjustIngredient(Guid restaurantId, Guid id, [FromBody] AdjustStockRequest request)
     {
         var exists = await _db.Ingredients.AnyAsync(i => i.Id == id);
         if (!exists) return NotFound(new { message = "Ingredientul nu a fost găsit." });
@@ -155,6 +158,8 @@ public class InventoryController : ControllerBase
         }
 
         _logger.LogInformation("Adjusted stock for ingredient {Id}", id);
+        // A restock can re-enable items (or a downward adjust disable them): refresh the menu live.
+        await _stockService.BroadcastAvailabilityForIngredientsAsync(restaurantId, new[] { id });
         return Ok(await LoadResponseAsync(id));
     }
 
@@ -190,7 +195,7 @@ public class InventoryController : ControllerBase
     }
 
     [HttpPut("products/{productId:guid}/stock")]
-    public async Task<IActionResult> SetProductStock(Guid productId, [FromBody] SetProductStockRequest request)
+    public async Task<IActionResult> SetProductStock(Guid restaurantId, Guid productId, [FromBody] SetProductStockRequest request)
     {
         var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == productId);
         if (product == null) return NotFound(new { message = "Produsul nu a fost găsit." });
@@ -286,6 +291,9 @@ public class InventoryController : ControllerBase
         await _db.SaveChangesAsync();
         await tx.CommitAsync();
         _logger.LogInformation("Set stock mode {Mode} for product {ProductId}", request.Mode, productId);
+
+        // Changing the recipe / simple stock / mode can flip this product's availability.
+        await _stockService.BroadcastAvailabilityForProductsAsync(restaurantId, new[] { productId });
 
         return Ok(await BuildProductStockResponseAsync(productId));
     }

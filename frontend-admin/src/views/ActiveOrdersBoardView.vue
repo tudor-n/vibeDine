@@ -122,6 +122,20 @@ async function onDrop(e: DragEvent, target: ActiveStatus) {
   }
 }
 
+async function cancelOrder(order: ActiveOrder) {
+  if (!window.confirm(`Anulezi comanda #${order.orderNumber ?? '—'}? Stocul consumat va fi pus la loc.`)) return
+
+  // Optimistic: drop the card immediately, restore it if the request fails.
+  const idx = orders.value.findIndex(o => o.id === order.id)
+  const removed = idx !== -1 ? orders.value.splice(idx, 1)[0] : null
+  try {
+    await apiClient.cancelOrder(order.id)
+  } catch (err) {
+    if (removed) orders.value.push(removed)
+    error.value = err instanceof Error ? err.message : 'Anularea comenzii a eșuat.'
+  }
+}
+
 onMounted(() => {
   fetchActive()
   pollTimer = window.setInterval(fetchActive, 5000)
@@ -213,13 +227,22 @@ onBeforeUnmount(() => {
               <span class="text-[12px] font-mono uppercase tracking-[0.05em] text-ink-70">
                 {{ order.totalAmount.toFixed(2) }} RON
               </span>
-              <span
-                v-if="secondsLeft(order) !== null"
-                class="countdown"
-                :class="{ 'countdown--urgent': (secondsLeft(order) ?? 99) <= 10 }"
-              >
-                arhivare {{ secondsLeft(order) }}s
-              </span>
+              <div class="kc-foot-right">
+                <span
+                  v-if="secondsLeft(order) !== null"
+                  class="countdown"
+                  :class="{ 'countdown--urgent': (secondsLeft(order) ?? 99) <= 10 }"
+                >
+                  arhivare {{ secondsLeft(order) }}s
+                </span>
+                <button
+                  class="kc-cancel"
+                  type="button"
+                  title="Anulează comanda"
+                  aria-label="Anulează comanda"
+                  @click.stop="cancelOrder(order)"
+                >Anulează</button>
+              </div>
             </footer>
           </article>
 
@@ -402,6 +425,28 @@ onBeforeUnmount(() => {
   background: var(--accentSoft);
   color: var(--accentDk);
   border-color: var(--accentBorder);
+}
+.kc-foot-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kc-cancel {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accentBorder);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.kc-cancel:hover {
+  background: var(--accentSoft);
 }
 .empty-slot {
   flex: 1;

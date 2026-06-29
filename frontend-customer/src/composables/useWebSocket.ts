@@ -5,6 +5,7 @@ import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import { useHelpCallStore } from '@/stores/useHelpCallStore'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { useCartStore } from '@/stores/useCartStore'
+import { useMenu } from '@/composables/useMenu'
 import type { FlashDeal, OrderStatus } from '@shared/types/models'
 
 
@@ -19,6 +20,7 @@ export function useWebSocket() {
   const helpCallStore = useHelpCallStore()
   const guestStore = useGuestStore()
   const cartStore = useCartStore()
+  const { setAvailability } = useMenu()
   const isConnected = ref(false)
   let socket: WebSocket | null = null
 
@@ -54,6 +56,16 @@ export function useWebSocket() {
                   type: 1,
                   target: 'JoinTableGroup',
                   arguments: [sessionStore.restaurantId, sessionStore.tableId]
+                }) + '\x1e'
+              )
+            }
+            // Also join the restaurant-wide menu group for live stock availability updates.
+            if (sessionStore.restaurantId) {
+              socket?.send(
+                JSON.stringify({
+                  type: 1,
+                  target: 'JoinRestaurantMenuGroup',
+                  arguments: [sessionStore.restaurantId]
                 }) + '\x1e'
               )
             }
@@ -118,6 +130,20 @@ export function useWebSocket() {
               const payload = data.arguments[0] as { orderId: string; status: OrderStatus }
               if (payload?.orderId && payload?.status) {
                 orderStatusStore.setStatus(payload.orderId, payload.status)
+              }
+            }
+
+            // Live stock availability: an item went out of / back into stock — blur or un-blur it.
+            if (data.target === 'MenuItemAvailabilityChanged') {
+              const payload = data.arguments[0] as {
+                items?: Array<{ productId: string; isAvailable: boolean; outOfStock: boolean }>
+              }
+              if (Array.isArray(payload?.items)) {
+                for (const it of payload.items) {
+                  if (it?.productId) {
+                    setAvailability(it.productId, Boolean(it.isAvailable), Boolean(it.outOfStock))
+                  }
+                }
               }
             }
 
