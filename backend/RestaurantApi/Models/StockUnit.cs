@@ -13,3 +13,32 @@ public enum StockUnit
     Milliliter = 3,
     Liter = 4,
 }
+
+/// <summary>
+/// Maps <see cref="StockUnit"/> to/from a stable string code used on the wire (the API serializes
+/// enums as ints by default, and a string code is clearer and reorder-proof for the frontend).
+/// </summary>
+public static class StockUnits
+{
+    public static string ToCode(StockUnit unit) => unit switch
+    {
+        StockUnit.Gram => "gram",
+        StockUnit.Kilogram => "kilogram",
+        StockUnit.Milliliter => "milliliter",
+        StockUnit.Liter => "liter",
+        _ => "piece",
+    };
+
+    public static bool TryFromCode(string? code, out StockUnit unit)
+    {
+        switch ((code ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "piece": unit = StockUnit.Piece; return true;
+            case "gram": unit = StockUnit.Gram; return true;
+            case "kilogram": unit = StockUnit.Kilogram; return true;
+            case "milliliter": unit = StockUnit.Milliliter; return true;
+            case "liter": unit = StockUnit.Liter; return true;
+            default: unit = StockUnit.Piece; return false;
+        }
+    }
+}

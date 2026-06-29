@@ -214,6 +214,12 @@ function logout() {
         <span class="nav-arrow">→</span>
       </RouterLink>
 
+      <RouterLink v-if="!auth.isWaiter" to="/inventory" class="nav-link" active-class="nav-link-active">
+        <span class="nav-icon" aria-hidden="true">▣</span>
+        <span class="nav-label">Inventar</span>
+        <span class="nav-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
       <RouterLink to="/orders/active" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">▤</span>
         <span class="nav-label">Comenzi active</span>

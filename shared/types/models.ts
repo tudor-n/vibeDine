@@ -40,6 +40,39 @@ export interface AdminMenuTree {
   categories: AdminMenuCategoryNode[];
 }
 
+// ── Inventory / stock ────────────────────────────────────────────────────────
+export type StockUnitCode = 'piece' | 'gram' | 'kilogram' | 'milliliter' | 'liter';
+export type StockTrackingMode = 'untracked' | 'recipe' | 'simple';
+
+export interface AdminIngredient {
+  id: UUID;
+  name: string;
+  unit: StockUnitCode;
+  quantityOnHand: number;
+  lowStockThreshold: number;
+  isLow: boolean;
+  /** Non-null when this stock row backs a simple-tracked product. */
+  linkedProductId: UUID | null;
+  linkedProductName: string | null;
+}
+
+export interface RecipeLine {
+  ingredientId: UUID;
+  ingredientName: string;
+  unit: StockUnitCode;
+  quantityPerPortion: number;
+}
+
+export interface ProductStock {
+  productId: UUID;
+  mode: StockTrackingMode;
+  recipe: RecipeLine[];
+  simpleIngredientId: UUID | null;
+  simpleQuantity: number | null;
+  simpleUnit: StockUnitCode | null;
+  simpleThreshold: number | null;
+}
+
 export interface Product {
   id: UUID;
   categoryId: UUID;

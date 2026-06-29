@@ -6,6 +6,10 @@ import type {
     AdminCategory,
     AdminProduct,
     AdminMenuTree,
+    AdminIngredient,
+    ProductStock,
+    StockTrackingMode,
+    StockUnitCode,
 } from '@shared/types/models';
 import { useAuthStore, type UserProfile } from '@/stores/useAuthStore';
 
@@ -37,6 +41,38 @@ export interface UpdateProductPayload {
     price?: number;
     imageUrl?: string | null;
     isAvailable?: boolean;
+}
+
+export interface CreateIngredientPayload {
+    name: string;
+    unit: StockUnitCode;
+    quantityOnHand: number;
+    lowStockThreshold: number;
+}
+
+export interface UpdateIngredientPayload {
+    name?: string;
+    unit?: StockUnitCode;
+    lowStockThreshold?: number;
+}
+
+/** Restock / adjust. Pass `setTo` for an absolute count, or `delta` for a relative +/- change. */
+export interface AdjustStockPayload {
+    delta?: number;
+    setTo?: number;
+}
+
+export interface RecipeLinePayload {
+    ingredientId: string;
+    quantityPerPortion: number;
+}
+
+export interface SetProductStockPayload {
+    mode: StockTrackingMode;
+    recipe?: RecipeLinePayload[];
+    simpleQuantity?: number;
+    simpleUnit?: StockUnitCode;
+    simpleThreshold?: number;
 }
 
 export interface AuthResult {
@@ -542,5 +578,48 @@ export const apiClient = {
         authedFetcher<void>(scoped(`/admin/menu/categories/${categoryId}/products/reorder`), {
             method: 'POST',
             body: JSON.stringify({ productIds }),
+        }),
+
+    // ── Inventory / stock ────────────────────────────────────────────────────
+    getIngredients: (opts?: { lowStockOnly?: boolean; includeLinked?: boolean }) => {
+        const params = new URLSearchParams();
+        if (opts?.lowStockOnly) params.set('lowStockOnly', 'true');
+        if (opts?.includeLinked === false) params.set('includeLinked', 'false');
+        const q = params.toString();
+        return authedFetcher<AdminIngredient[]>(
+            scoped(`/admin/inventory/ingredients${q ? `?${q}` : ''}`),
+        );
+    },
+
+    createIngredient: (payload: CreateIngredientPayload) =>
+        authedFetcher<AdminIngredient>(scoped('/admin/inventory/ingredients'), {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    updateIngredient: (id: string, payload: UpdateIngredientPayload) =>
+        authedFetcher<AdminIngredient>(scoped(`/admin/inventory/ingredients/${id}`), {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        }),
+
+    adjustIngredient: (id: string, payload: AdjustStockPayload) =>
+        authedFetcher<AdminIngredient>(scoped(`/admin/inventory/ingredients/${id}/adjust`), {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    deleteIngredient: (id: string) =>
+        authedFetcher<void>(scoped(`/admin/inventory/ingredients/${id}`), {
+            method: 'DELETE',
+        }),
+
+    getProductStock: (productId: string) =>
+        authedFetcher<ProductStock>(scoped(`/admin/inventory/products/${productId}/stock`)),
+
+    setProductStock: (productId: string, payload: SetProductStockPayload) =>
+        authedFetcher<ProductStock>(scoped(`/admin/inventory/products/${productId}/stock`), {
+            method: 'PUT',
+            body: JSON.stringify(payload),
         }),
 }

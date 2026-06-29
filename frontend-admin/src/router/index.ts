@@ -60,6 +60,11 @@ const router = createRouter({
             component: () => import('@/views/MenuManagementView.vue')
         },
         {
+            path: '/inventory',
+            name: 'inventory',
+            component: () => import('@/views/InventoryView.vue')
+        },
+        {
             path: '/ai-config',
             name: 'ai-config',
             component: () => import('@/views/AIConfigView.vue')
