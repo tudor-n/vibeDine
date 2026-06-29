@@ -70,7 +70,8 @@ function onSubmit() {
     return
   }
   let minOrderTotal: number | null = null
-  const raw = minOrderTotalInput.value.trim()
+  // Accept a comma decimal separator (RO keyboards) by normalising to a period.
+  const raw = minOrderTotalInput.value.trim().replace(',', '.')
   if (raw !== '') {
     const n = Number(raw)
     if (Number.isNaN(n) || n < 0) {
@@ -108,7 +109,10 @@ function onSubmit() {
         depășește o sumă minimă.
       </p>
 
-      <form @submit.prevent="onSubmit" class="hh-form">
+      <!-- novalidate: the browser's native number-input validation (min/step) would
+           silently block the submit event for an in-range value with the wrong
+           decimal separator or precision; onSubmit does the validation instead. -->
+      <form @submit.prevent="onSubmit" class="hh-form" novalidate>
         <div class="hh-field">
           <label for="fd-product" class="hh-label">Produs</label>
           <ProductCombobox
@@ -140,9 +144,7 @@ function onSubmit() {
             <input
               id="fd-min"
               v-model="minOrderTotalInput"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
               inputmode="decimal"
               placeholder="Fără minim"
               class="hh-input"
