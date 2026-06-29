@@ -189,6 +189,7 @@ function addRecommendation(rec: Recommendation) {
         v-for="m in items"
         :key="m.id"
         class="dish"
+        :class="{ 'dish-out': m.outOfStock }"
         :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
       >
         <div class="dish-row">
@@ -200,6 +201,11 @@ function addRecommendation(rec: Recommendation) {
           />
           <div class="dish-body">
             <div class="dish-name">{{ m.name }}</div>
+            <div
+              v-if="m.outOfStock"
+              class="oos-chip"
+              :style="{ background: T.ink06, color: T.ink70, border: `1px solid ${T.ink12}` }"
+            >{{ t('menu.unavailableNow') }}</div>
             <div class="dish-desc" :style="{ color: T.ink70 }">{{ m.description }}</div>
           </div>
         </div>
@@ -214,7 +220,7 @@ function addRecommendation(rec: Recommendation) {
             :disabled="!m.isAvailable"
             @click="cartStore.addItem(m)"
           >
-            <span class="plus">+</span> {{ m.isAvailable ? t('menu.add') : t('menu.outOfStock') }}
+            <span class="plus">+</span> {{ m.isAvailable ? t('menu.add') : t('menu.unavailableNow') }}
           </button>
         </div>
       </article>
@@ -425,6 +431,18 @@ function addRecommendation(rec: Recommendation) {
   padding: clamp(12px, 3.5vw, 14px);
   box-shadow: 0 2px 10px -6px rgba(21, 20, 15, 0.08);
   --tile: clamp(76px, 24vw, 100px);
+}
+.dish-out {
+  opacity: 0.55;
+  filter: grayscale(0.45);
+}
+.oos-chip {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
 }
 .dish-row {
   display: grid;

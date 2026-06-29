@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
 using RestaurantApi.DTOs.Responses;
+using RestaurantApi.Models;
 
 namespace RestaurantApi.Controllers;
 
@@ -20,8 +21,12 @@ public class MenuController: ControllerBase
    [HttpGet]
    public async Task<IActionResult> GetMenu()
     {
-        var availableProducts = await _context.Categories
-        .Where(c => c.Products.Any(p => p.IsAvailable == true))
+        var outOfStock = await ComputeOutOfStockProductsAsync();
+
+        // IsAvailable != false keeps staff-hidden products out while STILL returning
+        // out-of-stock ones, which the customer app renders blurred ("Indisponibil momentan").
+        var categories = await _context.Categories
+        .Where(c => c.Products.Any(p => p.IsAvailable != false))
         .OrderBy(p=>p.SortOrder)
         .Select(category => new MenuCategoryResponse
         {
@@ -41,7 +46,7 @@ public class MenuController: ControllerBase
                 .ToList(),
             Products=category.Products
 
-            .Where(product => product.IsAvailable==true)
+            .Where(product => product.IsAvailable != false)
             .OrderBy(product => product.SortOrder).ThenBy(product => product.Name)
             .Select(product=>new MenuProductResponse
             {
@@ -54,7 +59,9 @@ public class MenuController: ControllerBase
             }).ToList()
         }).ToListAsync();
 
-     return Ok(new { categories = availableProducts });
+        ApplyAvailability(categories.SelectMany(c => c.Products), outOfStock);
+
+        return Ok(new { categories });
     }
 
     [HttpGet("{categoryId:guid}")]
@@ -67,8 +74,10 @@ public class MenuController: ControllerBase
             return NotFound(new { message = "Category not found." });
         }
 
+        var outOfStock = await ComputeOutOfStockProductsAsync();
+
         var products = await _context.Products
-        .Where(p=> p.CategoryId == categoryId && p.IsAvailable==true)
+        .Where(p=> p.CategoryId == categoryId && p.IsAvailable != false)
         .OrderBy(product => product.SortOrder).ThenBy(product => product.Name)
         .Select(product => new MenuProductResponse
         {
@@ -76,12 +85,59 @@ public class MenuController: ControllerBase
             Name=product.Name,
             Description=product.Description,
             Price=product.Price,
-            ImageUrl=product.ImageUrl
+            ImageUrl=product.ImageUrl,
+            SubcategoryId = product.SubcategoryId
         })
         .ToListAsync();
+
+        ApplyAvailability(products, outOfStock);
 
         return Ok(products);
     }
 
+    // Sets the combined IsAvailable / OutOfStock flags on already-fetched products. Every product
+    // reaching here is staff-visible (the queries filter IsAvailable != false), so orderability
+    // hinges purely on stock.
+    private static void ApplyAvailability(IEnumerable<MenuProductResponse> products, HashSet<Guid> outOfStock)
+    {
+        foreach (var product in products)
+        {
+            product.OutOfStock = outOfStock.Contains(product.Id);
+            product.IsAvailable = !product.OutOfStock;
+        }
+    }
+
+    // The set of products that cannot currently be made: a recipe product whose any ingredient
+    // can't cover one portion, or a simple product whose stock is below one unit. Untracked
+    // products (and recipe products with no lines) never appear here.
+    private async Task<HashSet<Guid>> ComputeOutOfStockProductsAsync()
+    {
+        var ingredientQty = await _context.Ingredients
+            .Where(i => i.LinkedProductId == null)
+            .ToDictionaryAsync(i => i.Id, i => i.QuantityOnHand);
+
+        var outOfStock = new HashSet<Guid>();
+
+        var recipeLines = await _context.RecipeItems
+            .Select(r => new { r.ProductId, r.IngredientId, r.QuantityPerPortion })
+            .ToListAsync();
+        foreach (var grp in recipeLines.GroupBy(r => r.ProductId))
+        {
+            var cannotMake = grp.Any(line =>
+                ingredientQty.GetValueOrDefault(line.IngredientId, 0m) < line.QuantityPerPortion);
+            if (cannotMake) outOfStock.Add(grp.Key);
+        }
+
+        var simpleLinks = await _context.Ingredients
+            .Where(i => i.LinkedProductId != null)
+            .Select(i => new { ProductId = i.LinkedProductId!.Value, i.QuantityOnHand })
+            .ToListAsync();
+        foreach (var s in simpleLinks)
+        {
+            if (s.QuantityOnHand < 1m) outOfStock.Add(s.ProductId);
+        }
+
+        return outOfStock;
+    }
 }
 

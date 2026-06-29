@@ -25,6 +25,13 @@ public class MenuProductResponse
     public decimal Price{get;set;}
     public string? ImageUrl{get;set;}
     public Guid? SubcategoryId { get; set; }
+
+    // Combined orderable flag: visible to staff AND stock can cover a portion (or untracked).
+    public bool IsAvailable { get; set; } = true;
+    // True only when the product is stock-tracked and cannot currently be made — drives the
+    // "Indisponibil momentan" blur on the customer menu (distinct from a staff-hidden product,
+    // which is omitted from the menu entirely).
+    public bool OutOfStock { get; set; }
 }
 
 public class AdminCategoryResponse

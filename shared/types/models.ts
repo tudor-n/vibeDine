@@ -82,6 +82,8 @@ export interface Product {
   price: number;
   imageUrl: string | null;
   isAvailable: boolean;
+  /** Stock-tracked product that currently can't be made — shown blurred, not orderable. */
+  outOfStock?: boolean;
 }
 
 

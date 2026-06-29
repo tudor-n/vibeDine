@@ -50,6 +50,12 @@ async function load() {
                 : p.is_available !== undefined
                   ? Boolean(p.is_available)
                   : true,
+            outOfStock:
+              p.outOfStock !== undefined
+                ? Boolean(p.outOfStock)
+                : p.out_of_stock !== undefined
+                  ? Boolean(p.out_of_stock)
+                  : false,
           })
         }
       }
