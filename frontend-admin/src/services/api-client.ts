@@ -457,6 +457,41 @@ export interface WaiterCall {
     createdAt: string;
 }
 
+export type ActiveOrderStatus = 'submitted' | 'preparing' | 'ready';
+
+export interface ActiveOrderItem {
+    id: string;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    subtotal: number;
+    wasAiRecommended?: boolean;
+    isFlashDealItem?: boolean;
+}
+
+export interface ActiveOrder {
+    id: string;
+    orderNumber: number | null;
+    status: ActiveOrderStatus;
+    totalAmount: number;
+    createdAt: string;
+    readyAt: string | null;
+    tableId: string;
+    tableNumber: string | null;
+    // Claim ("Preia comanda") state — null while the order is unclaimed.
+    claimedByWaiterId: string | null;
+    claimedByName: string | null;
+    claimedAt: string | null;
+    items: ActiveOrderItem[];
+}
+
+export interface OrderClaimResult {
+    id: string;
+    claimedByWaiterId: string | null;
+    claimedByName?: string | null;
+    claimedAt?: string | null;
+}
+
 // ── Restaurant-scoped dashboard API ──────────────────────────────────────────
 export const apiClient = {
     getMetrics: () =>
@@ -466,12 +501,24 @@ export const apiClient = {
         authedFetcher<any[]>(scoped(`/admin/orders?limit=${limit}`)),
 
     getActiveOrders: () =>
-        authedFetcher<any[]>(scoped('/admin/orders/active')),
+        authedFetcher<ActiveOrder[]>(scoped('/admin/orders/active')),
 
-    updateOrderStatus: (orderId: string, status: 'submitted' | 'preparing' | 'ready') =>
+    updateOrderStatus: (orderId: string, status: ActiveOrderStatus) =>
         authedFetcher<any>(scoped(`/admin/orders/${orderId}/status`), {
             method: 'PATCH',
             body: JSON.stringify({ status }),
+        }),
+
+    // "Preia comanda" — take ownership of an order from the floor plan.
+    claimOrder: (orderId: string) =>
+        authedFetcher<OrderClaimResult>(scoped(`/admin/orders/${orderId}/claim`), {
+            method: 'POST',
+        }),
+
+    // Hand a claimed order back to the pool.
+    releaseOrder: (orderId: string) =>
+        authedFetcher<OrderClaimResult>(scoped(`/admin/orders/${orderId}/release`), {
+            method: 'POST',
         }),
 
     // Waiter calls (help requests) — the live queue shown on the staff dashboard.

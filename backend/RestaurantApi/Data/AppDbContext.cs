@@ -147,14 +147,23 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.DeletedAt).HasColumnName("deleted_at");
             e.Property(o => o.GuestId).HasColumnName("guest_id");
             e.Property(o => o.MergedIntoOrderId).HasColumnName("merged_into_order_id");
+            e.Property(o => o.ClaimedByWaiterId).HasColumnName("claimed_by_waiter_id");
+            e.Property(o => o.ClaimedAt).HasColumnName("claimed_at");
             e.HasIndex(o => o.RestaurantId);
             e.HasIndex(o => new { o.RestaurantId, o.OrderNumber });
             // Fast "is there a draft for this guest at this table" lookup.
             e.HasIndex(o => new { o.TableId, o.GuestId, o.Status });
+            e.HasIndex(o => o.ClaimedByWaiterId);
 
             e.HasOne(o => o.Table)
              .WithMany(t => t.Orders)
              .HasForeignKey(o => o.TableId);
+
+            // The claiming staff member. SetNull so removing a user keeps the order.
+            e.HasOne(o => o.ClaimedByWaiter)
+             .WithMany()
+             .HasForeignKey(o => o.ClaimedByWaiterId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<OrderItem>(e =>

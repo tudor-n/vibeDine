@@ -52,11 +52,30 @@ vi.mock('@/services/api-client', () => ({
   apiClient: {
     getActiveOrders: vi.fn().mockResolvedValue([]),
     getHelpRequests: vi.fn().mockResolvedValue([]),
+    claimOrder: vi.fn(),
+    releaseOrder: vi.fn(),
   },
 }))
 
 import { tablesApi, zonesApi, apiClient } from '@/services/api-client'
 import { useFloorStore } from '@/stores/useFloorStore'
+import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
+
+const order = (over: Record<string, unknown> = {}) => ({
+  id: 'o1',
+  orderNumber: 1,
+  status: 'submitted',
+  totalAmount: 0,
+  createdAt: '',
+  readyAt: null,
+  tableId: 't-1',
+  tableNumber: '1',
+  claimedByWaiterId: null,
+  claimedByName: null,
+  claimedAt: null,
+  items: [],
+  ...over,
+})
 
 const mockTablesApi = tablesApi as unknown as {
   list: ReturnType<typeof vi.fn>
@@ -73,6 +92,8 @@ const mockZonesApi = zonesApi as unknown as {
 const mockApiClient = apiClient as unknown as {
   getActiveOrders: ReturnType<typeof vi.fn>
   getHelpRequests: ReturnType<typeof vi.fn>
+  claimOrder: ReturnType<typeof vi.fn>
+  releaseOrder: ReturnType<typeof vi.fn>
 }
 
 beforeEach(() => {
@@ -101,68 +122,98 @@ beforeEach(() => {
   mockZonesApi.remove.mockResolvedValue(undefined)
   mockApiClient.getActiveOrders.mockResolvedValue([])
   mockApiClient.getHelpRequests.mockResolvedValue([])
+  mockApiClient.claimOrder.mockReset()
+  mockApiClient.releaseOrder.mockReset()
   // playChime must be a no-op in tests.
   ;(window as unknown as { AudioContext?: unknown }).AudioContext = undefined
   ;(globalThis as unknown as { AudioContext?: unknown }).AudioContext = undefined
 })
 
-describe('useFloorStore — realtime overlays', () => {
-  it('OrderSubmitted adds the tableId, OrderFinalized removes it', async () => {
-    const store = useFloorStore()
-    await store.startRealtime('rest-123')
-
-    mockHandlers['OrderSubmitted']({
-      orderId: 'o1',
-      orderNumber: '1',
-      tableId: 't-1',
-      status: 'submitted',
-    })
-    expect(store.activeOrderTableIds.has('t-1')).toBe(true)
-
-    mockHandlers['OrderFinalized']({ orderId: 'o1', orderNumber: '1', tableId: 't-1' })
-    expect(store.activeOrderTableIds.has('t-1')).toBe(false)
-  })
-
-  it('HelpRequested adds to waiterCallTableIds, HelpAcknowledged removes it by requestId', async () => {
-    const store = useFloorStore()
-    await store.startRealtime('rest-123')
-
-    mockHandlers['HelpRequested']({
-      requestId: 'req-9',
-      tableId: 't-2',
-      tableNumber: '5',
-      createdAt: '2026-06-27T10:00:00Z',
-    })
-    expect(store.waiterCallTableIds.has('t-2')).toBe(true)
-    expect(store.helpReqToTable.get('req-9')).toBe('t-2')
-
-    mockHandlers['HelpAcknowledged']({ requestId: 'req-9' })
-    expect(store.waiterCallTableIds.has('t-2')).toBe(false)
-    expect(store.helpReqToTable.has('req-9')).toBe(false)
-  })
-
-  it('joins both admin and WaitStaff groups and seeds live state on start', async () => {
-    mockApiClient.getActiveOrders.mockResolvedValueOnce([{ tableId: 't-a' }, { tableId: 't-b' }])
-    mockApiClient.getHelpRequests.mockResolvedValueOnce([
-      { requestId: 'r1', tableId: 't-c', tableNumber: '3', createdAt: '' },
+describe('useFloorStore — active orders', () => {
+  it('seeds active orders on start and derives claimed/unclaimed sets', async () => {
+    mockApiClient.getActiveOrders.mockResolvedValueOnce([
+      order({ id: 'o1', tableId: 't-1', claimedByWaiterId: null }),
+      order({ id: 'o2', tableId: 't-2', claimedByWaiterId: 'u9', claimedByName: 'Ana' }),
     ])
 
     const store = useFloorStore()
     await store.startRealtime('rest-123')
 
-    expect(mockHub.joinAdminGroup).toHaveBeenCalledWith('rest-123')
-    expect(mockHub.joinRoleGroup).toHaveBeenCalledWith('rest-123', 'WaitStaff')
-    expect(store.isConnected).toBe(true)
-    expect(store.activeOrderTableIds.has('t-a')).toBe(true)
-    expect(store.activeOrderTableIds.has('t-b')).toBe(true)
-    expect(store.waiterCallTableIds.has('t-c')).toBe(true)
+    expect(store.activeOrderTableIds.has('t-1')).toBe(true)
+    expect(store.activeOrderTableIds.has('t-2')).toBe(true)
+    expect(store.unclaimedTableIds.has('t-1')).toBe(true)
+    expect(store.unclaimedTableIds.has('t-2')).toBe(false)
+    expect(store.unclaimedCount).toBe(1)
   })
 
-  it('onReconnected re-seeds live state', async () => {
+  it('registers the order event handlers and joins only the admin group', async () => {
     const store = useFloorStore()
     await store.startRealtime('rest-123')
 
-    mockApiClient.getActiveOrders.mockResolvedValueOnce([{ tableId: 't-x' }])
+    expect(mockHub.joinAdminGroup).toHaveBeenCalledWith('rest-123')
+    expect(mockHub.joinRoleGroup).not.toHaveBeenCalled()
+    expect(store.isConnected).toBe(true)
+    for (const ev of ['OrderSubmitted', 'OrderClaimed', 'OrderStatusUpdated', 'OrderFinalized']) {
+      expect(typeof mockHandlers[ev]).toBe('function')
+    }
+  })
+
+  it('a live order event triggers a debounced refetch', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = useFloorStore()
+      await store.startRealtime('rest-123')
+
+      mockApiClient.getActiveOrders.mockResolvedValueOnce([order({ id: 'o1', tableId: 't-7' })])
+      mockHandlers['OrderSubmitted']({ orderId: 'o1', orderNumber: '1', tableId: 't-7', status: 'submitted' })
+      await vi.advanceTimersByTimeAsync(300)
+      expect(store.activeOrderTableIds.has('t-7')).toBe(true)
+
+      mockApiClient.getActiveOrders.mockResolvedValueOnce([])
+      mockHandlers['OrderFinalized']({ orderId: 'o1', tableId: 't-7' })
+      await vi.advanceTimersByTimeAsync(300)
+      expect(store.activeOrderTableIds.has('t-7')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('claim and release update the order claim state', async () => {
+    mockApiClient.getActiveOrders.mockResolvedValueOnce([order({ id: 'o1', tableId: 't-1' })])
+    mockApiClient.claimOrder.mockResolvedValueOnce({
+      id: 'o1',
+      claimedByWaiterId: 'me',
+      claimedByName: 'Eu',
+      claimedAt: '2026-06-29T10:00:00Z',
+    })
+    mockApiClient.releaseOrder.mockResolvedValueOnce({ id: 'o1', claimedByWaiterId: null })
+
+    const store = useFloorStore()
+    await store.startRealtime('rest-123')
+    expect(store.unclaimedCount).toBe(1)
+
+    await store.claim('o1')
+    expect(mockApiClient.claimOrder).toHaveBeenCalledWith('o1')
+    expect(store.unclaimedCount).toBe(0)
+
+    await store.release('o1')
+    expect(mockApiClient.releaseOrder).toHaveBeenCalledWith('o1')
+    expect(store.unclaimedCount).toBe(1)
+  })
+
+  it('waiterCallTableIds derives from the waiter-calls store', () => {
+    const store = useFloorStore()
+    const calls = useWaiterCallsStore()
+    calls.calls.push({ requestId: 'r1', tableId: 't-2', tableNumber: '5', createdAt: '' })
+
+    expect(store.waiterCallTableIds.has('t-2')).toBe(true)
+  })
+
+  it('onReconnected re-seeds active orders', async () => {
+    const store = useFloorStore()
+    await store.startRealtime('rest-123')
+
+    mockApiClient.getActiveOrders.mockResolvedValueOnce([order({ id: 'o1', tableId: 't-x' })])
     expect(mockReconnectHandlers).toHaveLength(1)
     await mockReconnectHandlers[0]()
 

@@ -1,27 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { apiClient } from '@/services/api-client'
+import { apiClient, type ActiveOrder, type ActiveOrderStatus } from '@/services/api-client'
 
-type ActiveStatus = 'submitted' | 'preparing' | 'ready'
-
-interface ActiveOrder {
-  id: string
-  orderNumber: number | null
-  status: ActiveStatus
-  totalAmount: number
-  createdAt: string
-  readyAt: string | null
-  tableId: string
-  tableNumber: string | null
-  items: Array<{
-    id: string
-    productName: string
-    quantity: number
-    unitPrice: number
-    subtotal: number
-  }>
-}
+type ActiveStatus = ActiveOrderStatus
 
 const route = useRoute()
 const orders = ref<ActiveOrder[]>([])
@@ -73,6 +55,12 @@ function secondsLeft(order: ActiveOrder): number | null {
 }
 
 function onDragStart(e: DragEvent, orderId: string) {
+  // Unclaimed orders are view-only until someone taps "Preia comanda" in Sala.
+  const order = orders.value.find((o) => o.id === orderId)
+  if (!order?.claimedByWaiterId) {
+    e.preventDefault()
+    return
+  }
   dragOrderId.value = orderId
   if (e.dataTransfer) {
     e.dataTransfer.setData('text/plain', orderId)
@@ -104,6 +92,8 @@ async function onDrop(e: DragEvent, target: ActiveStatus) {
 
   const order = orders.value.find(o => o.id === orderId)
   if (!order || order.status === target) return
+  // Belt-and-braces: never move an unclaimed (immutable) order.
+  if (!order.claimedByWaiterId) return
 
   // Optimistic update so the card snaps to the new column instantly.
   const prevStatus = order.status
@@ -186,8 +176,9 @@ onBeforeUnmount(() => {
             :class="{
               'kanban-card--focus': order.id === focusOrderId,
               'kanban-card--dragging': dragOrderId === order.id,
+              'kanban-card--unclaimed': !order.claimedByWaiterId,
             }"
-            draggable="true"
+            :draggable="!!order.claimedByWaiterId"
             @dragstart="onDragStart($event, order.id)"
             @dragend="onDragEnd"
           >
@@ -208,6 +199,15 @@ onBeforeUnmount(() => {
                 <span class="kc-name">{{ item.productName }}</span>
               </li>
             </ul>
+
+            <div class="kc-claim">
+              <span v-if="order.claimedByWaiterId" class="claim-chip" :title="`Preluat de ${order.claimedByName}`">
+                <span aria-hidden="true">✓</span> Preluat · {{ order.claimedByName || 'coleg' }}
+              </span>
+              <span v-else class="claim-chip claim-chip--open">
+                Nepreluată · preia din „Sala”
+              </span>
+            </div>
 
             <footer class="kc-bot">
               <span class="text-[12px] font-mono uppercase tracking-[0.05em] text-ink-70">
@@ -335,6 +335,41 @@ onBeforeUnmount(() => {
 .kanban-card:hover { box-shadow: var(--shadow-soft); border-color: var(--ink); }
 .kanban-card:active { cursor: grabbing; }
 .kanban-card--dragging { opacity: 0.5; }
+
+/* Unclaimed orders are visible but immutable until someone takes them in Sala. */
+.kanban-card--unclaimed {
+  opacity: 0.5;
+  cursor: default;
+  border-style: dashed;
+}
+.kanban-card--unclaimed:hover {
+  box-shadow: none;
+  border-color: var(--ink12);
+}
+.kc-claim { margin-top: 10px; }
+.claim-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--lime);
+  color: var(--onLime);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.claim-chip--open {
+  background: var(--accentSoft);
+  color: var(--accentDk);
+  border: 1px solid var(--accentBorder);
+}
 .kanban-card--focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);

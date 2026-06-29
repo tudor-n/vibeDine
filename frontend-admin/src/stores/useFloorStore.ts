@@ -1,22 +1,26 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import {
   tablesApi,
   zonesApi,
   apiClient,
+  type ActiveOrder,
   type TableSummary,
   type ZoneSummary,
 } from '@/services/api-client'
 import { createStaffHubClient, type StaffHubClient } from '@/services/signalRClient'
 import { useToast } from '@/composables/useToast'
+import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
 
 /**
- * Floor-plan store. Owns the zones + tables model shown on the "Sală" tab and
- * overlays live state on top of it: which tables currently have an active order
- * and which are calling a waiter. It keeps a single StaffHub connection alive
- * (admin + WaitStaff groups) so the floor reacts in real time to OrderSubmitted /
- * OrderFinalized / HelpRequested / HelpAcknowledged events. Lifecycle mirrors
- * useWaiterCallsStore.
+ * Floor-plan store. Owns the zones + tables model shown on the "Sală" tab AND the
+ * live list of active orders (the single source of truth for the Comenzi board,
+ * the floor red dots, and the "Preia comanda" modal). It keeps a StaffHub
+ * connection alive — driven globally from App.vue — so order state reacts in real
+ * time to OrderSubmitted / OrderClaimed / OrderStatusUpdated / OrderFinalized.
+ *
+ * Waiter-call overlays are derived from the global useWaiterCallsStore so help
+ * requests are tracked in exactly one place.
  */
 
 // Live SignalR payload shapes (camelCase JSON from the StaffHub).
@@ -26,68 +30,54 @@ interface OrderSubmittedPayload {
   tableId: string
   status: string
 }
-interface OrderFinalizedPayload {
+interface OrderEventPayload {
   orderId: string
-  orderNumber: string
-  tableId: string
-}
-interface HelpRequestedPayload {
-  requestId: string
-  tableId: string
-  tableNumber: string | null
-  createdAt: string
-}
-interface HelpAcknowledgedPayload {
-  requestId: string
+  tableId?: string
 }
 
 export const useFloorStore = defineStore('floor', () => {
   const toast = useToast()
+  const waiterCalls = useWaiterCallsStore()
 
   const zones = ref<ZoneSummary[]>([])
   const tables = ref<TableSummary[]>([])
-  // Live overlays — reassigned (not mutated) on every change so refs stay reactive.
-  const activeOrderTableIds = ref<Set<string>>(new Set<string>())
-  const waiterCallTableIds = ref<Set<string>>(new Set<string>())
-  // requestId → tableId, so a HelpAcknowledged (which only carries requestId)
-  // can clear the right table.
-  const helpReqToTable = ref<Map<string, string>>(new Map<string, string>())
+  // Single source of truth for everything order-related on the floor + board.
+  const activeOrders = ref<ActiveOrder[]>([])
   const selectedZoneId = ref<string | null>(null)
   const isConnected = ref(false)
 
   let hub: StaffHubClient | null = null
   let currentRestaurantId: string | null = null
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
-  // ── Set helpers (reassign for reactivity) ──────────────────────────────────
-  function addActiveOrder(tableId: string) {
-    if (!tableId) return
-    const next = new Set(activeOrderTableIds.value)
-    next.add(tableId)
-    activeOrderTableIds.value = next
-  }
-  function removeActiveOrder(tableId: string) {
-    if (!activeOrderTableIds.value.has(tableId)) return
-    const next = new Set(activeOrderTableIds.value)
-    next.delete(tableId)
-    activeOrderTableIds.value = next
-  }
-  function addWaiterCall(requestId: string, tableId: string) {
-    if (!tableId) return
-    const next = new Set(waiterCallTableIds.value)
-    next.add(tableId)
-    waiterCallTableIds.value = next
-    if (requestId) helpReqToTable.value.set(requestId, tableId)
-  }
-  function removeWaiterCallByRequest(requestId: string) {
-    const tableId = helpReqToTable.value.get(requestId)
-    helpReqToTable.value.delete(requestId)
-    if (!tableId) return
-    // Only clear the table flag if no other open request still points at it.
-    const stillCalled = [...helpReqToTable.value.values()].includes(tableId)
-    if (stillCalled) return
-    const next = new Set(waiterCallTableIds.value)
-    next.delete(tableId)
-    waiterCallTableIds.value = next
+  // ── Derived order state ──────────────────────────────────────────────────────
+  const activeOrderTableIds = computed(
+    () => new Set(activeOrders.value.map((o) => o.tableId)),
+  )
+  const unclaimedOrders = computed(() => activeOrders.value.filter((o) => !o.claimedByWaiterId))
+  const unclaimedCount = computed(() => unclaimedOrders.value.length)
+  const unclaimedTableIds = computed(
+    () => new Set(unclaimedOrders.value.map((o) => o.tableId)),
+  )
+  // Zones (categories) that have at least one table with an unclaimed order —
+  // powers the red dot on off-screen zone tabs and the sidebar "Sala" entry.
+  const zoneIdsWithUnclaimed = computed(() => {
+    const tableZone = new Map(tables.value.map((t) => [t.id, t.zoneId]))
+    const set = new Set<string>()
+    for (const tableId of unclaimedTableIds.value) {
+      const zoneId = tableZone.get(tableId)
+      if (zoneId) set.add(zoneId)
+    }
+    return set
+  })
+
+  // Table bells come straight from the global waiter-call queue.
+  const waiterCallTableIds = computed(
+    () => new Set(waiterCalls.calls.map((c) => c.tableId)),
+  )
+
+  function ordersForTable(tableId: string): ActiveOrder[] {
+    return activeOrders.value.filter((o) => o.tableId === tableId)
   }
 
   function tableNumberOf(tableId: string): string | null {
@@ -177,33 +167,43 @@ export const useFloorStore = defineStore('floor', () => {
     if (idx !== -1) tables.value[idx] = updated
   }
 
-  // ── Live state seeding ──────────────────────────────────────────────────────
-  async function seedLiveState() {
+  // ── Active orders ─────────────────────────────────────────────────────────────
+  async function refreshActiveOrders() {
     try {
-      const active = await apiClient.getActiveOrders()
-      const orderIds = new Set<string>()
-      for (const o of active) {
-        if (o?.tableId) orderIds.add(o.tableId as string)
-      }
-      activeOrderTableIds.value = orderIds
+      activeOrders.value = await apiClient.getActiveOrders()
     } catch {
-      // Keep whatever we have; live events will reconcile.
+      // Keep whatever we have; the next live event or poll will reconcile.
     }
-    try {
-      const open = await apiClient.getHelpRequests()
-      const callIds = new Set<string>()
-      const map = new Map<string, string>()
-      for (const c of open) {
-        if (c?.tableId) {
-          callIds.add(c.tableId)
-          if (c.requestId) map.set(c.requestId, c.tableId)
-        }
-      }
-      waiterCallTableIds.value = callIds
-      helpReqToTable.value = map
-    } catch {
-      // Keep whatever we have; live events will reconcile.
-    }
+  }
+
+  // Coalesce bursts of live events into a single refetch.
+  function scheduleRefresh() {
+    if (refreshTimer) return
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      void refreshActiveOrders()
+    }, 250)
+  }
+
+  function patchOrder(orderId: string, patch: Partial<ActiveOrder>) {
+    const idx = activeOrders.value.findIndex((o) => o.id === orderId)
+    if (idx !== -1) activeOrders.value[idx] = { ...activeOrders.value[idx], ...patch }
+  }
+
+  async function claim(orderId: string) {
+    const res = await apiClient.claimOrder(orderId)
+    patchOrder(orderId, {
+      claimedByWaiterId: res.claimedByWaiterId,
+      claimedByName: res.claimedByName ?? null,
+      claimedAt: res.claimedAt ?? null,
+    })
+    return res
+  }
+
+  async function release(orderId: string) {
+    const res = await apiClient.releaseOrder(orderId)
+    patchOrder(orderId, { claimedByWaiterId: null, claimedByName: null, claimedAt: null })
+    return res
   }
 
   // ── Realtime lifecycle ──────────────────────────────────────────────────────
@@ -212,33 +212,22 @@ export const useFloorStore = defineStore('floor', () => {
     if (hub || currentRestaurantId) await stopRealtime()
 
     currentRestaurantId = restaurantId
-    await seedLiveState()
+    await refreshActiveOrders()
 
     const client = createStaffHubClient()
 
     client.on<OrderSubmittedPayload>('OrderSubmitted', (payload) => {
-      addActiveOrder(payload.tableId)
       announceOrder(payload.tableId)
+      scheduleRefresh()
     })
-
-    client.on<OrderFinalizedPayload>('OrderFinalized', (payload) => {
-      removeActiveOrder(payload.tableId)
-    })
-
-    client.on<HelpRequestedPayload>('HelpRequested', (payload) => {
-      addWaiterCall(payload.requestId, payload.tableId)
-      announceCall(payload.tableId)
-    })
-
-    client.on<HelpAcknowledgedPayload>('HelpAcknowledged', (payload) => {
-      removeWaiterCallByRequest(payload.requestId)
-    })
+    client.on<OrderEventPayload>('OrderClaimed', () => scheduleRefresh())
+    client.on<OrderEventPayload>('OrderStatusUpdated', () => scheduleRefresh())
+    client.on<OrderEventPayload>('OrderFinalized', () => scheduleRefresh())
 
     client.onReconnected(async () => {
       try {
         await client.joinAdminGroup(restaurantId)
-        await client.joinRoleGroup(restaurantId, 'WaitStaff')
-        await seedLiveState()
+        await refreshActiveOrders()
       } catch {
         /* will retry on the next reconnect */
       }
@@ -246,13 +235,14 @@ export const useFloorStore = defineStore('floor', () => {
 
     try {
       await client.start()
+      // The StaffHub authorizes the admin group by restaurant access (not role),
+      // so waiters may join it too — they need OrderSubmitted/Claimed/Finalized.
       await client.joinAdminGroup(restaurantId)
-      await client.joinRoleGroup(restaurantId, 'WaitStaff')
       hub = client
       isConnected.value = true
     } catch {
-      // Connect failed — reset so a later tick can retry. REST seed already
-      // populated the overlays, so the floor is still useful.
+      // Connect failed — reset so a later tick can retry. The REST refresh already
+      // populated the orders, so the floor/board are still useful.
       currentRestaurantId = null
       isConnected.value = false
       hub = null
@@ -265,20 +255,21 @@ export const useFloorStore = defineStore('floor', () => {
     hub = null
     currentRestaurantId = null
     isConnected.value = false
+    if (refreshTimer) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
+    }
     if (!client) return
     try {
       client.off('OrderSubmitted')
+      client.off('OrderClaimed')
+      client.off('OrderStatusUpdated')
       client.off('OrderFinalized')
-      client.off('HelpRequested')
-      client.off('HelpAcknowledged')
     } catch {
       /* ignore */
     }
     try {
-      if (rid) {
-        await client.leaveAdminGroup(rid)
-        await client.leaveRoleGroup(rid, 'WaitStaff')
-      }
+      if (rid) await client.leaveAdminGroup(rid)
     } catch {
       /* ignore */
     }
@@ -297,22 +288,21 @@ export const useFloorStore = defineStore('floor', () => {
     playChime()
   }
 
-  function announceCall(tableId: string) {
-    const num = tableNumberOf(tableId)
-    const where = num ? `Masa ${num}` : 'O masă'
-    toast.success(`${where} cheamă un ospătar.`, { title: 'chemare nouă' })
-    playChime()
-  }
-
   return {
     // state
     zones,
     tables,
-    activeOrderTableIds,
-    waiterCallTableIds,
-    helpReqToTable,
+    activeOrders,
     selectedZoneId,
     isConnected,
+    // derived
+    activeOrderTableIds,
+    unclaimedOrders,
+    unclaimedCount,
+    unclaimedTableIds,
+    zoneIdsWithUnclaimed,
+    waiterCallTableIds,
+    ordersForTable,
     // zones
     fetchZones,
     createZone,
@@ -326,8 +316,11 @@ export const useFloorStore = defineStore('floor', () => {
     moveTableToZone,
     renameTable,
     deleteTable,
+    // orders
+    refreshActiveOrders,
+    claim,
+    release,
     // realtime
-    seedLiveState,
     startRealtime,
     stopRealtime,
   }

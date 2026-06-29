@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
+import { useFloorStore } from '@/stores/useFloorStore'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
@@ -13,6 +14,7 @@ const route = useRoute()
 const router = useRouter()
 const importStore = useMenuImportStore()
 const waiterCalls = useWaiterCallsStore()
+const floor = useFloorStore()
 
 // Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
 // full-screen without the admin shell.
@@ -39,8 +41,15 @@ watch(
 watch(
   () => [auth.isAuthenticated, auth.activeRestaurantId] as const,
   ([isAuth, rid]) => {
-    if (isAuth && rid) void waiterCalls.start(rid)
-    else void waiterCalls.stop()
+    if (isAuth && rid) {
+      void waiterCalls.start(rid)
+      // Keep the active-order feed alive app-wide so the sidebar "Sala" dot and
+      // the Comenzi board stay live regardless of which page is open.
+      void floor.startRealtime(rid)
+    } else {
+      void waiterCalls.stop()
+      void floor.stopRealtime()
+    }
   },
   { immediate: true },
 )
@@ -93,6 +102,88 @@ function logout() {
   auth.logout()
   router.replace('/login')
 }
+
+// --- Sidebar: grouped navigation + mobile drawer ---------------------------
+const mobileNavOpen = ref(false)
+
+type NavItem = { to: string; icon: string; label: string; show: boolean; badge?: number }
+type NavGroup = { id: string; label: string; items: NavItem[] }
+
+// A single source of truth for the nav, organised into collapsible categories.
+// `show` mirrors the old per-link role conditions; empty groups are dropped.
+const navGroups = computed<NavGroup[]>(() => {
+  const full = !auth.isWaiter
+  const groups: NavGroup[] = [
+    {
+      id: 'operations',
+      label: 'Operațiuni',
+      items: [
+        { to: '/', icon: '◆', label: 'Dashboard', show: full },
+        { to: '/orders/active', icon: '▤', label: 'Comenzi active', show: true },
+        { to: '/waiter-calls', icon: '◉', label: 'Chemări', show: true, badge: waiterCalls.count },
+        { to: '/orders', icon: '◐', label: 'Jurnal comenzi', show: true },
+      ],
+    },
+    {
+      id: 'menu',
+      label: 'Meniu & AI',
+      items: [
+        { to: '/menu', icon: '☰', label: 'Meniu', show: full },
+        { to: '/ai-config', icon: '✦', label: 'Configurare AI', show: full },
+        { to: '/rules', icon: '∞', label: 'Reguli', show: full },
+      ],
+    },
+    {
+      id: 'venue',
+      label: 'Sală & locație',
+      items: [
+        { to: '/floor', icon: '▢', label: 'Sala', show: true, badge: floor.unclaimedCount },
+        { to: '/tables', icon: '▦', label: 'Coduri QR', show: full },
+      ],
+    },
+    {
+      id: 'team',
+      label: 'Echipă',
+      items: [{ to: '/waiters', icon: '⊕', label: 'Ospătari', show: auth.canManageWaitersOfActive }],
+    },
+  ]
+  return groups
+    .map((g) => ({ ...g, items: g.items.filter((i) => i.show) }))
+    .filter((g) => g.items.length > 0)
+})
+
+// Total of any item badges in a group — surfaced on the header when collapsed.
+function groupBadge(g: NavGroup) {
+  return g.items.reduce((n, i) => n + (i.badge || 0), 0)
+}
+
+// Categories are expanded by default so every allowed tab is visible at a glance.
+// Collapsing them by default hid tabs — e.g. a waiter on the orders page couldn't
+// see "Sala", and on the Sala page couldn't see the orders tabs. The user can
+// still collapse any category and that choice sticks.
+const userToggled = ref<Record<string, boolean>>({})
+function groupOpen(id: string) {
+  if (id in userToggled.value) return userToggled.value[id]
+  return true
+}
+function toggleGroup(id: string) {
+  userToggled.value = { ...userToggled.value, [id]: !groupOpen(id) }
+}
+
+// Close the drawer on navigation; lock body scroll while it's open.
+watch(() => route.fullPath, () => { mobileNavOpen.value = false })
+watch(mobileNavOpen, (open) => {
+  document.body.style.overflow = open ? 'hidden' : ''
+})
+
+function onNavKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') mobileNavOpen.value = false
+}
+onMounted(() => window.addEventListener('keydown', onNavKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onNavKeydown)
+  document.body.style.overflow = ''
+})
 </script>
 
 <template>
@@ -118,11 +209,45 @@ function logout() {
       </svg>
     </button>
 
+    <!-- Mobile top bar — the sidebar collapses into a drawer below md -->
+    <header class="md:hidden mobile-topbar">
+      <button
+        type="button"
+        class="hamburger"
+        :aria-expanded="mobileNavOpen"
+        aria-label="Deschide meniul"
+        @click="mobileNavOpen = true"
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      </button>
+      <div class="display-title text-xl">Smart Restaurant</div>
+      <span v-if="waiterCalls.count" class="nav-badge ml-auto" aria-label="chemări active">{{ waiterCalls.count }}</span>
+    </header>
+
+    <!-- Drawer backdrop (mobile) -->
+    <div v-if="mobileNavOpen" class="nav-backdrop md:hidden" @click="mobileNavOpen = false" />
+
     <nav
-      class="relative z-10 w-full md:w-72 flex-shrink-0 p-5 md:p-6 flex md:flex-col gap-1 md:gap-1.5 md:h-screen md:overflow-y-auto md:border-r border-ink-12 nav-shell"
+      class="nav-shell sidebar"
+      :class="{ 'sidebar-open': mobileNavOpen }"
       aria-label="Navigare admin"
     >
-      <!-- Brand block -->
+      <!-- Drawer head (mobile): brand + close -->
+      <div class="md:hidden drawer-head">
+        <div class="display-title text-2xl">Admin <span class="text-accent">Curții.</span></div>
+        <button type="button" class="icon-btn" aria-label="Închide meniul" @click="mobileNavOpen = false">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Brand block (desktop) -->
       <div class="hidden md:block mb-6">
         <div class="eyebrow mb-2">SMART RESTAURANT</div>
         <div class="display-title text-[34px] leading-[0.95]">
@@ -130,13 +255,8 @@ function logout() {
         </div>
       </div>
 
-      <!-- Mobile brand (leaves room for the fixed top-right toggle) -->
-      <div class="md:hidden flex items-center gap-3 pr-14 flex-1">
-        <div class="display-title text-2xl">Smart Restaurant</div>
-      </div>
-
-      <!-- Account chip — moved to the top with inline Settings + Logout buttons -->
-      <div class="hidden md:flex account-chip mb-6">
+      <!-- Account chip — top of the panel with inline Settings + Logout buttons -->
+      <div class="account-chip mb-5">
         <div class="account-avatar">
           <img
             v-if="auth.user?.avatarUrl"
@@ -183,7 +303,7 @@ function logout() {
       </div>
 
       <!-- Active org + restaurant selector -->
-      <div v-if="auth.activeOrganization" class="hidden md:flex active-org mb-4">
+      <div v-if="auth.activeOrganization" class="active-org mb-4">
         <div class="eyebrow mb-1">Organizația</div>
         <div class="active-org-name">{{ auth.activeOrganization.name }}</div>
         <select
@@ -199,78 +319,49 @@ function logout() {
         </select>
       </div>
 
-      <div class="hidden md:block eyebrow mb-2 mt-2">Navigare</div>
+      <!-- Grouped navigation — collapsible categories -->
+      <div class="nav-groups">
+        <div v-for="g in navGroups" :key="g.id" class="nav-group">
+          <button
+            type="button"
+            class="nav-group-header"
+            :class="{ 'nav-group-open': groupOpen(g.id) }"
+            :aria-expanded="groupOpen(g.id)"
+            @click="toggleGroup(g.id)"
+          >
+            <span class="nav-group-label">{{ g.label }}</span>
+            <span
+              v-if="!groupOpen(g.id) && groupBadge(g)"
+              class="nav-badge"
+              aria-label="notificări"
+            >{{ groupBadge(g) }}</span>
+            <span class="nav-group-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </span>
+          </button>
+          <div v-show="groupOpen(g.id)" class="nav-group-items">
+            <RouterLink
+              v-for="item in g.items"
+              :key="item.to"
+              :to="item.to"
+              class="nav-link"
+              active-class="nav-link-active"
+            >
+              <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
+              <span class="nav-label">{{ item.label }}</span>
+              <span v-if="item.badge" class="nav-badge" aria-label="chemări active">{{ item.badge }}</span>
+              <span v-else class="nav-arrow" aria-hidden="true">→</span>
+            </RouterLink>
+          </div>
+        </div>
+      </div>
 
-      <RouterLink v-if="!auth.isWaiter" to="/" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">◆</span>
-        <span class="nav-label">Dashboard</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink v-if="!auth.isWaiter" to="/menu" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon">☰</span>
-        <span class="nav-label">Meniu</span>
-        <span class="nav-arrow">→</span>
-      </RouterLink>
-
-      <RouterLink to="/orders/active" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">▤</span>
-        <span class="nav-label">Comenzi active</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink to="/waiter-calls" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">◉</span>
-        <span class="nav-label">Chemări</span>
-        <span v-if="waiterCalls.count" class="nav-badge" aria-label="chemări active">{{ waiterCalls.count }}</span>
-        <span v-else class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink v-if="!auth.isWaiter" to="/ai-config" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">✦</span>
-        <span class="nav-label">Configurare AI</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink v-if="!auth.isWaiter" to="/rules" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">∞</span>
-        <span class="nav-label">Reguli</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink to="/orders" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">◐</span>
-        <span class="nav-label">Jurnal comenzi</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink v-if="!auth.isWaiter" to="/floor" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">▢</span>
-        <span class="nav-label">Sala</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink v-if="!auth.isWaiter" to="/tables" class="nav-link" active-class="nav-link-active">
-        <span class="nav-icon" aria-hidden="true">▦</span>
-        <span class="nav-label">Coduri QR</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <RouterLink
-        v-if="auth.canManageWaitersOfActive"
-        to="/waiters"
-        class="nav-link"
-        active-class="nav-link-active"
-      >
-        <span class="nav-icon" aria-hidden="true">⊕</span>
-        <span class="nav-label">Ospătari</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
-      </RouterLink>
-
-      <!-- Schimbă organizația — sole bottom action -->
+      <!-- Schimbă organizația — bottom action -->
       <button
         type="button"
-        class="nav-link hidden md:flex mt-auto"
+        class="nav-link switch-org mt-auto"
         aria-label="Schimbă organizația"
         @click="switchOrganization"
       >
@@ -319,6 +410,151 @@ function logout() {
   background: color-mix(in srgb, var(--paperHi) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* Sidebar shell — static left column on desktop, slide-in drawer on mobile */
+.sidebar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 18rem;
+  flex-shrink: 0;
+  padding: 24px;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--ink12);
+}
+
+/* Mobile top bar — hidden on desktop, shown only in the mobile media query below.
+   Controlled here (not via Tailwind md:hidden) because scoped styles outrank
+   utility classes. */
+.mobile-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  /* right padding clears the fixed top-right theme toggle */
+  padding: 12px 64px 12px 14px;
+  background: color-mix(in srgb, var(--paperHi) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--ink12);
+}
+.hamburger {
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--card, var(--paperHi));
+  border: 1px solid var(--ink12);
+  color: var(--ink);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+.hamburger:hover { background: var(--ink06); }
+.hamburger:active { transform: scale(0.94); }
+
+/* Drawer backdrop */
+.nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  background: rgba(0, 0, 0, 0.42);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: nav-backdrop-in 0.2s ease;
+}
+@keyframes nav-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Drawer header (brand + close) — mobile only; shown in the media query below. */
+.drawer-head {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+/* Collapsible category groups */
+.nav-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-group { display: flex; flex-direction: column; }
+.nav-group + .nav-group { margin-top: 4px; }
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  opacity: 0.6;
+  border-radius: 12px;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.nav-group-header:hover {
+  opacity: 1;
+  background: var(--ink06);
+}
+.nav-group-header.nav-group-open { opacity: 1; }
+.nav-group-label {
+  flex: 1;
+  text-align: left;
+}
+.nav-group-chevron {
+  display: grid;
+  place-items: center;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+.nav-group-open .nav-group-chevron { transform: rotate(180deg); }
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 0 6px;
+}
+
+.switch-org { margin-top: auto; }
+
+/* Below md: the sidebar becomes an off-canvas drawer; the top bar + drawer head
+   appear. */
+@media (max-width: 767.98px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(85vw, 330px);
+    height: 100%;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    z-index: 70;
+    box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.5);
+  }
+  .sidebar.sidebar-open { transform: translateX(0); }
+  .mobile-topbar { display: flex; }
+  .drawer-head { display: flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+  .nav-backdrop { animation: none; }
 }
 
 .nav-link {
@@ -490,6 +726,7 @@ function logout() {
 
 /* Active org block sits between the account chip and the navigation list. */
 .active-org {
+  display: flex;
   flex-direction: column;
   padding: 0 6px;
 }

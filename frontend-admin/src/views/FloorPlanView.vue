@@ -112,6 +112,8 @@ function onPointerDown(e: PointerEvent, t: TableSummary) {
 
 function onPointerMove(e: PointerEvent) {
   if (drag.id === null) return
+  // Waiters get a read-only floor — tables can be tapped (to claim) but not moved.
+  if (!canEditFloor.value) return
   const canvas = canvasEl.value
   if (!canvas) return
   const rect = canvas.getBoundingClientRect()
@@ -129,10 +131,12 @@ async function onPointerUp(e: PointerEvent, t: TableSummary) {
   if (drag.id !== t.id) return
   ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
 
-  // A non-move press is a click → open the edit popover.
+  // A non-move press is a click. A table with active orders opens the order modal
+  // ("Preia comanda"); an empty table opens the edit popover (managers only).
   if (!drag.moved) {
     drag.id = null
-    openEdit(t)
+    if (store.activeOrderTableIds.has(t.id)) openOrderModal(t.id)
+    else if (canEditFloor.value) openEdit(t)
     return
   }
 
@@ -339,25 +343,87 @@ async function removeTable() {
   }
 }
 
+// ── Order modal ("Preia comanda") ────────────────────────────────────────────
+const orderModalTableId = ref<string | null>(null)
+const claimingId = ref<string | null>(null)
+const canEditFloor = computed(() => !auth.isWaiter)
+const isManager = computed(() => auth.canManageWaitersOfActive)
+const myUserId = computed(() => auth.user?.id ?? null)
+
+const orderModalTable = computed(
+  () => store.tables.find((t) => t.id === orderModalTableId.value) ?? null,
+)
+const orderModalOrders = computed(() =>
+  orderModalTableId.value ? store.ordersForTable(orderModalTableId.value) : [],
+)
+
+function openOrderModal(tableId: string) {
+  orderModalTableId.value = tableId
+}
+function closeOrderModal() {
+  orderModalTableId.value = null
+}
+
+async function claimOrder(orderId: string) {
+  claimingId.value = orderId
+  try {
+    await store.claim(orderId)
+    toast.success('Ai preluat comanda.')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Preluarea comenzii a eșuat.')
+    await store.refreshActiveOrders()
+  } finally {
+    claimingId.value = null
+  }
+}
+
+async function releaseOrder(orderId: string) {
+  claimingId.value = orderId
+  try {
+    await store.release(orderId)
+    toast.success('Comanda a fost eliberată.')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Eliberarea comenzii a eșuat.')
+    await store.refreshActiveOrders()
+  } finally {
+    claimingId.value = null
+  }
+}
+
+function editTableFromModal() {
+  const t = orderModalTable.value
+  closeOrderModal()
+  if (t) openEdit(t)
+}
+
+function statusLabel(status: string): string {
+  if (status === 'submitted') return 'Comandă nouă'
+  if (status === 'preparing') return 'În pregătire'
+  if (status === 'ready') return 'Finalizată'
+  return status
+}
+
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && editId.value) closeEdit()
+  if (e.key !== 'Escape') return
+  if (orderModalTableId.value) closeOrderModal()
+  else if (editId.value) closeEdit()
 }
 
 onMounted(async () => {
   try {
     await store.fetchZones()
     await store.fetchTables()
-    await store.seedLiveState()
+    await store.refreshActiveOrders()
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Încărcarea planului de sală a eșuat.')
   }
-  if (auth.activeRestaurantId) void store.startRealtime(auth.activeRestaurantId)
   window.addEventListener('keydown', onKeydown)
 })
 
 onUnmounted(() => {
-  void store.stopRealtime()
+  // The active-order realtime connection is owned by App.vue (so the sidebar dot
+  // and Comenzi board stay live everywhere) — we don't tear it down here.
   window.removeEventListener('keydown', onKeydown)
   if (resizeObs) {
     resizeObs.disconnect()
@@ -379,8 +445,9 @@ const vFocus = {
         <div class="eyebrow mb-4">Sală &amp; mese</div>
         <h1 class="display-title text-[44px] md:text-[56px]">Plan sală</h1>
         <p class="text-ink-70 text-base mt-2 max-w-xl">
-          Grupează mesele pe zone și aranjează-le liber prin tragere. Punctul roșu arată o
-          comandă activă, iar clopoțelul o chemare de ospătar.
+          <template v-if="canEditFloor">Grupează mesele pe zone și aranjează-le liber prin tragere. </template>
+          Punctul roșu arată o comandă nepreluată — apasă pe masă ca să vezi comanda și
+          să o preiei. Clopoțelul arată o chemare de ospătar.
         </p>
       </div>
       <div class="tag-pill" role="status" aria-live="polite">
@@ -397,19 +464,24 @@ const vFocus = {
     <section v-if="store.zones.length === 0" class="card-paper p-8 text-center">
       <div class="eyebrow mb-3">Începe aici</div>
       <h2 class="display-title text-3xl mb-2">Nicio zonă încă</h2>
-      <p class="text-ink-70 mb-5">
-        Creează prima zonă (ex: Terasă, Salon, Bar) ca să începi să aranjezi mesele.
+      <template v-if="canEditFloor">
+        <p class="text-ink-70 mb-5">
+          Creează prima zonă (ex: Terasă, Salon, Bar) ca să începi să aranjezi mesele.
+        </p>
+        <form class="flex gap-2 justify-center max-w-md mx-auto" @submit.prevent="submitNewZone">
+          <input
+            v-focus
+            v-model="newZoneName"
+            placeholder="Nume zonă (ex: Terasă)"
+            class="field-input"
+            required
+          />
+          <button type="submit" class="pill-btn" :disabled="busy">Creează zonă</button>
+        </form>
+      </template>
+      <p v-else class="text-ink-70">
+        Sala nu a fost încă configurată. Roagă un administrator să adauge zone și mese.
       </p>
-      <form class="flex gap-2 justify-center max-w-md mx-auto" @submit.prevent="submitNewZone">
-        <input
-          v-focus
-          v-model="newZoneName"
-          placeholder="Nume zonă (ex: Terasă)"
-          class="field-input"
-          required
-        />
-        <button type="submit" class="pill-btn" :disabled="busy">Creează zonă</button>
-      </form>
     </section>
 
     <template v-else>
@@ -422,6 +494,12 @@ const vFocus = {
             class="zone-tab"
             :class="{ 'zone-tab-active': z.id === store.selectedZoneId }"
           >
+            <span
+              v-if="store.zoneIdsWithUnclaimed.has(z.id)"
+              class="zone-dot"
+              title="Comandă nepreluată în această zonă"
+              aria-label="Comandă nepreluată în această zonă"
+            ></span>
             <input
               v-if="editingZoneId === z.id"
               v-focus
@@ -435,7 +513,7 @@ const vFocus = {
               <button type="button" class="zone-tab-label" @click="selectZone(z.id)">
                 {{ z.name }}
               </button>
-              <span v-if="z.id === store.selectedZoneId" class="zone-tab-actions">
+              <span v-if="canEditFloor && z.id === store.selectedZoneId" class="zone-tab-actions">
                 <button
                   type="button"
                   class="zone-mini"
@@ -458,25 +536,27 @@ const vFocus = {
             </template>
           </div>
 
-          <!-- Add zone -->
-          <input
-            v-if="addingZone"
-            v-focus
-            v-model="newZoneName"
-            placeholder="Nume zonă"
-            class="zone-edit-input"
-            @keyup.enter="submitNewZone"
-            @keyup.esc="cancelAddZone"
-            @blur="submitNewZone"
-          />
-          <button v-else type="button" class="zone-tab zone-add-btn" @click="addingZone = true">
-            + Zonă nouă
-          </button>
+          <!-- Add zone (managers only) -->
+          <template v-if="canEditFloor">
+            <input
+              v-if="addingZone"
+              v-focus
+              v-model="newZoneName"
+              placeholder="Nume zonă"
+              class="zone-edit-input"
+              @keyup.enter="submitNewZone"
+              @keyup.esc="cancelAddZone"
+              @blur="submitNewZone"
+            />
+            <button v-else type="button" class="zone-tab zone-add-btn" @click="addingZone = true">
+              + Zonă nouă
+            </button>
+          </template>
         </div>
       </div>
 
-      <!-- Toolbar -->
-      <div class="flex items-center gap-3 flex-wrap mb-4">
+      <!-- Toolbar (managers only) -->
+      <div v-if="canEditFloor" class="flex items-center gap-3 flex-wrap mb-4">
         <input
           v-if="addingTable"
           v-focus
@@ -513,7 +593,7 @@ const vFocus = {
           :key="t.id"
           type="button"
           class="chip"
-          :class="{ 'chip-dragging': drag.id === t.id, 'chip-editing': editId === t.id }"
+          :class="{ 'chip-dragging': drag.id === t.id, 'chip-editing': editId === t.id, 'chip-readonly': !canEditFloor }"
           :style="chipStyle(t)"
           @pointerdown="onPointerDown($event, t)"
           @pointermove="onPointerMove($event)"
@@ -526,10 +606,16 @@ const vFocus = {
           <span class="table-top">
             <span class="chip-num">{{ t.tableNumber || '—' }}</span>
             <span
-              v-if="store.activeOrderTableIds.has(t.id)"
+              v-if="store.unclaimedTableIds.has(t.id)"
               class="chip-badge chip-badge-order"
-              title="Comandă activă"
-              aria-label="Comandă activă"
+              title="Comandă nepreluată"
+              aria-label="Comandă nepreluată"
+            ></span>
+            <span
+              v-else-if="store.activeOrderTableIds.has(t.id)"
+              class="chip-badge chip-badge-claimed"
+              title="Comandă preluată"
+              aria-label="Comandă preluată"
             ></span>
             <span
               v-if="store.waiterCallTableIds.has(t.id)"
@@ -573,6 +659,105 @@ const vFocus = {
         </div>
       </div>
     </template>
+
+    <!-- Order modal ("Preia comanda") — opens when a table with orders is tapped -->
+    <div
+      v-if="orderModalTable"
+      class="order-modal-backdrop"
+      @pointerdown.self="closeOrderModal"
+    >
+      <div class="order-modal card-white" role="dialog" aria-modal="true">
+        <div class="order-modal-head">
+          <div>
+            <div class="eyebrow">Masa {{ orderModalTable.tableNumber || '—' }}</div>
+            <div class="display-title text-2xl">
+              {{ orderModalOrders.length }}
+              {{ orderModalOrders.length === 1 ? 'comandă' : 'comenzi' }}
+            </div>
+          </div>
+          <button type="button" class="icon-btn" aria-label="Închide" @click="closeOrderModal">✕</button>
+        </div>
+
+        <div v-if="orderModalOrders.length === 0" class="order-empty">
+          Nicio comandă activă la această masă.
+        </div>
+
+        <div v-for="o in orderModalOrders" :key="o.id" class="order-card">
+          <div class="order-card-top">
+            <span class="order-num">#{{ o.orderNumber ?? '—' }}</span>
+            <span class="order-status" :class="`order-status--${o.status}`">{{ statusLabel(o.status) }}</span>
+          </div>
+
+          <ul class="order-items">
+            <li v-for="it in o.items" :key="it.id">
+              <span class="oi-qty">×{{ it.quantity }}</span>
+              <span class="oi-name">{{ it.productName }}</span>
+              <span class="oi-price">{{ it.subtotal.toFixed(2) }} RON</span>
+            </li>
+          </ul>
+
+          <div class="order-card-bot">
+            <span class="order-total">Total · {{ o.totalAmount.toFixed(2) }} RON</span>
+          </div>
+
+          <!-- Claim controls -->
+          <div class="order-actions">
+            <button
+              v-if="!o.claimedByWaiterId"
+              type="button"
+              class="pill-btn-ink"
+              :disabled="claimingId === o.id"
+              @click="claimOrder(o.id)"
+            >
+              {{ claimingId === o.id ? 'Se preia…' : 'Preia comanda' }}
+            </button>
+
+            <template v-else-if="o.claimedByWaiterId === myUserId">
+              <div class="claimed-by claimed-by--me"><span aria-hidden="true">✓</span> Ai preluat această comandă</div>
+              <button
+                type="button"
+                class="btn-ghost"
+                :disabled="claimingId === o.id"
+                @click="releaseOrder(o.id)"
+              >
+                Eliberează
+              </button>
+            </template>
+
+            <template v-else>
+              <div class="claimed-by">Preluată de {{ o.claimedByName || 'alt coleg' }}</div>
+              <div v-if="isManager" class="order-actions-row">
+                <button
+                  type="button"
+                  class="pill-btn-ink"
+                  :disabled="claimingId === o.id"
+                  @click="claimOrder(o.id)"
+                >
+                  Preia de la {{ o.claimedByName || 'coleg' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn-ghost"
+                  :disabled="claimingId === o.id"
+                  @click="releaseOrder(o.id)"
+                >
+                  Eliberează
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <button
+          v-if="canEditFloor && orderModalTable"
+          type="button"
+          class="btn-ghost order-edit-link"
+          @click="editTableFromModal"
+        >
+          Editează masa
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -810,6 +995,16 @@ const vFocus = {
   border: 2px solid var(--card);
   animation: chip-pulse 1.6s ease-in-out infinite;
 }
+/* Claimed order — calmer dot (taken / in progress), no pulse. */
+.chip-badge-claimed {
+  top: -6px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--lime);
+  border: 2px solid var(--card);
+}
 .chip-badge-call {
   top: -12px;
   left: -10px;
@@ -854,9 +1049,170 @@ const vFocus = {
   box-shadow: var(--shadow-pop);
 }
 
+/* Read-only floor (waiters): tables can be tapped to claim, not dragged. */
+.chip-readonly {
+  cursor: pointer;
+}
+
+/* Red dot on a zone tab that holds an unclaimed order. */
+.zone-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: chip-pulse 1.6s ease-in-out infinite;
+}
+.zone-tab-active .zone-dot {
+  background: var(--lime);
+}
+
+/* ── Order modal ("Preia comanda") ──────────────────────────────────────────── */
+.order-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.order-modal {
+  width: min(92vw, 460px);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 22px;
+  box-shadow: var(--shadow-pop);
+}
+.order-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.order-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--ink40);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+}
+.order-card {
+  border: 1px solid var(--ink12);
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: var(--card);
+}
+.order-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.order-num {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 800;
+  font-size: 15px;
+  background: var(--ink);
+  color: var(--paperHi);
+  padding: 4px 10px;
+  border-radius: 10px;
+}
+.order-status {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ink06);
+  color: var(--ink);
+}
+.order-status--submitted { background: var(--lime); color: var(--onLime); }
+.order-status--preparing { background: var(--accentSoft); color: var(--accentDk); }
+.order-status--ready { background: var(--ink); color: var(--lime); }
+.order-items {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.order-items li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.oi-qty {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  color: var(--ink70);
+  min-width: 30px;
+}
+.oi-name { flex: 1; }
+.oi-price {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ink70);
+}
+.order-card-bot {
+  border-top: 1px solid var(--ink06);
+  padding-top: 10px;
+  margin-bottom: 12px;
+}
+.order-total {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 13px;
+}
+.order-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.order-actions > .pill-btn-ink { width: 100%; }
+.order-actions-row {
+  display: flex;
+  gap: 8px;
+}
+.order-actions-row > * { flex: 1; }
+.claimed-by {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink70);
+}
+.claimed-by--me {
+  color: var(--onLime);
+  background: var(--lime);
+  border-radius: 999px;
+  text-align: center;
+  padding: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.order-edit-link {
+  width: 100%;
+  margin-top: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chip-badge-order,
-  .chip-badge-call {
+  .chip-badge-call,
+  .zone-dot {
     animation: none;
   }
 }
