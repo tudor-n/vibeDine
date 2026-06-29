@@ -29,6 +29,8 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<HelpRequest> HelpRequests => Set<HelpRequest>();
     public DbSet<TableGuest> TableGuests => Set<TableGuest>();
     public DbSet<MenuImportJob> MenuImportJobs => Set<MenuImportJob>();
+    public DbSet<Ingredient> Ingredients => Set<Ingredient>();
+    public DbSet<RecipeItem> RecipeItems => Set<RecipeItem>();
 
     // ── Tenancy ──────────────────────────────────────────────────────────────
     public DbSet<Organization> Organizations => Set<Organization>();
@@ -84,6 +86,10 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(p => p.ImageUrl).HasColumnName("image_url");
             e.Property(p => p.IsAvailable).HasColumnName("is_available");
             e.Property(p => p.SortOrder).HasColumnName("sort_order");
+            e.Property(p => p.StockTrackingMode)
+             .HasColumnName("stock_tracking_mode")
+             .HasConversion<int>()
+             .HasDefaultValue(StockTrackingMode.Untracked);
             e.HasIndex(p => p.RestaurantId);
 
             e.HasOne(p => p.Category)
@@ -125,6 +131,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.DeletedAt).HasColumnName("deleted_at");
             e.Property(o => o.GuestId).HasColumnName("guest_id");
             e.Property(o => o.MergedIntoOrderId).HasColumnName("merged_into_order_id");
+            e.Property(o => o.StockDecremented).HasColumnName("stock_decremented").HasDefaultValue(false);
             e.HasIndex(o => o.RestaurantId);
             e.HasIndex(o => new { o.RestaurantId, o.OrderNumber });
             // Fast "is there a draft for this guest at this table" lookup.
@@ -156,6 +163,55 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.HasOne(oi => oi.Product)
              .WithMany()
              .HasForeignKey(oi => oi.ProductId)
+             .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Ingredient>(e =>
+        {
+            e.ToTable("ingredients");
+            e.Property(i => i.Id).HasColumnName("id");
+            e.Property(i => i.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(i => i.Name).HasColumnName("name");
+            e.Property(i => i.Unit).HasColumnName("unit").HasConversion<int>();
+            e.Property(i => i.QuantityOnHand).HasColumnName("quantity_on_hand").HasColumnType("decimal(12,3)");
+            e.Property(i => i.LowStockThreshold).HasColumnName("low_stock_threshold").HasColumnType("decimal(12,3)").HasDefaultValue(0m);
+            e.Property(i => i.LinkedProductId).HasColumnName("linked_product_id");
+            e.Property(i => i.CreatedAt).HasColumnName("created_at");
+            e.HasIndex(i => i.RestaurantId);
+            // At most one stock row per simple-tracked product.
+            e.HasIndex(i => i.LinkedProductId).IsUnique().HasFilter("linked_product_id IS NOT NULL");
+
+            e.HasOne(i => i.LinkedProduct)
+             .WithMany()
+             .HasForeignKey(i => i.LinkedProductId)
+             .OnDelete(DeleteBehavior.Cascade)
+             .IsRequired(false);
+        });
+
+        modelBuilder.Entity<RecipeItem>(e =>
+        {
+            e.ToTable("recipe_items");
+            e.Property(r => r.Id).HasColumnName("id");
+            e.Property(r => r.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(r => r.ProductId).HasColumnName("product_id");
+            e.Property(r => r.IngredientId).HasColumnName("ingredient_id");
+            e.Property(r => r.QuantityPerPortion).HasColumnName("quantity_per_portion").HasColumnType("decimal(12,3)");
+            e.HasIndex(r => r.RestaurantId);
+            // An ingredient appears at most once in a given product's recipe.
+            e.HasIndex(r => new { r.ProductId, r.IngredientId }).IsUnique();
+            // Supports the "is this ingredient still used by any recipe" deletion guard.
+            e.HasIndex(r => r.IngredientId);
+
+            e.HasOne(r => r.Product)
+             .WithMany()
+             .HasForeignKey(r => r.ProductId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict: an ingredient referenced by a recipe cannot be deleted out from under it
+            // (mirrors the OrderItem→Product Restrict above). The controller surfaces a friendly 409.
+            e.HasOne(r => r.Ingredient)
+             .WithMany()
+             .HasForeignKey(r => r.IngredientId)
              .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -442,6 +498,8 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<HelpRequest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<TableGuest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<MenuImportJob>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<Ingredient>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<RecipeItem>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
     }
 
     /// <summary>Stamps RestaurantId on new tenant-scoped entities from the ambient tenant.</summary>
