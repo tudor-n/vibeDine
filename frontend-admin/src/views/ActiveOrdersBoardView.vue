@@ -14,6 +14,12 @@ const dragOrderId = ref<string | null>(null)
 const dragOverColumn = ref<ActiveStatus | null>(null)
 const focusOrderId = computed(() => (route.query.focus as string | undefined) ?? null)
 
+// On phones we collapse the 3-column board into a single column controlled by
+// the filter bar; on desktop all three columns show side by side as a kanban.
+const isMobile = ref(false)
+const activeStatus = ref<ActiveStatus>('submitted')
+let mql: MediaQueryList | null = null
+
 let pollTimer: number | null = null
 let tickTimer: number | null = null
 
@@ -25,6 +31,25 @@ const COLUMNS: Array<{ key: ActiveStatus; label: string; hint: string }> = [
   { key: 'preparing', label: 'În pregătire', hint: 'Sunt în lucru acum' },
   { key: 'ready', label: 'Finalizată', hint: `Se arhivează automat în ${GRACE_SECONDS}s` },
 ]
+
+// Forward-only workflow used by the per-card action button: Comandă → În
+// pregătire → Finalizată. `ready` is terminal (it auto-archives after the grace
+// period), so it has no next step.
+const NEXT_STATUS: Partial<Record<ActiveStatus, ActiveStatus>> = {
+  submitted: 'preparing',
+  preparing: 'ready',
+}
+
+function nextLabel(status: ActiveStatus): string | null {
+  const next = NEXT_STATUS[status]
+  if (!next) return null
+  return COLUMNS.find((c) => c.key === next)?.label ?? null
+}
+
+// Desktop shows every column; mobile shows only the one picked in the filter.
+const visibleColumns = computed(() =>
+  isMobile.value ? COLUMNS.filter((c) => c.key === activeStatus.value) : COLUMNS,
+)
 
 async function fetchActive() {
   try {
@@ -83,15 +108,9 @@ function onDragLeave(col: ActiveStatus) {
   if (dragOverColumn.value === col) dragOverColumn.value = null
 }
 
-async function onDrop(e: DragEvent, target: ActiveStatus) {
-  e.preventDefault()
-  const orderId = e.dataTransfer?.getData('text/plain') || dragOrderId.value
-  dragOrderId.value = null
-  dragOverColumn.value = null
-  if (!orderId) return
-
-  const order = orders.value.find(o => o.id === orderId)
-  if (!order || order.status === target) return
+// Shared by drag-and-drop (desktop) and the per-card action button (mobile).
+async function changeStatus(order: ActiveOrder, target: ActiveStatus) {
+  if (order.status === target) return
   // Belt-and-braces: never move an unclaimed (immutable) order.
   if (!order.claimedByWaiterId) return
 
@@ -102,7 +121,7 @@ async function onDrop(e: DragEvent, target: ActiveStatus) {
   order.readyAt = target === 'ready' ? new Date().toISOString() : null
 
   try {
-    const updated = await apiClient.updateOrderStatus(orderId, target)
+    const updated = await apiClient.updateOrderStatus(order.id, target)
     // Trust the server timestamp (avoids drift with the grace-period countdown).
     order.readyAt = updated.readyAt ?? order.readyAt
   } catch (err) {
@@ -112,12 +131,40 @@ async function onDrop(e: DragEvent, target: ActiveStatus) {
   }
 }
 
+async function onDrop(e: DragEvent, target: ActiveStatus) {
+  e.preventDefault()
+  const orderId = e.dataTransfer?.getData('text/plain') || dragOrderId.value
+  dragOrderId.value = null
+  dragOverColumn.value = null
+  if (!orderId) return
+
+  const order = orders.value.find(o => o.id === orderId)
+  if (!order) return
+  await changeStatus(order, target)
+}
+
+// Advance one step in the workflow from the card's action button.
+function advance(order: ActiveOrder) {
+  const next = NEXT_STATUS[order.status]
+  if (next) changeStatus(order, next)
+}
+
+function onMqlChange(e: MediaQueryListEvent) {
+  isMobile.value = e.matches
+}
+
 onMounted(() => {
+  // Keep this breakpoint in sync with the kanban grid media query below.
+  mql = window.matchMedia('(max-width: 899px)')
+  isMobile.value = mql.matches
+  mql.addEventListener('change', onMqlChange)
+
   fetchActive()
   pollTimer = window.setInterval(fetchActive, 5000)
   tickTimer = window.setInterval(() => (now.value = Date.now()), 1000)
 })
 onBeforeUnmount(() => {
+  mql?.removeEventListener('change', onMqlChange)
   if (pollTimer !== null) window.clearInterval(pollTimer)
   if (tickTimer !== null) window.clearInterval(tickTimer)
 })
@@ -147,9 +194,26 @@ onBeforeUnmount(() => {
       </span>
     </div>
 
+    <!-- Mobile-only status filter: tap to switch which single column shows. -->
+    <div v-if="isMobile" class="mobile-filter" role="tablist" aria-label="Filtrează comenzile după stare">
+      <button
+        v-for="col in COLUMNS"
+        :key="col.key"
+        type="button"
+        class="filter-tab"
+        :class="[`filter-tab--${col.key}`, { 'filter-tab--active': activeStatus === col.key }]"
+        role="tab"
+        :aria-selected="activeStatus === col.key"
+        @click="activeStatus = col.key"
+      >
+        <span class="filter-tab-label">{{ col.label }}</span>
+        <span class="filter-count">{{ byColumn[col.key].length }}</span>
+      </button>
+    </div>
+
     <div class="kanban">
       <section
-        v-for="col in COLUMNS"
+        v-for="col in visibleColumns"
         :key="col.key"
         class="column"
         :class="[
@@ -221,6 +285,17 @@ onBeforeUnmount(() => {
                 arhivare {{ secondsLeft(order) }}s
               </span>
             </footer>
+
+            <!-- Per-card status advance (primary control on touch, where drag
+                 is impractical). Only claimed orders can move forward. -->
+            <button
+              v-if="isMobile && order.claimedByWaiterId && nextLabel(order.status)"
+              type="button"
+              class="advance-btn"
+              @click="advance(order)"
+            >
+              <span aria-hidden="true">→</span> {{ nextLabel(order.status) }}
+            </button>
           </article>
 
           <div v-if="byColumn[col.key].length === 0" class="empty-slot">
@@ -451,5 +526,98 @@ onBeforeUnmount(() => {
   letter-spacing: 0.05em;
   border: 1px dashed var(--ink12);
   border-radius: 14px;
+}
+
+/* ── Mobile filter bar — segmented control to pick the single visible column ── */
+.mobile-filter {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.filter-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border: 1px solid var(--ink12);
+  border-radius: 14px;
+  background: var(--paperHi);
+  color: var(--ink70);
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+.filter-tab-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: center;
+  line-height: 1.15;
+}
+.filter-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+  color: inherit;
+}
+/* Active tab borrows each column's signature color treatment. */
+.filter-tab--active.filter-tab--submitted {
+  background: var(--lime);
+  color: var(--onLime);
+  border-color: transparent;
+}
+.filter-tab--active.filter-tab--preparing {
+  background: var(--accentSoft);
+  color: var(--accentDk);
+  border-color: var(--accentBorder);
+}
+.filter-tab--active.filter-tab--ready {
+  background: var(--ink);
+  color: var(--lime);
+  border-color: transparent;
+}
+.filter-tab--active .filter-count {
+  background: rgba(0, 0, 0, 0.18);
+}
+[data-theme="dark"] .filter-tab--active.filter-tab--preparing { color: #FFFFFF; }
+[data-theme="dark"] .filter-tab--active.filter-tab--ready { color: var(--accent); }
+
+/* ── Per-card advance button (mobile primary action) ── */
+.advance-btn {
+  width: 100%;
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border: none;
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--lime);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: filter 0.16s ease;
+}
+.advance-btn:active { filter: brightness(1.15); }
+[data-theme="dark"] .advance-btn { color: var(--accent); }
+
+/* On phones the board is a single scrollable column, not a tall kanban lane,
+   so drop the desktop min-height floor and the grab cursor. */
+@media (max-width: 899px) {
+  .column { min-height: auto; }
+  .kanban-card { cursor: default; }
+  .kanban-card:active { cursor: default; }
+  .empty-slot { padding: 48px 12px; }
 }
 </style>
