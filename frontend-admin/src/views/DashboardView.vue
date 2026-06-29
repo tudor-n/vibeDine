@@ -1,13 +1,20 @@
 <script setup lang="ts">
 
 import { onMounted, onUnmounted, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useMetricsStore } from '@/stores/useMetricsStore';
+import { useInventoryStore } from '@/stores/useInventoryStore'
+import { useToast } from '@/composables/useToast'
 import PerformanceMetrics from '@/components/PerformanceMetrics.vue';
+import type { AdminIngredient } from '@shared/types/models'
 
 const metricsStore = useMetricsStore();
+const inventoryStore = useInventoryStore()
+const toast = useToast()
 
 onMounted(() => {
     metricsStore.startPolling();
+    inventoryStore.fetchIngredients()
 })
 
 
@@ -19,6 +26,33 @@ const clockLabel = computed(() => {
   const d = new Date()
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 })
+
+const UNIT_LABELS: Record<string, string> = {
+  piece: 'buc', gram: 'g', kilogram: 'kg', milliliter: 'ml', liter: 'l',
+}
+function unitLabel(u: string) {
+  return UNIT_LABELS[u] ?? u
+}
+const qtyFormatter = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 3 })
+function formatQty(n: number) {
+  return qtyFormatter.format(n)
+}
+
+async function quickRestock(i: AdminIngredient) {
+  const input = window.prompt(`Cât adaugi în stoc pentru „${i.name}" (${unitLabel(i.unit)})?`, '')
+  if (input === null) return
+  const delta = Number(input.trim().replace(',', '.'))
+  if (!Number.isFinite(delta) || delta === 0) {
+    toast.error('Introdu o cantitate validă.')
+    return
+  }
+  try {
+    await inventoryStore.adjustIngredient(i.id, { delta })
+    toast.success(`Stoc actualizat pentru „${i.name}".`)
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Eroare la actualizarea stocului.')
+  }
+}
 </script>
 
 
@@ -76,6 +110,38 @@ const clockLabel = computed(() => {
       :is-loading="metricsStore.isLoading"
     />
 
+    <!-- Low-stock alert -->
+    <section v-if="inventoryStore.lowStockItems.length > 0" class="card-paper p-6 mt-8 low-card">
+      <div class="flex items-end justify-between mb-4 gap-3 flex-wrap">
+        <div>
+          <div class="eyebrow mb-1">Atenție · stoc</div>
+          <h2 class="display-title text-2xl">Stoc redus</h2>
+        </div>
+        <RouterLink to="/inventory" class="btn-ghost whitespace-nowrap">Vezi inventarul</RouterLink>
+      </div>
+
+      <div class="grid gap-2">
+        <div
+          v-for="i in inventoryStore.lowStockItems"
+          :key="i.id"
+          class="low-row card-white p-3"
+        >
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-ink truncate">
+              {{ i.name }}
+              <span v-if="i.linkedProductName" class="low-tag">produs</span>
+            </div>
+            <div class="low-meta font-mono">
+              rămas {{ formatQty(i.quantityOnHand) }} {{ unitLabel(i.unit) }} · prag {{ formatQty(i.lowStockThreshold) }}
+            </div>
+          </div>
+          <button class="btn-ghost text-sm whitespace-nowrap" type="button" @click="quickRestock(i)">
+            + Stoc
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- Activity card — hidden until implemented; flip v-if to true to restore -->
     <div v-if="false" class="card-paper p-8 mt-8 relative overflow-hidden">
       <div class="bloom bloom-lime" style="top: -40px; right: -40px; width: 200px; height: 200px; opacity: 0.18;" />
@@ -94,3 +160,29 @@ const clockLabel = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.low-card { border-color: var(--accentBorder); }
+.low-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.low-meta {
+  font-size: 11px;
+  color: var(--ink40);
+  margin-top: 2px;
+}
+.low-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--ink06);
+  color: var(--ink70);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+</style>

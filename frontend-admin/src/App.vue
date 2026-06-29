@@ -7,6 +7,7 @@ import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
+import { useInventoryStore } from '@/stores/useInventoryStore'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
@@ -14,6 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const importStore = useMenuImportStore()
 const waiterCalls = useWaiterCallsStore()
+const inventory = useInventoryStore()
 
 // Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
 // full-screen without the admin shell.
@@ -42,6 +44,8 @@ watch(
   ([isAuth, rid]) => {
     if (isAuth && rid) void waiterCalls.start(rid)
     else void waiterCalls.stop()
+    // Load stock once per restaurant so the "Inventar" nav badge can show the low-stock count.
+    if (isAuth && rid && !auth.isWaiter) void inventory.fetchIngredients()
   },
   { immediate: true },
 )
@@ -217,7 +221,8 @@ function logout() {
       <RouterLink v-if="!auth.isWaiter" to="/inventory" class="nav-link" active-class="nav-link-active">
         <span class="nav-icon" aria-hidden="true">▣</span>
         <span class="nav-label">Inventar</span>
-        <span class="nav-arrow" aria-hidden="true">→</span>
+        <span v-if="inventory.lowStockCount" class="nav-badge" aria-label="ingrediente cu stoc redus">{{ inventory.lowStockCount }}</span>
+        <span v-else class="nav-arrow" aria-hidden="true">→</span>
       </RouterLink>
 
       <RouterLink to="/orders/active" class="nav-link" active-class="nav-link-active">
