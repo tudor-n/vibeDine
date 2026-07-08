@@ -56,67 +56,6 @@ public class AdminController : ControllerBase
         _logger = logger;
     }
 
-    [HttpGet("directives")]
-    public async Task<IActionResult> GetDirectives()
-    {
-        var directives = await _dbContext.AIDirectives
-            .OrderByDescending(d => d.CreatedAt)
-            .ToListAsync();
-        
-        return Ok(directives);
-    }
-
-    [HttpPost("directives")]
-    public async Task<IActionResult> CreateDirective([FromBody] CreateDirectiveRequest request)
-    {
-        var client = _httpClientFactory.CreateClient("AiService");
-        string? parsedRules = null;
-        
-        try
-        {
-            var aiResponse = await client.PostAsJsonAsync("/directives/parse", new { raw_prompt = request.RawPrompt });
-            if (aiResponse.IsSuccessStatusCode)
-            {
-                var result = await aiResponse.Content.ReadFromJsonAsync<JsonElement>();
-                if (result.TryGetProperty("parsed_rules", out var pr))
-                {
-                    parsedRules = pr.GetRawText();
-                }
-            }
-        }
-        catch(Exception ex)
-        {
-            _logger.LogWarning(ex, "Ai service failed to parse the directive");
-        }
-
-        var directive = new AIDirective
-        {
-            Id = Guid.NewGuid(),
-            RawPrompt = request.RawPrompt,
-            ParsedRules = parsedRules,
-            CreatedAt = DateTime.UtcNow,
-            IsActive = true
-        };
-
-        _dbContext.AIDirectives.Add(directive);
-        await _dbContext.SaveChangesAsync();
-
-        return Ok(directive);
-    }
-
-
-    [HttpPatch("directives/{id}")]
-    public async Task<IActionResult> ToggleDirective(Guid id, [FromBody] bool isActive)
-    {
-        var directive = await _dbContext.AIDirectives.FindAsync(id);
-        if (directive == null) return NotFound();
-
-        directive.IsActive = isActive;
-        await _dbContext.SaveChangesAsync();
-        return Ok(directive);
-    }
-
-
     [HttpGet("recommendation-directives")]
     public async Task<IActionResult> GetRecommendationDirectives()
     {
@@ -565,12 +504,6 @@ public class AdminController : ControllerBase
         return Ok(new {message = "Flash deal triggered successfully."});
     }
 
-}
-
-public class CreateDirectiveRequest
-{
-    [JsonPropertyName("rawPrompt")]
-    public string RawPrompt { get; set; } = string.Empty;
 }
 
 public class CreateRecommendationDirectiveRequest
