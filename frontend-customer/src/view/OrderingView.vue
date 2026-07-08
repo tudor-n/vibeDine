@@ -5,6 +5,7 @@ import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
+import { useHappyHourStore } from '@/stores/useHappyHourStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useTheme } from '@/composables/useTheme'
@@ -27,6 +28,7 @@ const cartStore = useCartStore()
 const sessionStore = useSessionStore()
 const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
+const happyHourStore = useHappyHourStore()
 const orderStatusStore = useOrderStatusStore()
 const { theme, tokens: T, toggle: toggleTheme } = useTheme()
 const { t } = useLocale()
@@ -138,6 +140,9 @@ onMounted(async () => {
     // backend's persisted draft so the diner keeps the order they were building.
     cartStore.restoreFromServerIfEmpty(session.activeOrder.items)
     if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
+    // Poll the live happy hour app-wide (not just on the menu screen) so the bar
+    // shows on the categories page and stays visible after an order is sent.
+    happyHourStore.startPolling()
   } catch (e) {
     console.error('Could not initialize session', e)
     sessionError.value = 'invalid'
@@ -153,6 +158,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (partyPoll) clearInterval(partyPoll)
   if (progressDismissTimer) clearTimeout(progressDismissTimer)
+  happyHourStore.stopPolling()
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 

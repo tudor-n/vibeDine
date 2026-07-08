@@ -130,7 +130,8 @@ const navGroups = computed<NavGroup[]>(() => {
       label: 'Meniu & AI',
       items: [
         { to: '/menu', icon: '☰', label: 'Meniu', show: full },
-        { to: '/ai-config', icon: '✦', label: 'Configurare AI', show: full },
+        { to: '/happy-hour', icon: '◷', label: 'Happy Hour', show: full },
+        { to: '/flash-deal', icon: '◈', label: 'Flash Deal', show: full },
         { to: '/rules', icon: '∞', label: 'Reguli', show: full },
       ],
     },
