@@ -61,6 +61,7 @@ export interface ReviewItem {
   categoryHint: string | null
   resolvedCategory: MappedCategory
   skipped: boolean
+  imageUrl: string | null
 }
 
 function normaliseHint(hint: string): string {
@@ -173,6 +174,9 @@ export const useMenuImportStore = defineStore('menuImport', () => {
 
   const step = ref<1 | 2 | 3>(1)
   const files = ref<File[]>([])
+  // Per-import opt-in for dish-photo extraction. Chosen on the upload step before
+  // any file is dropped (a dropped PDF auto-starts the import).
+  const extractItemPhotos = ref(false)
   const isScanning = ref(false)
   const scanStartedAt = ref<number | null>(null)
   const scanError = ref<string | null>(null)
@@ -286,7 +290,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     // Mark "was scanning" in storage so a refresh mid-scan can auto-retry on reload.
     await persistPhotoState({ wasScanning: true })
     try {
-      const result = await menuImportApi.scan(files.value)
+      const result = await menuImportApi.scan(files.value, 'ro-RO', extractItemPhotos.value)
       extractedItems.value = result.items
       failedPages.value = result.failedPages
 
@@ -368,6 +372,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
         categoryHint: it.categoryHint ?? null,
         resolvedCategory: resolveCategoryForItem(it),
         skipped: false,
+        imageUrl: it.imageUrl ?? null,
       }))
     step.value = 3
   }
@@ -382,6 +387,20 @@ export const useMenuImportStore = defineStore('menuImport', () => {
   function toggleSkip(clientId: string) {
     const target = reviewItems.value.find((r) => r.clientId === clientId)
     if (target) target.skipped = !target.skipped
+  }
+
+  /** Flat-review flow: drop the dish photo for one review row. */
+  function removeReviewItemPhoto(clientId: string) {
+    const target = reviewItems.value.find((r) => r.clientId === clientId)
+    if (target) target.imageUrl = null
+  }
+
+  /** Hierarchy flow: drop the dish photo for one extracted item by (page, index). */
+  function removeItemPhoto(ref: { sourcePage: number; sourceIndex: number }) {
+    const target = extractedItems.value.find(
+      (it) => it.sourcePage === ref.sourcePage && it.sourceIndex === ref.sourceIndex,
+    )
+    if (target) target.imageUrl = null
   }
 
   function validateRow(row: ReviewItem): { ok: boolean; field?: 'name' | 'price' } {
@@ -420,6 +439,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
         price: row.price,
         categoryId,
         isAvailable: true,
+        imageUrl: row.imageUrl ?? null,
       })
     }
     return { items, newCategories: Array.from(newCategoriesByTempId.values()) }
@@ -531,6 +551,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
           categoryHint: it.categoryHint ?? null,
           resolvedCategory: resolveCategoryForItem(it),
           skipped: false,
+          imageUrl: it.imageUrl ?? null,
         }))
       step.value = 3
     }
@@ -599,7 +620,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
 
     let jobId: string
     try {
-      ;({ jobId } = await menuImportApi.startPdfImport(file))
+      ;({ jobId } = await menuImportApi.startPdfImport(file, extractItemPhotos.value))
     } catch (err) {
       importError.value = err instanceof Error ? err.message : 'Eroare la pornirea importului PDF.'
       if (pdfJob.value === startingJob) {
@@ -847,6 +868,30 @@ export const useMenuImportStore = defineStore('menuImport', () => {
         })),
       })),
     }
+
+    // Safety net: the AI organizer can silently omit items from the hierarchy
+    // (observed dropping 50-77% of items on large menus, varying per run). Any
+    // extracted item it didn't place would otherwise vanish from the review and
+    // the saved menu. Re-attach every missing item to the uncategorized bucket
+    // so the admin sees and can place all of them — no product is ever lost.
+    const referenced = new Set<string>()
+    for (const c of editable.categories) {
+      for (const r of c.directItemRefs) referenced.add(`${r.sourcePage}:${r.sourceIndex}`)
+      for (const s of c.subcategories)
+        for (const r of s.itemRefs) referenced.add(`${r.sourcePage}:${r.sourceIndex}`)
+    }
+    for (const r of editable.uncategorizedItemRefs) referenced.add(`${r.sourcePage}:${r.sourceIndex}`)
+    for (const it of extractedItems.value) {
+      const key = `${it.sourcePage}:${it.sourceIndex}`
+      if (!referenced.has(key)) {
+        editable.uncategorizedItemRefs.push({
+          sourcePage: it.sourcePage,
+          sourceIndex: it.sourceIndex,
+          confidence: 0,
+        })
+      }
+    }
+
     hierarchy.value = editable
   }
 
@@ -969,6 +1014,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     )
 
     const products: BulkCreateHierarchyRequest['products'] = []
+    const placed = new Set<string>()
     let order = 0
     for (const c of hierarchy.value.categories) {
       for (const s of c.subcategories) {
@@ -985,7 +1031,9 @@ export const useMenuImportStore = defineStore('menuImport', () => {
             subcategoryTempId: s.tempId,
             sortOrder: order++,
             isAvailable: true,
+            imageUrl: it.imageUrl ?? null,
           })
+          placed.add(`${ref.sourcePage}:${ref.sourceIndex}`)
         }
       }
       for (const ref of c.directItemRefs) {
@@ -1000,6 +1048,39 @@ export const useMenuImportStore = defineStore('menuImport', () => {
           subcategoryTempId: null,
           sortOrder: order++,
           isAvailable: true,
+          imageUrl: it.imageUrl ?? null,
+        })
+        placed.add(`${ref.sourcePage}:${ref.sourceIndex}`)
+      }
+    }
+
+    // Safety net: never drop a product just because the AI organizer left it
+    // uncategorized or omitted it from the hierarchy. Save every remaining
+    // (non-skipped) extracted item under a fallback category the admin can
+    // re-sort, so the import always keeps all products.
+    const leftovers = extractedItems.value.filter(
+      (it) =>
+        !placed.has(`${it.sourcePage}:${it.sourceIndex}`) &&
+        !skippedItemKeys.has(`${it.sourcePage}:${it.sourceIndex}`),
+    )
+    if (leftovers.length > 0) {
+      const fallbackTempId = makeId()
+      categories.push({
+        tempId: fallbackTempId,
+        name: 'Necategorizate',
+        sortOrder: categories.length,
+        subcategories: [],
+      })
+      for (const it of leftovers) {
+        products.push({
+          name: it.name,
+          price: it.price,
+          description: it.description ?? null,
+          categoryTempId: fallbackTempId,
+          subcategoryTempId: null,
+          sortOrder: order++,
+          isAvailable: true,
+          imageUrl: it.imageUrl ?? null,
         })
       }
     }
@@ -1023,6 +1104,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
   function $reset() {
     step.value = 1
     files.value = []
+    extractItemPhotos.value = false
     isScanning.value = false
     scanStartedAt.value = null
     scanError.value = null
@@ -1047,6 +1129,7 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     // state
     step,
     files,
+    extractItemPhotos,
     isScanning,
     scanStartedAt,
     scanError,
@@ -1077,6 +1160,8 @@ export const useMenuImportStore = defineStore('menuImport', () => {
     advanceToReview,
     updateItem,
     toggleSkip,
+    removeReviewItemPhoto,
+    removeItemPhoto,
     validateRow,
     buildBulkPayload,
     importAll,

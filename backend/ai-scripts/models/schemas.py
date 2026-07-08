@@ -5,6 +5,7 @@ from typing import List, Optional
 class CartItem(BaseModel):
     product_id: str
     quantity: int
+    name: Optional[str] = None
 
 
 class MenuItem(BaseModel):
@@ -17,6 +18,7 @@ class RecommendationRequest(BaseModel):
     table_id: str
     menu_items: Optional[List[MenuItem]] = []
     order_history: Optional[List[str]] = []
+    language: Optional[str] = "ro"
 
 
 class Recommendation(BaseModel):

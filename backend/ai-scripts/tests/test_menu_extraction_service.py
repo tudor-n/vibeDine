@@ -1,5 +1,9 @@
-import pytest
+import io
 
+import pytest
+from PIL import Image, ImageDraw
+
+from services.item_photo_extractor import FakeItemPhotoExtractor, ItemPhotoExtractionError
 from services.menu_extraction_service import MenuExtractionService
 from services.vision_extractor import FakeVisionExtractor, VisionExtractionError
 
@@ -9,6 +13,17 @@ def _items(*names_and_prices, hint=None):
         {"name": n, "price": p, "source_index": i, "category_hint": hint}
         for i, (n, p) in enumerate(names_and_prices)
     ]
+
+
+def _page_png() -> bytes:
+    img = Image.new("RGB", (1000, 1000), (255, 255, 255))
+    ImageDraw.Draw(img).rectangle([100, 100, 399, 399], fill=(220, 30, 30))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+_DETECTIONS = [{"source_index": 0, "box_2d": [100, 100, 400, 400], "confidence": 0.9}]
 
 
 @pytest.mark.asyncio
@@ -76,3 +91,66 @@ async def test_invalid_provider_payload_treated_as_vision_api_error():
     result = await service.extract([b"\x00"])
     assert result.items == []
     assert result.failed_pages[0].reason == "vision_api_error"
+
+
+# ---------------------------------------------------------------------------
+# Item photo detection (additive second pass)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_item_photos_attached_when_flag_on():
+    fake = FakeItemPhotoExtractor(canned=_DETECTIONS)
+    service = MenuExtractionService(
+        extractor_factory=lambda: FakeVisionExtractor(
+            canned_response={"items": _items(("Pizza", 28.0))}
+        ),
+        photo_extractor_factory=lambda: fake,
+    )
+    result = await service.extract([_page_png()], extract_item_photos=True)
+    assert result.item_photos is not None
+    assert len(result.item_photos) == 1
+    assert result.item_photos[0].source_page == 0
+    assert result.item_photos[0].source_index == 0
+    assert fake.calls and fake.calls[0][0] == 0
+
+
+@pytest.mark.asyncio
+async def test_item_photo_detector_failure_never_breaks_extraction():
+    service = MenuExtractionService(
+        extractor_factory=lambda: FakeVisionExtractor(
+            canned_response={"items": _items(("Pizza", 28.0))}
+        ),
+        photo_extractor_factory=lambda: FakeItemPhotoExtractor(
+            raises=ItemPhotoExtractionError("boom")
+        ),
+    )
+    result = await service.extract([_page_png()], extract_item_photos=True)
+    assert len(result.items) == 1
+    assert result.failed_pages == []
+    assert result.item_photos is None
+
+
+@pytest.mark.asyncio
+async def test_item_photo_detector_not_called_when_flag_off():
+    fake = FakeItemPhotoExtractor(canned=_DETECTIONS)
+    service = MenuExtractionService(
+        extractor_factory=lambda: FakeVisionExtractor(
+            canned_response={"items": _items(("Pizza", 28.0))}
+        ),
+        photo_extractor_factory=lambda: fake,
+    )
+    result = await service.extract([_page_png()])
+    assert fake.calls == []
+    assert result.item_photos is None
+
+
+@pytest.mark.asyncio
+async def test_item_photo_detector_skipped_on_zero_item_page():
+    fake = FakeItemPhotoExtractor(canned=_DETECTIONS)
+    service = MenuExtractionService(
+        extractor_factory=lambda: FakeVisionExtractor(canned_response={"items": []}),
+        photo_extractor_factory=lambda: fake,
+    )
+    result = await service.extract([_page_png()], extract_item_photos=True)
+    assert fake.calls == []
+    assert result.item_photos is None

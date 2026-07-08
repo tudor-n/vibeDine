@@ -187,6 +187,70 @@ public class MenuExtractionClientTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ExtractWithPhotos_appends_flag_and_parses_item_photos()
+    {
+        _python
+            .Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody("""
+                {
+                  "items": [
+                    { "name": "Pizza", "price": 28.0, "source_page": 0, "source_index": 0,
+                      "description": null, "category_hint": "Pizza", "confidence": 0.9 }
+                  ],
+                  "failed_pages": [],
+                  "model": "fake",
+                  "schema_version": 2,
+                  "item_photos": [
+                    { "source_page": 0, "source_index": 0, "image_base64": "QUJD", "confidence": 0.9 }
+                  ]
+                }
+                """));
+
+        var client = new MenuExtractionClient(_httpClient);
+        var photos = new List<(string FileName, string ContentType, byte[] Bytes)>
+        {
+            ("p0.png", "image/png", new byte[] { 1, 2, 3 }),
+        };
+
+        var result = await client.ExtractWithPhotosAsync(photos, CancellationToken.None, extractItemPhotos: true);
+
+        result.ItemPhotos.Should().HaveCount(1);
+        result.ItemPhotos[0].SourcePage.Should().Be(0);
+        result.ItemPhotos[0].SourceIndex.Should().Be(0);
+        result.ItemPhotos[0].ImageBase64.Should().Be("QUJD");
+
+        var body = _python.LogEntries.Single().RequestMessage.Body ?? string.Empty;
+        body.Should().MatchRegex("name=\"?extract_item_photos\"?");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_omits_extract_item_photos_part()
+    {
+        _python
+            .Given(Request.Create().WithPath("/menu/extract").UsingPost())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody("""
+                { "items": [], "failed_pages": [], "model": "fake", "schema_version": 2 }
+                """));
+
+        var client = new MenuExtractionClient(_httpClient);
+        var photos = new List<(string FileName, string ContentType, byte[] Bytes)>
+        {
+            ("p0.png", "image/png", new byte[] { 1 }),
+        };
+
+        await client.ExtractAsync(photos, CancellationToken.None);
+
+        var body = _python.LogEntries.Single().RequestMessage.Body ?? string.Empty;
+        body.Should().NotContain("extract_item_photos");
+    }
+
+    [Fact]
     public async Task Hierarchy_is_null_when_python_omits_it()
     {
         _python

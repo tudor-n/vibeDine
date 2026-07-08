@@ -2,20 +2,25 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiClient, type JoinTableResponse, type MergePartyResponse, type PartyMember } from '@/services/api-client'
 
-// Guest identity is stored per-table (keyed by qrToken) in *sessionStorage*.
-// sessionStorage is per-tab yet still survives reloads, which is exactly what we
-// want: every phone (and every browser tab when testing) is its OWN guest with
-// its OWN draft. localStorage would be shared across tabs of the same browser,
-// collapsing two testers into a single guest ("one person controls everything").
-// This also matches useSessionStore, which already persists orderId in
-// sessionStorage. A phone that later scans a different table starts a fresh slot.
+// Guest identity is stored per-table (keyed by qrToken) in *localStorage*.
+// This is what lets a phone keep its order across more than a same-tab reload:
+// sessionStorage is wiped whenever the QR scanner opens the link in a fresh
+// browser context (very common on phones — a re-scan, or the in-app browser
+// spawning a new tab), so the guestId would be lost and the backend would mint a
+// brand-new empty guest, stranding the draft the diner already built.
+// localStorage survives that, so the same device re-attaches to the same guest +
+// draft. Stale ids degrade gracefully: the backend purges idle guests, and an id
+// that no longer matches this table just starts a fresh slot (see PartyController).
+// Trade-off: two TABS of the *same* desktop browser now share one guest (only
+// relevant when manually testing the multi-person party flow on one machine — on
+// real phones each diner is a separate device with its own localStorage).
 function storageKey(qrToken: string) {
   return `party.guest.${qrToken}`
 }
 
 function readStoredGuestId(qrToken: string): string | null {
   try {
-    return sessionStorage.getItem(storageKey(qrToken))
+    return localStorage.getItem(storageKey(qrToken))
   } catch {
     return null
   }
@@ -60,7 +65,7 @@ export const useGuestStore = defineStore('guest', () => {
       partyMembers.value = res.partyMembers
       mergedInto.value = null
       try {
-        sessionStorage.setItem(storageKey(qrToken), res.guestId)
+        localStorage.setItem(storageKey(qrToken), res.guestId)
       } catch {
         // private mode / disabled storage — in-memory identity still works
       }

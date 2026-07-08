@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import BrandLogo from '@/components/BrandLogo.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
@@ -250,14 +251,19 @@ onUnmounted(() => {
 
       <!-- Brand block (desktop) -->
       <div class="hidden md:block mb-6">
-        <div class="eyebrow mb-2">SMART RESTAURANT</div>
+        <BrandLogo class="mb-3" />
         <div class="display-title text-[34px] leading-[0.95]">
-          Admin<br /><span class="text-accent">Curții.</span>
+          {{ auth.activeRestaurant?.name ?? 'Restaurant' }}
         </div>
       </div>
 
-      <!-- Account chip — top of the panel with inline Settings + Logout buttons -->
-      <div class="account-chip mb-5">
+      <!-- Mobile brand (leaves room for the fixed top-right toggle) -->
+      <div class="md:hidden flex items-center gap-3 pr-14 flex-1">
+        <BrandLogo />
+      </div>
+
+      <!-- Account chip — moved to the top with inline Settings + Logout buttons -->
+      <div class="hidden md:flex account-chip mb-6">
         <div class="account-avatar">
           <img
             v-if="auth.user?.avatarUrl"

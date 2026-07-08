@@ -21,12 +21,27 @@ class FailedPage(BaseModel):
     reason: Literal["unreadable", "no_items_detected", "vision_api_error"]
 
 
+class ExtractedItemPhoto(BaseModel):
+    """A dish photograph cropped from a menu page, attributed to one item.
+
+    Carried as an optional sibling array on the extraction response. The
+    `image_base64` is a re-encoded JPEG crop; the .NET layer persists it to disk
+    and stamps the resulting URL onto the matching item before bulk create.
+    """
+
+    source_page: int = Field(ge=0)
+    source_index: int = Field(ge=0)
+    image_base64: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class MenuExtractionResponse(BaseModel):
     items: List[ExtractedMenuItem]
     failed_pages: List[FailedPage] = []
     model: str
     schema_version: int = 2
     hierarchy: Optional[OrganizerResult] = None
+    item_photos: Optional[List[ExtractedItemPhoto]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +68,7 @@ class PdfJobRequest(BaseModel):
     hmac_secret: str = Field(min_length=8)
     provider: str = "gemini"
     locale: str = "ro-RO"
+    extract_item_photos: bool = False
 
 
 class ProgressEvent(BaseModel):

@@ -6,6 +6,7 @@ import StepUploadPhotos from '@/components/menu-import/StepUploadPhotos.vue'
 
 const mockStore = vi.hoisted(() => ({
   files: [],
+  extractItemPhotos: false,
   canAdvanceFromStep1: false,
   isScanning: false,
   scanError: null,
@@ -27,5 +28,14 @@ describe('StepUploadPhotos', () => {
     expect(wrapper.text()).toContain('5 MB pe fotografie')
     expect(wrapper.text()).toContain('110 MB')
     expect(wrapper.text()).toContain('PDF')
+  })
+
+  it('renders the dish-photo toggle and writes the store flag', async () => {
+    mockStore.extractItemPhotos = false
+    const wrapper = mount(StepUploadPhotos)
+    const toggle = wrapper.find<HTMLInputElement>('[data-testid="extract-photos-toggle"]')
+    expect(toggle.exists()).toBe(true)
+    await toggle.setValue(true)
+    expect(mockStore.extractItemPhotos).toBe(true)
   })
 })

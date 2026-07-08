@@ -1,5 +1,6 @@
 import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
+import { resolveResponseMediaUrls } from '@/services/mediaUrl';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
@@ -84,7 +85,7 @@ async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
     return {} as T;
   }
 
-  return response.json();
+  return resolveResponseMediaUrls(await response.json()) as T;
 }
 
 export const apiClient = {
@@ -129,8 +130,11 @@ export const apiClient = {
   submitOrder: (orderId: string) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/submit`, { method: 'POST' }),
 
-  getRecommendations: (orderId: string, cartItemIds: string[]) => {
-    const query = new URLSearchParams({ current_item_ids: cartItemIds.join(',') }).toString();
+  getRecommendations: (orderId: string, cartItemIds: string[], language: string) => {
+    const query = new URLSearchParams({
+      current_item_ids: cartItemIds.join(','),
+      language,
+    }).toString();
     return fetcher<RecommendationsResponse | any[]>(
       `/api/restaurants/${rid()}/orders/${orderId}/recommendations?${query}`,
     );

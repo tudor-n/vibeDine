@@ -19,6 +19,7 @@
   --accentSoft: rgba(255, 74, 28, 0.10);
   --accentBorder: rgba(255, 74, 28, 0.30);
   --lime:     #D9F54A;
+  --gold:     #D9A520;
   --onAccent: #FFF4EC;
   --onLime:   #15140F;
   --shadow-soft: 0 16px 36px -22px rgba(21, 20, 15, 0.35);
@@ -46,6 +47,7 @@
   --accentSoft: rgba(232, 37, 90, 0.14);
   --accentBorder: rgba(232, 37, 90, 0.40);
   --lime:     #FFD166;
+  --gold:     #FFD166;
   --onAccent: #1B1814;
   --onLime:   #1B1814;
   --shadow-soft: 0 16px 36px -22px rgba(0, 0, 0, 0.55);

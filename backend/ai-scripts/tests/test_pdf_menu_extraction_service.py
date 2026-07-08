@@ -18,6 +18,10 @@ from models.menu_extraction import (
     MenuExtractionResponse,
     ProgressEvent,
 )
+from services.item_photo_extractor import (
+    FakeItemPhotoExtractor,
+    ItemPhotoExtractionError,
+)
 from services.text_extractor import FakeTextExtractor, TextExtractionError
 from services.vision_extractor import FakeVisionExtractor, VisionExtractionError
 from services import pdf_menu_extraction_service as service_module
@@ -1483,3 +1487,75 @@ class _CountingTextExtractor:
     async def extract(self, pages) -> dict:
         self._calls.append([p.page_number for p in pages])
         return await self._inner.extract(pages)
+
+
+# ---------------------------------------------------------------------------
+# Item photo detection (optional second vision pass over scanned pages)
+# ---------------------------------------------------------------------------
+
+_PHOTO_DETECTIONS = [
+    {"source_index": 0, "box_2d": [100, 100, 400, 400], "confidence": 0.9}
+]
+
+
+def _build_photo_service(
+    *,
+    item_photo_factory=None,
+    item_photo_max_pages: int = 50,
+):
+    """A vision-only service whose every page yields one item at index 0."""
+    reporter = StubProgressReporter()
+    service = PdfMenuExtractionService(
+        text_extractor_factory=lambda: FakeTextExtractor(canned_response={"items": []}),
+        vision_extractor_factory=lambda: FakeVisionExtractor(
+            canned_response={"items": [
+                {"name": "Scanned", "price": 15.0, "source_index": 0}
+            ]}
+        ),
+        progress=reporter,
+        item_photo_extractor_factory=item_photo_factory,
+        item_photo_max_pages=item_photo_max_pages,
+    )
+    return service, reporter
+
+
+@pytest.mark.asyncio
+async def test_pdf_item_photos_present_with_fake_detector():
+    fake = FakeItemPhotoExtractor(canned=_PHOTO_DETECTIONS)
+    service, _ = _build_photo_service(item_photo_factory=lambda: fake)
+    result = await service.run(_make_request(SCANNED_3PAGE))
+    assert fake.calls  # detector was invoked
+    assert result.item_photos is not None
+    # All 3 pages share name/price → dedup to one item (page 0); only that
+    # page's photo survives the post-dedup intersection.
+    assert len(result.item_photos) == 1
+    assert result.item_photos[0].source_page == 0
+    assert result.item_photos[0].source_index == 0
+
+
+@pytest.mark.asyncio
+async def test_pdf_no_item_photos_when_factory_absent():
+    service, _ = _build_photo_service(item_photo_factory=None)
+    result = await service.run(_make_request(SCANNED_3PAGE))
+    assert result.item_photos is None
+    assert len(result.items) >= 1
+    assert result.failed_pages == []
+
+
+@pytest.mark.asyncio
+async def test_pdf_item_photo_detector_failure_never_breaks_extraction():
+    fake = FakeItemPhotoExtractor(raises=ItemPhotoExtractionError("boom"))
+    service, _ = _build_photo_service(item_photo_factory=lambda: fake)
+    result = await service.run(_make_request(SCANNED_3PAGE))
+    assert result.item_photos is None
+    assert len(result.items) >= 1
+    assert result.failed_pages == []
+
+
+@pytest.mark.asyncio
+async def test_pdf_item_photo_page_cap_respected():
+    fake = FakeItemPhotoExtractor(canned=_PHOTO_DETECTIONS)
+    service, _ = _build_photo_service(item_photo_factory=lambda: fake, item_photo_max_pages=1)
+    await service.run(_make_request(SCANNED_3PAGE))
+    # Cap of 1 means at most one page is ever sent to the detector.
+    assert len(fake.calls) == 1

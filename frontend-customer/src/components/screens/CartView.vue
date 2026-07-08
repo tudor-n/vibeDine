@@ -7,6 +7,7 @@ import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { apiClient } from '@/services/api-client'
+import { formatMoney } from '@/utils/money'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
@@ -140,7 +141,7 @@ async function submit() {
           >{{ t('cart.aiSuggested') }}</div>
           <div class="item-row">
             <div class="item-price">
-              {{ it.price * it.quantity }}
+              {{ formatMoney(it.price * it.quantity) }}
               <span class="item-price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </div>
             <div

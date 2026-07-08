@@ -46,7 +46,8 @@ public class MenuImportController : ControllerBase
     public async Task<IActionResult> StartPdfImport(
         Guid restaurantId,
         [FromForm(Name = "pdf")] IFormFile? pdf,
-        CancellationToken ct)
+        CancellationToken ct,
+        [FromForm(Name = "extractItemPhotos")] bool extractItemPhotos = false)
     {
         if (pdf is null || pdf.Length == 0)
             return BadRequest(new { message = "Fișierul PDF este obligatoriu." });
@@ -82,6 +83,7 @@ public class MenuImportController : ControllerBase
             FileSizeBytes = pdf.Length,
             StorageKey = storageKey,
             ProviderUsed = _options.DefaultProvider ?? "gemini",
+            ExtractItemPhotos = extractItemPhotos,
         };
 
         _db.MenuImportJobs.Add(job);

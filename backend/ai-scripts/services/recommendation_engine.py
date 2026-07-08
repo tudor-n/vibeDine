@@ -6,7 +6,7 @@ from models.schemas import RecommendationRequest
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
 
-GEMINI_MODEL = "gemini-3.1-pro-preview"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 
 def get_recommendations(request: RecommendationRequest) -> dict:
@@ -15,22 +15,35 @@ def get_recommendations(request: RecommendationRequest) -> dict:
 
     valid_ids = {item.product_id for item in request.menu_items}
     menu_context = [{"product_id": item.product_id, "name": item.name} for item in request.menu_items]
-    cart_context = [{"product_id": item.product_id, "quantity": item.quantity} for item in request.cart_items]
+    cart_context = [
+        {"product_id": item.product_id, "name": item.name, "quantity": item.quantity}
+        for item in request.cart_items
+    ]
+
+    lang = (request.language or "ro").lower()
+    language_name = "English" if lang.startswith("en") else "Romanian"
 
     prompt = f"""You are a restaurant upsell recommendation engine.
 
-Customer cart: {json.dumps(cart_context)}
+Customer cart (the dishes/drinks already chosen): {json.dumps(cart_context, ensure_ascii=False)}
 
 Available products to recommend (use ONLY these exact product_id values):
-{json.dumps(menu_context)}
+{json.dumps(menu_context, ensure_ascii=False)}
 
-Recommend 2 to 3 products from the available list that pair well with the cart.
+Recommend 2 to 3 products from the available list that genuinely pair well with the
+items already in the cart.
+
+For each recommendation, write "reason": one short, appetizing, customer-facing
+sentence (max ~12 words) that explains WHY this specific product goes well with what
+is already in the cart. Refer to the real items by what they are. Do NOT output the
+literal word "pairing" or any placeholder text. Write every "reason" in {language_name}.
+
 Respond ONLY with JSON matching this schema, no other text:
 {{
     "recommendations": [
         {{
             "product_id": "exact-uuid-from-available-list",
-            "reason": "pairing",
+            "reason": "<short {language_name} sentence on why it pairs with the cart>",
             "confidence": 0.85
         }}
     ]
