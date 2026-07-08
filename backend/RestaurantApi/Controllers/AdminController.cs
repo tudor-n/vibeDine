@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
@@ -8,6 +9,7 @@ using RestaurantApi.Data;
 using RestaurantApi.Hubs;
 using RestaurantApi.Models;
 using RestaurantApi.Services;
+using RestaurantApi.Tenancy;
 
 
 namespace RestaurantApi.Controllers;
@@ -22,7 +24,11 @@ public class AdminController : ControllerBase
     private readonly IFlashDealService _flashDealService;
     private readonly IHubContext<CustomerHub> _customerHub;
     private readonly IHubContext<StaffHub> _staffHub;
+    private readonly ITenantAccess _access;
     private readonly ILogger <AdminController> _logger;
+
+    private Guid UserId =>
+        Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
 
     // Active-board statuses (the three kanban columns). Anything outside this
     // set is considered terminal and lives in the finalized log.
@@ -37,6 +43,7 @@ public class AdminController : ControllerBase
         IFlashDealService flashDealService,
         IHubContext<CustomerHub> customerHub,
         IHubContext<StaffHub> staffHub,
+        ITenantAccess access,
         ILogger<AdminController> logger)
     {
         _dbContext = dbContext;
@@ -44,6 +51,7 @@ public class AdminController : ControllerBase
         _flashDealService = flashDealService;
         _customerHub = customerHub;
         _staffHub = staffHub;
+        _access = access;
         _logger = logger;
     }
 
@@ -320,6 +328,7 @@ public class AdminController : ControllerBase
             .Where(o => o.DeletedAt == null
                         && (o.Status == "submitted" || o.Status == "preparing" || o.Status == "ready"))
             .Include(o => o.Table)
+            .Include(o => o.ClaimedByWaiter)
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
             .OrderBy(o => o.CreatedAt)
@@ -334,6 +343,9 @@ public class AdminController : ControllerBase
                 readyAt = o.ReadyAt,
                 tableId = o.TableId,
                 tableNumber = o.Table != null ? o.Table.TableNumber : "?",
+                claimedByWaiterId = o.ClaimedByWaiterId,
+                claimedByName = o.ClaimedByWaiter != null ? o.ClaimedByWaiter.FullName : null,
+                claimedAt = o.ClaimedAt,
                 items = o.Items.Select(i => new
                 {
                     id = i.Id,
@@ -377,6 +389,15 @@ public class AdminController : ControllerBase
         if (!ActiveStatuses.Contains(order.Status))
             return Conflict(new { message = $"Comanda nu mai e activă (stare curentă: {order.Status})." });
 
+        // Managers (OrgOwner of the org, RestaurantAdmin of this restaurant) may move
+        // any order on the board. A waiter may only move an order they personally
+        // claimed — never an unclaimed one, nor one claimed by a colleague or a
+        // manager. Mirrors the floor-plan claim model and the board's drag rules.
+        var canManage = await _access.CanManageRestaurantAsync(UserId, restaurantId);
+        if (!canManage && order.ClaimedByWaiterId != UserId)
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "Poți modifica doar comenzile preluate de tine." });
+
         order.Status = newStatus;
         // Stamp ReadyAt when entering "ready" (starts the soft-delete countdown);
         // clear it when the admin drags back out, so the timer resets cleanly.
@@ -403,6 +424,7 @@ public class AdminController : ControllerBase
                 orderNumber = order.OrderNumber,
                 status = order.Status,
                 readyAt = order.ReadyAt,
+                tableId = order.TableId,
             });
 
         return Ok(new
@@ -412,6 +434,107 @@ public class AdminController : ControllerBase
             status = order.Status,
             readyAt = order.ReadyAt,
         });
+    }
+
+    // Waiter (or manager) takes ownership of an order from the floor plan
+    // ("Preia comanda"). Until claimed, the order shows on the Comenzi board
+    // greyed-out and immutable; claiming locks it to one person so two staffers
+    // never prepare the same order.
+    [HttpPost("orders/{orderId:guid}/claim")]
+    public async Task<IActionResult> ClaimOrder(Guid restaurantId, Guid orderId)
+    {
+        if (!await _access.CanAccessRestaurantAsync(UserId, restaurantId))
+            return Forbid();
+
+        var order = await _dbContext.Orders
+            .Include(o => o.ClaimedByWaiter)
+            .FirstOrDefaultAsync(o => o.Id == orderId && o.DeletedAt == null);
+
+        if (order == null)
+            return NotFound(new { message = "Comanda nu a fost găsită sau a fost deja finalizată." });
+
+        if (!ActiveStatuses.Contains(order.Status))
+            return Conflict(new { message = $"Comanda nu mai e activă (stare curentă: {order.Status})." });
+
+        // Already claimed by someone else → only a manager may take it over.
+        if (order.ClaimedByWaiterId is Guid currentOwner && currentOwner != UserId)
+        {
+            if (!await _access.CanManageRestaurantAsync(UserId, restaurantId))
+                return Conflict(new
+                {
+                    message = $"Comanda a fost deja preluată de {order.ClaimedByWaiter?.FullName ?? "alt coleg"}.",
+                });
+        }
+
+        order.ClaimedByWaiterId = UserId;
+        order.ClaimedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+
+        var claimerName = await _dbContext.Users
+            .Where(u => u.Id == UserId)
+            .Select(u => u.FullName)
+            .FirstOrDefaultAsync();
+
+        await BroadcastClaim(order, claimerName);
+
+        return Ok(new
+        {
+            id = order.Id,
+            claimedByWaiterId = order.ClaimedByWaiterId,
+            claimedByName = claimerName,
+            claimedAt = order.ClaimedAt,
+        });
+    }
+
+    // Hands a claimed order back to the pool. The claimer can release their own;
+    // managers can release anyone's.
+    [HttpPost("orders/{orderId:guid}/release")]
+    public async Task<IActionResult> ReleaseOrder(Guid restaurantId, Guid orderId)
+    {
+        if (!await _access.CanAccessRestaurantAsync(UserId, restaurantId))
+            return Forbid();
+
+        var order = await _dbContext.Orders
+            .FirstOrDefaultAsync(o => o.Id == orderId && o.DeletedAt == null);
+
+        if (order == null)
+            return NotFound(new { message = "Comanda nu a fost găsită." });
+
+        if (order.ClaimedByWaiterId == null)
+            return Ok(new { id = order.Id, claimedByWaiterId = (Guid?)null });
+
+        if (order.ClaimedByWaiterId != UserId
+            && !await _access.CanManageRestaurantAsync(UserId, restaurantId))
+            return Forbid();
+
+        order.ClaimedByWaiterId = null;
+        order.ClaimedAt = null;
+        await _dbContext.SaveChangesAsync();
+
+        await BroadcastClaim(order, null);
+
+        return Ok(new { id = order.Id, claimedByWaiterId = (Guid?)null });
+    }
+
+    // Notifies every staff session (admin + waiters) so the Comenzi board, the
+    // floor plan, and the modal all reflect the new claim state in real time.
+    private async Task BroadcastClaim(Order order, string? claimedByName)
+    {
+        var payload = new
+        {
+            orderId = order.Id,
+            orderNumber = order.OrderNumber,
+            tableId = order.TableId,
+            claimedByWaiterId = order.ClaimedByWaiterId,
+            claimedByName,
+            claimedAt = order.ClaimedAt,
+        };
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
+            .SendAsync("OrderClaimed", payload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderClaimed", payload);
     }
 
     [HttpGet("flash-deals")]

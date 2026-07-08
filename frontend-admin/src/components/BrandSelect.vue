@@ -252,6 +252,7 @@ watch(
     gap: 8px;
     width: 100%;
     padding: 10px 14px;
+    min-height: var(--tap-min);
     background: var(--paper);
     color: var(--ink);
     border: 1px solid var(--ink12);
@@ -330,6 +331,9 @@ watch(
     cursor: pointer;
     transition: background 0.1s ease, color 0.1s ease;
     min-width: 0;
+}
+@media (hover: none) {
+    .brand-select-option { min-height: var(--tap-min); }
 }
 .brand-select-option.is-active {
     background: var(--accent);
