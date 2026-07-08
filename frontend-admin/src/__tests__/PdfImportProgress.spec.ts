@@ -49,9 +49,15 @@ describe('PdfImportProgress', () => {
     expect(wrapper.text()).toContain('Se încarcă PDF-ul')
   })
 
-  it('renders exactly totalPages dots', () => {
+  it('renders one dot per page when the page grid is shown (<= 80 pages)', () => {
+    const wrapper = mount(PdfImportProgress, { props: { job: makeJob({ totalPages: 60, processedPages: 30 }) } })
+    expect(wrapper.findAll('[data-testid="page-dot"]')).toHaveLength(60)
+  })
+
+  it('hides the per-page dot grid for large PDFs (> 80 pages)', () => {
+    // makeJob() uses 100 pages; the dot grid is capped at 80 to avoid an unwieldy render.
     const wrapper = mount(PdfImportProgress, { props: { job: makeJob() } })
-    expect(wrapper.findAll('[data-testid="page-dot"]')).toHaveLength(100)
+    expect(wrapper.findAll('[data-testid="page-dot"]')).toHaveLength(0)
   })
 
   it('emits "cancel" when the cancel button is clicked', async () => {
