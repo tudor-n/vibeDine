@@ -643,6 +643,14 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("claimed_at");
+
+                    b.Property<Guid?>("ClaimedByWaiterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("claimed_by_waiter_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -689,6 +697,8 @@ namespace RestaurantApi.Migrations
                         .HasColumnName("total_amount");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ClaimedByWaiterId");
 
                     b.HasIndex("RestaurantId");
 
@@ -972,6 +982,14 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
+                    b.Property<double>("PositionX")
+                        .HasColumnType("double precision")
+                        .HasColumnName("position_x");
+
+                    b.Property<double>("PositionY")
+                        .HasColumnType("double precision")
+                        .HasColumnName("position_y");
+
                     b.Property<Guid?>("QrToken")
                         .HasColumnType("uuid")
                         .HasColumnName("qr_token");
@@ -984,12 +1002,18 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("table_number");
 
+                    b.Property<Guid?>("ZoneId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("zone_id");
+
                     b.HasKey("Id");
 
                     b.HasIndex("QrToken")
                         .IsUnique();
 
                     b.HasIndex("RestaurantId");
+
+                    b.HasIndex("ZoneId");
 
                     b.ToTable("tables", (string)null);
                 });
@@ -1110,6 +1134,37 @@ namespace RestaurantApi.Migrations
                     b.HasIndex("TableId");
 
                     b.ToTable("table_guests", (string)null);
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.TableZone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "SortOrder");
+
+                    b.ToTable("table_zones", (string)null);
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.WaiterSignupLink", b =>
@@ -1299,11 +1354,18 @@ namespace RestaurantApi.Migrations
 
             modelBuilder.Entity("RestaurantApi.Models.Order", b =>
                 {
+                    b.HasOne("RestaurantApi.Models.AppUser", "ClaimedByWaiter")
+                        .WithMany()
+                        .HasForeignKey("ClaimedByWaiterId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
                         .WithMany("Orders")
                         .HasForeignKey("TableId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ClaimedByWaiter");
 
                     b.Navigation("Table");
                 });
@@ -1365,6 +1427,14 @@ namespace RestaurantApi.Migrations
                         .IsRequired();
 
                     b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.RestaurantTable", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.TableZone", null)
+                        .WithMany()
+                        .HasForeignKey("ZoneId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.SimilarityRule", b =>

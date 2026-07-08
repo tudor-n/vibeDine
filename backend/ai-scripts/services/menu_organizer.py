@@ -83,6 +83,92 @@ def build_hint_fallback(
     )
 
 
+def merge_organizer_results(
+    results: Sequence[OrganizerResult],
+    items: Sequence[ExtractedMenuItem],
+    opts: OrganizerOptions,
+) -> OrganizerResult:
+    """Merge per-chunk organizer results into one hierarchy.
+
+    Categories and subcategories are combined by normalised name (first-seen
+    display wins); item refs are concatenated and de-duplicated by
+    (source_page, source_index). Any input item that no chunk referenced is
+    reconciled into uncategorized, so the merged result always covers every
+    item (a single organize() call on a large menu silently omits many).
+    """
+    cat_order: list[str] = []
+    cats: dict[str, dict[str, Any]] = {}
+    uncategorized: list[ItemRef] = []
+    seen: set[tuple[int, int]] = set()
+
+    def _add(bucket: list[ItemRef], ref: ItemRef) -> None:
+        key = (ref.source_page, ref.source_index)
+        if key in seen:
+            return
+        seen.add(key)
+        bucket.append(ref)
+
+    for res in results:
+        for cat in res.categories:
+            ckey = _normalise(cat.name)
+            entry = cats.get(ckey)
+            if entry is None:
+                entry = {"display": cat.name, "direct": [], "subs": {}, "sub_order": []}
+                cats[ckey] = entry
+                cat_order.append(ckey)
+            for ref in cat.direct_item_refs:
+                _add(entry["direct"], ref)
+            for sub in cat.subcategories:
+                skey = _normalise(sub.name)
+                sub_entry = entry["subs"].get(skey)
+                if sub_entry is None:
+                    sub_entry = {"display": sub.name, "refs": []}
+                    entry["subs"][skey] = sub_entry
+                    entry["sub_order"].append(skey)
+                for ref in sub.item_refs:
+                    _add(sub_entry["refs"], ref)
+        for ref in res.uncategorized_item_refs:
+            _add(uncategorized, ref)
+
+    # Reconcile: any item no chunk placed → uncategorized (guarantee coverage).
+    for it in items:
+        key = (it.source_page, it.source_index)
+        if key not in seen:
+            seen.add(key)
+            uncategorized.append(
+                ItemRef(source_page=it.source_page, source_index=it.source_index, confidence=0.0)
+            )
+
+    categories: list[OrganizedCategory] = []
+    for ckey in cat_order:
+        entry = cats[ckey]
+        subs: list[OrganizedSubcategory] = []
+        for skey in entry["sub_order"]:
+            sub_entry = entry["subs"][skey]
+            if not sub_entry["refs"]:
+                continue
+            subs.append(OrganizedSubcategory(
+                name=sub_entry["display"],
+                sort_order=len(subs),
+                item_refs=sub_entry["refs"],
+            ))
+        if not subs and not entry["direct"]:
+            continue
+        categories.append(OrganizedCategory(
+            name=entry["display"],
+            sort_order=len(categories),
+            subcategories=subs,
+            direct_item_refs=entry["direct"],
+        ))
+
+    return OrganizerResult(
+        source="ai",
+        categories=categories,
+        uncategorized_item_refs=uncategorized,
+        model_notes=None,
+    )
+
+
 class MenuOrganizer(Protocol):
     model_name: str
 

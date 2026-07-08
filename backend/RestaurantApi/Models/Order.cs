@@ -43,6 +43,14 @@ public class Order : ITenantScoped {
     // and surface only in the finalized log.
     public DateTime? DeletedAt { get; set; }
 
+    // The staff member (waiter/manager) who claimed this order from the floor
+    // plan ("Preia comanda"). Null while unclaimed — such orders show on the
+    // Comenzi board greyed-out and immutable until someone takes them.
+    public Guid? ClaimedByWaiterId { get; set; }
+    public AppUser? ClaimedByWaiter { get; set; }
+
+    public DateTime? ClaimedAt { get; set; }
+
     public ICollection<OrderItem> Items { get; set; } = [];
 
     public ICollection<FlashDealOffer> FlashDeals { get; set; } = [];

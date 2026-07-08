@@ -25,7 +25,7 @@ describe('StepUploadPhotos', () => {
   it('describes the 5 MB photo limit separately from the 110 MB PDF limit', () => {
     const wrapper = mount(StepUploadPhotos)
 
-    expect(wrapper.text()).toContain('5 MB pe fotografie')
+    expect(wrapper.text()).toContain('5 MB fiecare')
     expect(wrapper.text()).toContain('110 MB')
     expect(wrapper.text()).toContain('PDF')
   })

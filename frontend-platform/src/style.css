@@ -1,0 +1,234 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* vibeDine palette — warm (light) is default. Shared with the admin console. */
+:root {
+  --paper:    #F4EEE2;
+  --paperHi:  #FBF7EC;
+  --card:     #FFFFFF;
+  --ink:      #15140F;
+  --ink70:    rgba(21, 20, 15, 0.82);
+  --ink40:    rgba(21, 20, 15, 0.62);
+  --ink12:    rgba(21, 20, 15, 0.14);
+  --ink06:    rgba(21, 20, 15, 0.05);
+  --accent:   #FF4A1C;
+  --accentDk: #C0340F;
+  --accentSoft: rgba(255, 74, 28, 0.10);
+  --accentBorder: rgba(255, 74, 28, 0.30);
+  --lime:     #D9F54A;
+  --onAccent: #FFF4EC;
+  --onLime:   #15140F;
+  --green:    #1F9D55;
+  --greenSoft: rgba(31, 157, 85, 0.12);
+  --amber:    #B7791F;
+  --amberSoft: rgba(183, 121, 31, 0.14);
+  --shadow-soft: 0 16px 36px -22px rgba(21, 20, 15, 0.35);
+  --shadow-pop:  0 30px 60px -30px rgba(21, 20, 15, 0.50);
+  --tap-min:    44px;
+  --ring-width: 3px;
+  --ring-offset: 2px;
+}
+
+:root[data-theme="dark"] {
+  --paper:    #1B1814;
+  --paperHi:  #221F1A;
+  --card:     #2C2923;
+  --ink:      #F5F0E8;
+  --ink70:    rgba(245, 240, 232, 0.88);
+  --ink40:    rgba(245, 240, 232, 0.68);
+  --ink12:    rgba(245, 240, 232, 0.14);
+  --ink06:    rgba(245, 240, 232, 0.05);
+  --accent:   #E8255A;
+  --accentDk: #B81A47;
+  --accentSoft: rgba(232, 37, 90, 0.14);
+  --accentBorder: rgba(232, 37, 90, 0.40);
+  --lime:     #FFD166;
+  --onAccent: #1B1814;
+  --onLime:   #1B1814;
+  --green:    #4ADE80;
+  --greenSoft: rgba(74, 222, 128, 0.16);
+  --amber:    #FBBF24;
+  --amberSoft: rgba(251, 191, 36, 0.16);
+  --shadow-soft: 0 16px 36px -22px rgba(0, 0, 0, 0.55);
+  --shadow-pop:  0 30px 60px -30px rgba(0, 0, 0, 0.70);
+}
+
+@layer base {
+  html { font-size: 16px; }
+  html, body, #app {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter Tight', -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+    accent-color: var(--accent);
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+  :focus { outline: none; }
+  :focus-visible {
+    outline: var(--ring-width) solid var(--accent);
+    outline-offset: var(--ring-offset);
+    border-radius: 6px;
+  }
+  ::selection { background: var(--accent); color: var(--onAccent); }
+}
+
+@layer components {
+  .eyebrow {
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ink40);
+  }
+
+  .text-muted { color: var(--ink70); }
+  .text-faint { color: var(--ink40); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--ink12);
+    border-radius: 20px;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 20px;
+    min-height: var(--tap-min);
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--onAccent);
+    font-weight: 700;
+    font-size: 14px;
+    border: 1px solid transparent;
+    box-shadow: 0 16px 32px -18px var(--accent);
+    transition: transform 0.12s ease, filter 0.12s ease;
+    cursor: pointer;
+  }
+  .pill-btn:hover { filter: brightness(1.05); }
+  .pill-btn:active { transform: translateY(1px); }
+  .pill-btn:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 18px;
+    min-height: var(--tap-min);
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--ink12);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .btn-ghost:hover { background: var(--ink06); border-color: var(--ink40); }
+  .btn-ghost:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .btn-danger {
+    color: var(--accent);
+    border-color: var(--accentBorder);
+  }
+  .btn-danger:hover { background: var(--accentSoft); border-color: var(--accent); }
+
+  .field-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink70);
+    margin-bottom: 6px;
+  }
+  .field-input {
+    width: 100%;
+    background: var(--paper);
+    border: 1px solid var(--ink12);
+    border-radius: 12px;
+    padding: 11px 14px;
+    font-size: 14px;
+    color: var(--ink);
+    transition: border-color 0.12s ease;
+  }
+  .field-input:focus { border-color: var(--accent); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    border: 1px solid var(--ink12);
+    color: var(--ink70);
+    background: var(--ink06);
+  }
+  .badge-green { color: var(--green); background: var(--greenSoft); border-color: transparent; }
+  .badge-amber { color: var(--amber); background: var(--amberSoft); border-color: transparent; }
+  .badge-red   { color: var(--accent); background: var(--accentSoft); border-color: transparent; }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--ink70);
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .nav-link:hover { background: var(--ink06); color: var(--ink); }
+  .nav-link.router-link-active { background: var(--accentSoft); color: var(--accent); }
+
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink40);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--ink12);
+  }
+  .data-table td {
+    padding: 13px 14px;
+    border-bottom: 1px solid var(--ink06);
+    font-size: 14px;
+    vertical-align: middle;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tbody tr { transition: background 0.1s ease; }
+  .data-table tbody tr:hover { background: var(--ink06); }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 50;
+  }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--ink12);
+    border-radius: 22px;
+    box-shadow: var(--shadow-pop);
+    width: 100%;
+    max-width: 480px;
+    padding: 26px;
+  }
+}

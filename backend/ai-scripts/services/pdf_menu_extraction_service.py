@@ -40,6 +40,7 @@ from services.menu_organizer import (
     MenuOrganizerError,
     OrganizerOptions,
     build_hint_fallback,
+    merge_organizer_results,
     resolve_organizer,
 )
 from services.page_classifier import PageKind
@@ -179,6 +180,7 @@ class PdfMenuExtractionService:
         max_embedded_image_bytes: int = pdf_text_extractor.DEFAULT_MAX_EMBEDDED_IMAGE_BYTES,
         metrics: PdfExtractionTimings | None = None,
         organizer_factory: Callable[[], "MenuOrganizer | None"] | None = None,
+        organizer_chunk_size: int = 40,
         item_photo_extractor_factory: Callable[[], "ItemPhotoExtractor | None"] | None = None,
         item_photo_max_pages: int = 50,
     ):
@@ -220,6 +222,9 @@ class PdfMenuExtractionService:
         if item_photo_max_pages < 0:
             raise ValueError("item_photo_max_pages must be >= 0")
         self._metrics = metrics
+        if organizer_chunk_size < 1:
+            raise ValueError("organizer_chunk_size must be >= 1")
+        self._organizer_chunk_size = organizer_chunk_size
         self._organizer_factory = organizer_factory or resolve_organizer
         # Optional dish-photo detector. None (the default) means the feature is
         # off and the pipeline behaves byte-identically to before. Resolved once
@@ -450,13 +455,7 @@ class PdfMenuExtractionService:
         if organizer is None or not items:
             result = build_hint_fallback(items, opts)
         else:
-            semaphore = _get_provider_semaphore(self._provider_concurrency)
-            try:
-                async with semaphore:
-                    result = await organizer.organize(items, opts)
-            except MenuOrganizerError as exc:
-                logger.warning("Organizer failed, falling back to hint-fallback: %s", exc)
-                result = build_hint_fallback(items, opts)
+            result = await self._organize_chunked(organizer, list(items), opts)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         cat_count = len(result.categories)
         sub_count = sum(len(c.subcategories) for c in result.categories)
@@ -473,6 +472,39 @@ class PdfMenuExtractionService:
             result.source, len(items), cat_count, sub_count, low_conf, elapsed_ms,
         )
         return result
+
+    async def _organize_chunked(
+        self,
+        organizer: "MenuOrganizer",
+        items: list[ExtractedMenuItem],
+        opts: OrganizerOptions,
+    ) -> OrganizerResult:
+        """Organize items in bounded chunks, then merge into one hierarchy.
+
+        A single organize() call on a large menu makes the model silently omit
+        most items, so the hierarchy — and thus the saved menu — loses products.
+        Chunking keeps each call small enough for the model to enumerate fully;
+        a chunk that errors degrades to hint-fallback for just that chunk, and
+        merge_organizer_results reconciles any still-missing item into the
+        uncategorized bucket so coverage is always complete.
+        """
+        size = self._organizer_chunk_size
+        chunks = [items[i:i + size] for i in range(0, len(items), size)]
+        semaphore = _get_provider_semaphore(self._provider_concurrency)
+
+        async def organize_chunk(chunk: list[ExtractedMenuItem]) -> OrganizerResult:
+            try:
+                async with semaphore:
+                    return await organizer.organize(chunk, opts)
+            except MenuOrganizerError as exc:
+                logger.warning(
+                    "Organizer chunk (%d items) failed; using hint-fallback for it: %s",
+                    len(chunk), exc,
+                )
+                return build_hint_fallback(chunk, opts)
+
+        results = await asyncio.gather(*[organize_chunk(c) for c in chunks])
+        return merge_organizer_results(results, items, opts)
 
     # ------------------------------------------------------------------
     # Work unit execution

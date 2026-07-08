@@ -388,7 +388,7 @@ public class CustomerController : ControllerBase
     }
    
     [HttpGet("restaurants/{restaurantId:guid}/orders/{id:guid}/recommendations")]
-    public async Task<IActionResult> GetRecommendation(Guid id)
+    public async Task<IActionResult> GetRecommendation(Guid id, [FromQuery] string? language)
     {
         var order = await _context.Orders.FindAsync(id);
 
@@ -397,7 +397,7 @@ public class CustomerController : ControllerBase
             return NotFound(new { message = "Order not found." });
         }
 
-        var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id);
+        var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id, language ?? "ro");
 
         if (rawRecommendations == null || !rawRecommendations.Any())
         {

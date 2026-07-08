@@ -135,8 +135,11 @@ export const apiClient = {
   submitOrder: (orderId: string) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/submit`, { method: 'POST' }),
 
-  getRecommendations: (orderId: string, cartItemIds: string[]) => {
-    const query = new URLSearchParams({ current_item_ids: cartItemIds.join(',') }).toString();
+  getRecommendations: (orderId: string, cartItemIds: string[], language: string) => {
+    const query = new URLSearchParams({
+      current_item_ids: cartItemIds.join(','),
+      language,
+    }).toString();
     return fetcher<RecommendationsResponse | any[]>(
       `/api/restaurants/${rid()}/orders/${orderId}/recommendations?${query}`,
     );

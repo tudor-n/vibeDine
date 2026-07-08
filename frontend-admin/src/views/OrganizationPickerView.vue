@@ -48,12 +48,12 @@ function logout() {
     <div class="bloom bloom-accent" style="top: -120px; right: -140px; width: 420px; height: 420px;" />
     <div class="bloom bloom-lime" style="bottom: -120px; left: 12%; width: 360px; height: 360px;" />
 
-    <header class="relative z-10 flex items-center justify-between p-6 md:px-10">
-      <div>
+    <header class="relative z-10 flex items-center justify-between gap-3 flex-wrap p-6 md:px-10">
+      <div class="min-w-0">
         <div class="eyebrow">SMART RESTAURANT</div>
         <div class="display-title text-2xl mt-1">Alege o organizație</div>
       </div>
-      <button class="nav-link nav-link-logout" type="button" @click="logout">
+      <button class="nav-link nav-link-logout shrink-0" type="button" @click="logout">
         <span class="nav-icon" aria-hidden="true">⏻</span>
         <span class="nav-label">Deconectare</span>
       </button>
