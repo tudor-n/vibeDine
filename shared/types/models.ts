@@ -272,3 +272,15 @@ export interface DailyMetrics {
   recommendationClicks: number;
   upsellRevenue: number;
 }
+
+
+// ── White-label branding ─────────────────────────────────────────────────────
+export interface RestaurantBranding {
+  enabled: boolean;
+  primary: string | null;
+  secondary: string | null;
+  background: string | null;
+  logoUrl: string | null;
+  photoUrl: string | null;
+  presetKey?: string | null;
+}
