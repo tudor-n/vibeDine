@@ -168,3 +168,20 @@ export function deriveBrandPalette(input: BrandInput): BrandPalette {
     gold: secondary,
   }
 }
+
+/**
+ * Resolve the plate behind a tenant logo.
+ *   logoBackground: null = Auto | "transparent" | "#RRGGBB"
+ *   logoIsDark: client-computed hint about the logo's own lightness (null = unknown)
+ * Auto frames a dark logo on a white plate, and lets a light/knockout logo sit
+ * transparent so it reads on dark surfaces instead of vanishing in a white box.
+ */
+export function resolveLogoBackground(
+  logoBackground: string | null,
+  logoIsDark: boolean | null,
+): { background: string; plate: boolean } {
+  if (logoBackground === 'transparent') return { background: 'transparent', plate: false }
+  if (logoBackground) return { background: logoBackground, plate: true }
+  if (logoIsDark === false) return { background: 'transparent', plate: false }
+  return { background: WHITE, plate: true }
+}
