@@ -34,6 +34,10 @@ export const useVibeyStore = defineStore('vibey', () => {
   const summary = ref('')
   const sheetOpen = ref(false)
   const botMsg = ref('')
+  // Brief happy state: true for ~1.2s right after a recommendation is added, so
+  // the avatar can smile and hop. Purely cosmetic — never gates any logic.
+  const celebrating = ref(false)
+  let celebrationTimer: ReturnType<typeof setTimeout> | null = null
 
   const hasRecs = computed(() => recs.value.length > 0)
   // True only once the guest has added every recommendation Vibey actually
@@ -54,6 +58,20 @@ export const useVibeyStore = defineStore('vibey', () => {
     summary.value = ''
     sheetOpen.value = false
     botMsg.value = ''
+    if (celebrationTimer) clearTimeout(celebrationTimer)
+    celebrationTimer = null
+    celebrating.value = false
+  }
+
+  // Fire the brief happy animation. Re-triggerable: adding several recs in a
+  // row restarts the timer so Vibey stays cheerful across the whole spree.
+  function celebrate() {
+    celebrating.value = true
+    if (celebrationTimer) clearTimeout(celebrationTimer)
+    celebrationTimer = setTimeout(() => {
+      celebrating.value = false
+      celebrationTimer = null
+    }, 1200)
   }
 
   // Picks the deterministic teaser once per cart identity (`seed`, normally
@@ -154,6 +172,7 @@ export const useVibeyStore = defineStore('vibey', () => {
     recs.value = recs.value.filter((r) => r.id !== id)
     const { locale } = useLocale()
     botMsg.value = followUpLine(rec.name, recs.value.length, locale.value)
+    celebrate()
     if (recs.value.length === 0) sheetOpen.value = false
   }
 
@@ -165,6 +184,7 @@ export const useVibeyStore = defineStore('vibey', () => {
     summary,
     sheetOpen,
     botMsg,
+    celebrating,
     hasRecs,
     allAdded,
     noRecs,

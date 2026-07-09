@@ -30,7 +30,7 @@ const visibleRecs = computed(() => store.recs.slice(0, 2))
       </div>
 
       <div class="vibey-sheet-header">
-        <VibeyAvatar :size="40" :tokens="T" />
+        <VibeyAvatar :size="40" :tokens="T" :celebrating="store.celebrating" />
         <div class="vibey-sheet-header-text">
           <div class="vibey-sheet-title">{{ t('vibey.sheetTitle') }}</div>
           <div class="vibey-sheet-subtitle" :style="{ color: T.ink70 }">{{ t('vibey.sheetSubtitle') }}</div>

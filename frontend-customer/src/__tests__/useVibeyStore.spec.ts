@@ -230,6 +230,55 @@ describe('useVibeyStore — addRec (no fetch, deterministic follow-up)', () => {
   })
 })
 
+describe('useVibeyStore — celebration (cosmetic, no fetch)', () => {
+  it('pulses `celebrating` on add and clears it after ~1.2s, re-triggering across a spree', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = useVibeyStore()
+      store.ensureTeaser('order-abc', 'ro')
+      await store.openSheet()
+      expect(store.celebrating).toBe(false)
+
+      await store.addRec('rec-1')
+      expect(store.celebrating).toBe(true)
+
+      // A second add mid-celebration restarts the timer (stays happy).
+      vi.advanceTimersByTime(800)
+      await store.addRec('rec-2')
+      expect(store.celebrating).toBe(true)
+      vi.advanceTimersByTime(800) // 800 < 1200 since the last add reset it
+      expect(store.celebrating).toBe(true)
+
+      vi.advanceTimersByTime(1200)
+      expect(store.celebrating).toBe(false)
+
+      // Still exactly the one fetch — the celebration is purely cosmetic.
+      expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reset() clears an in-flight celebration', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = useVibeyStore()
+      store.ensureTeaser('order-abc', 'ro')
+      await store.openSheet()
+      await store.addRec('rec-1')
+      expect(store.celebrating).toBe(true)
+
+      store.reset()
+      expect(store.celebrating).toBe(false)
+      // The pending timer must not resurrect it after reset.
+      vi.advanceTimersByTime(1500)
+      expect(store.celebrating).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('useVibeyStore — reset', () => {
   it('clears all state', async () => {
     const store = useVibeyStore()
