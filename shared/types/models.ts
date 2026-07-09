@@ -84,6 +84,9 @@ export interface Product {
   isAvailable: boolean;
   /** Stock-tracked product that currently can't be made — shown blurred, not orderable. */
   outOfStock?: boolean;
+  /** Ingredients of a recipe-tracked dish; rendered as a subtle line under the description on the
+   *  customer menu. Absent/empty for non-recipe products. */
+  recipe?: RecipeLine[];
 }
 
 

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
 using RestaurantApi.DTOs.Responses;
+using RestaurantApi.Models;
 using RestaurantApi.Services;
 
 namespace RestaurantApi.Controllers;
@@ -62,6 +63,7 @@ public class MenuController: ControllerBase
         }).ToListAsync();
 
         ApplyAvailability(categories.SelectMany(c => c.Products), outOfStock);
+        await ApplyRecipesAsync(categories.SelectMany(c => c.Products));
 
         return Ok(new { categories });
     }
@@ -93,6 +95,7 @@ public class MenuController: ControllerBase
         .ToListAsync();
 
         ApplyAvailability(products, outOfStock);
+        await ApplyRecipesAsync(products);
 
         return Ok(products);
     }
@@ -106,6 +109,41 @@ public class MenuController: ControllerBase
         {
             product.OutOfStock = outOfStock.Contains(product.Id);
             product.IsAvailable = !product.OutOfStock;
+        }
+    }
+
+    // Loads recipe ingredients for the recipe-tracked products in the given set and hangs them
+    // off each product response. Done as a separate pass (not in the menu projection) so the
+    // enum→wire-code unit mapping runs in memory rather than needing EF SQL translation.
+    private async Task ApplyRecipesAsync(IEnumerable<MenuProductResponse> products)
+    {
+        var byId = products.ToDictionary(p => p.Id);
+        if (byId.Count == 0) return;
+
+        var ids = byId.Keys.ToList();
+        var lines = await _context.RecipeItems
+            .Where(ri => ri.Product.StockTrackingMode == StockTrackingMode.Recipe && ids.Contains(ri.ProductId))
+            .OrderBy(ri => ri.Ingredient.Name)
+            .Select(ri => new
+            {
+                ri.ProductId,
+                ri.IngredientId,
+                IngredientName = ri.Ingredient.Name,
+                ri.Ingredient.Unit,
+                ri.QuantityPerPortion,
+            })
+            .ToListAsync();
+
+        foreach (var group in lines.GroupBy(l => l.ProductId))
+        {
+            if (!byId.TryGetValue(group.Key, out var product)) continue;
+            product.Recipe = group.Select(l => new MenuRecipeLineResponse
+            {
+                IngredientId = l.IngredientId,
+                IngredientName = l.IngredientName,
+                Unit = StockUnits.ToCode(l.Unit),
+                QuantityPerPortion = l.QuantityPerPortion,
+            }).ToList();
         }
     }
 }

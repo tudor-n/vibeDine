@@ -32,6 +32,20 @@ public class MenuProductResponse
     // "Indisponibil momentan" blur on the customer menu (distinct from a staff-hidden product,
     // which is omitted from the menu entirely).
     public bool OutOfStock { get; set; }
+
+    // Ingredients of a recipe-tracked dish (name + per-portion amount + unit). The customer app
+    // renders these as a subtle line under the description. Null for non-recipe products.
+    public List<MenuRecipeLineResponse>? Recipe { get; set; }
+}
+
+// One ingredient line of a recipe-tracked dish, as shown to customers. Mirrors the shared
+// `RecipeLine` TS type. `Unit` is the stable wire code (piece|gram|kilogram|milliliter|liter).
+public class MenuRecipeLineResponse
+{
+    public Guid IngredientId { get; set; }
+    public string IngredientName { get; set; } = string.Empty;
+    public string Unit { get; set; } = string.Empty;
+    public decimal QuantityPerPortion { get; set; }
 }
 
 public class AdminCategoryResponse
