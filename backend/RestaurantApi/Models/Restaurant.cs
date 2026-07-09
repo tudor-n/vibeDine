@@ -26,5 +26,14 @@ public class Restaurant
 
     public bool IsActive { get; set; } = true;
 
+    // --- White-label branding (all optional; disabled by default) ---
+    public bool BrandingEnabled { get; set; } = false;
+    public string? BrandPrimary { get; set; }
+    public string? BrandSecondary { get; set; }
+    public string? BrandBackground { get; set; }
+    public string? LogoUrl { get; set; }
+    public string? PhotoUrl { get; set; }
+    public string? BrandPresetKey { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
