@@ -23,6 +23,11 @@ const { t } = useLocale()
 const showSheet = computed(() => props.enabled && hh.open && Boolean(hh.active))
 const showToast = computed(() => props.enabled && hh.added && Boolean(hh.active))
 
+// The HAPPY HOUR badge sits on the lime/gold brand colour, which stays light in
+// BOTH themes — so its text + icon must always be dark. Using T.ink here would
+// flip to near-white in dark mode and leave gold-on-white, which reads poorly.
+const onLime = '#15140F'
+
 const countdown = computed(() => {
   const total = Math.max(0, hh.secs)
   const h = Math.floor(total / 3600)
@@ -112,7 +117,7 @@ function addToCart() {
 
           <!-- Eyebrow: badge chip + time window -->
           <div class="hh-eyebrow">
-            <span class="hh-chip" :style="{ background: T.lime, color: T.ink }">
+            <span class="hh-chip" :style="{ background: T.lime, color: onLime }">
               <svg
                 viewBox="0 0 24 24" width="14" height="14" fill="none"
                 stroke="currentColor" stroke-width="2"
