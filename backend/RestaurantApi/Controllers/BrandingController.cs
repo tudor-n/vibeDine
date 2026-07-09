@@ -77,11 +77,19 @@ public class BrandingController : ControllerBase
                     return BadRequest(new { message = "Culoare invalidă." });
         }
 
+        // Logo background: null/empty = Auto, the literal "transparent", or a hex.
+        if (!string.IsNullOrWhiteSpace(req.LogoBackground)
+            && req.LogoBackground != "transparent"
+            && !HexColor.IsMatch(req.LogoBackground))
+            return BadRequest(new { message = "Fundal logo invalid." });
+
         r.BrandingEnabled = req.Enabled;
         r.BrandPrimary = req.Primary;
         r.BrandSecondary = req.Secondary;
         r.BrandBackground = req.Background;
         r.BrandPresetKey = req.PresetKey;
+        r.LogoBackground = string.IsNullOrWhiteSpace(req.LogoBackground) ? null : req.LogoBackground;
+        r.LogoIsDark = req.LogoIsDark;
         await _db.SaveChangesAsync();
 
         return Ok(ToResponse(r));
@@ -148,5 +156,7 @@ public class BrandingController : ControllerBase
         LogoUrl = r.LogoUrl,
         PhotoUrl = r.PhotoUrl,
         PresetKey = r.BrandPresetKey,
+        LogoBackground = r.LogoBackground,
+        LogoIsDark = r.LogoIsDark,
     };
 }

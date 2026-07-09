@@ -9,4 +9,6 @@ public class BrandingResponse
     public string? LogoUrl { get; set; }
     public string? PhotoUrl { get; set; }
     public string? PresetKey { get; set; }
+    public string? LogoBackground { get; set; }
+    public bool? LogoIsDark { get; set; }
 }

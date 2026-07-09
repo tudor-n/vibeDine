@@ -134,6 +134,8 @@ public class PartyController : ControllerBase
                 background = restaurant?.BrandBackground,
                 logoUrl = restaurant?.LogoUrl,
                 photoUrl = restaurant?.PhotoUrl,
+                logoBackground = restaurant?.LogoBackground,
+                logoIsDark = restaurant?.LogoIsDark,
             },
             activeOrder = MapOrder(draft),
             partyMembers = await BuildPartyAsync(table.Id),

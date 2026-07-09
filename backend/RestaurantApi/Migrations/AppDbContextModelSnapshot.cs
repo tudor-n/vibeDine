@@ -1063,6 +1063,14 @@ namespace RestaurantApi.Migrations
                         .HasDefaultValue("ro-RO")
                         .HasColumnName("locale");
 
+                    b.Property<string>("LogoBackground")
+                        .HasColumnType("text")
+                        .HasColumnName("logo_background");
+
+                    b.Property<bool?>("LogoIsDark")
+                        .HasColumnType("boolean")
+                        .HasColumnName("logo_is_dark");
+
                     b.Property<string>("LogoUrl")
                         .HasColumnType("text")
                         .HasColumnName("logo_url");

@@ -34,6 +34,10 @@ public class Restaurant
     public string? LogoUrl { get; set; }
     public string? PhotoUrl { get; set; }
     public string? BrandPresetKey { get; set; }
+    // Logo plate: null = Auto, "transparent", or a #RRGGBB hex. LogoIsDark is a
+    // client-computed hint (null = unknown) used to make Auto pick a legible plate.
+    public string? LogoBackground { get; set; }
+    public bool? LogoIsDark { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

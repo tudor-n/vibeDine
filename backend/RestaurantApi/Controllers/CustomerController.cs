@@ -356,6 +356,8 @@ public class CustomerController : ControllerBase
                 Background = restaurant?.BrandBackground,
                 LogoUrl = restaurant?.LogoUrl,
                 PhotoUrl = restaurant?.PhotoUrl,
+                LogoBackground = restaurant?.LogoBackground,
+                LogoIsDark = restaurant?.LogoIsDark,
             },
             ActiveOrder = new OrderResponse
             {
