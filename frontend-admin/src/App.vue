@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useBrandTheme } from '@/composables/useBrandTheme'
 import BrandLogo from '@/components/BrandLogo.vue'
+import VibeDineLockup from '@/components/VibeDineLockup.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
@@ -11,6 +12,7 @@ import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
 import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useFloorStore } from '@/stores/useFloorStore'
 import { useBrandingStore } from '@/stores/useBrandingStore'
+import { resolveMediaUrl } from '@/services/mediaUrl'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
@@ -282,10 +284,21 @@ onUnmounted(() => {
 
       <!-- Brand block (desktop) -->
       <div class="hidden md:block mb-6">
-        <BrandLogo class="mb-3" />
-        <div class="display-title text-[34px] leading-[0.95]">
-          {{ auth.activeRestaurant?.name ?? 'Restaurant' }}
-        </div>
+        <template v-if="branding.isEnabled && branding.branding?.logoUrl">
+          <img
+            :src="resolveMediaUrl(branding.branding.logoUrl)"
+            alt=""
+            style="height: 72px; object-fit: contain"
+            class="mb-2"
+          />
+          <VibeDineLockup />
+        </template>
+        <template v-else>
+          <BrandLogo class="mb-3" />
+          <div class="display-title text-[34px] leading-[0.95]">
+            {{ auth.activeRestaurant?.name ?? 'Restaurant' }}
+          </div>
+        </template>
       </div>
 
       <!-- Mobile brand (leaves room for the fixed top-right toggle) -->
