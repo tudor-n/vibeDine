@@ -12,6 +12,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 
 import LanguageSelectView from '@/components/screens/LanguageSelectView.vue'
+import WelcomeView from '@/components/screens/WelcomeView.vue'
 import PebblesView from '@/components/screens/PebblesView.vue'
 import MenuView from '@/components/screens/MenuView.vue'
 import CartView from '@/components/screens/CartView.vue'
@@ -21,7 +22,7 @@ import MergedView from '@/components/screens/MergedView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
 import CallWaiterButton from '@/components/CallWaiterButton.vue'
 
-type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
+type Screen = 'language' | 'welcome' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
 
 const route = useRoute()
 const cartStore = useCartStore()
@@ -43,7 +44,7 @@ useWebSocket()
 const SCREEN_KEY = 'screen'
 const CATEGORY_KEY = 'activeCategoryId'
 const CART_ORIGIN_KEY = 'cartOrigin'
-const SCREENS: Screen[] = ['language', 'pebbles', 'menu', 'cart', 'sent', 'merged']
+const SCREENS: Screen[] = ['language', 'welcome', 'pebbles', 'menu', 'cart', 'sent', 'merged']
 
 function readScreen(key: string, fallback: Screen): Screen {
   const stored = sessionStorage.getItem(key)
@@ -52,6 +53,10 @@ function readScreen(key: string, fallback: Screen): Screen {
 
 const restoredCategory = sessionStorage.getItem(CATEGORY_KEY) || null
 const restoredScreen = readScreen(SCREEN_KEY, 'language')
+// A fresh session (no key written yet) is what makes a branded-with-photo
+// table land on the welcome screen; a mid-session refresh (key present, even
+// if its value fell back to the default) resumes wherever it was instead.
+const hadStoredScreen = sessionStorage.getItem(SCREEN_KEY) !== null
 // The menu screen can't render without a category, so fall back to the category
 // list if the restored category is gone.
 const screen = ref<Screen>(
@@ -140,6 +145,13 @@ onMounted(async () => {
     // backend's persisted draft so the diner keeps the order they were building.
     cartStore.restoreFromServerIfEmpty(session.activeOrder.items)
     if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
+    // A fresh session (no restored screen) on a table branded with a welcome
+    // photo starts on the branded welcome screen instead of the language
+    // picker — the welcome screen subsumes language selection. Unbranded (or
+    // no photo) tables, and any mid-session refresh, are unaffected.
+    if (!hadStoredScreen && sessionStore.branding?.enabled && sessionStore.branding?.photoUrl) {
+      screen.value = 'welcome'
+    }
     // Poll the live happy hour app-wide (not just on the menu screen) so the bar
     // shows on the categories page and stays visible after an order is sent.
     happyHourStore.startPolling()
@@ -314,6 +326,11 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           v-if="screen === 'language'"
           key="language"
           @select="onLanguageSelected"
+        />
+        <WelcomeView
+          v-else-if="screen === 'welcome'"
+          key="welcome"
+          @continue="screen = 'pebbles'"
         />
         <PebblesView
           v-else-if="screen === 'pebbles'"
