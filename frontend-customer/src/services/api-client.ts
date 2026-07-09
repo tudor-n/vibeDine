@@ -1,4 +1,4 @@
-import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
+import type { MenuResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
 import type { ActiveHappyHour } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
@@ -134,16 +134,6 @@ export const apiClient = {
 
   submitOrder: (orderId: string) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/submit`, { method: 'POST' }),
-
-  getRecommendations: (orderId: string, cartItemIds: string[], language: string) => {
-    const query = new URLSearchParams({
-      current_item_ids: cartItemIds.join(','),
-      language,
-    }).toString();
-    return fetcher<RecommendationsResponse | any[]>(
-      `/api/restaurants/${rid()}/orders/${orderId}/recommendations?${query}`,
-    );
-  },
 
   claimFlashDeal: (orderId: string, dealId: string) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/claim-deal/${dealId}`, {
