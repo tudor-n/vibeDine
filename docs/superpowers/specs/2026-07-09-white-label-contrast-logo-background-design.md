@@ -123,11 +123,10 @@ component edits on the admin side and only an adapter fix on the customer side.
 ### Component: logo-background resolver (`shared/branding/derive.ts`)
 
 ```
-resolveLogoBackground(input: {
-  logoBackground: string | null   // null=auto | "transparent" | "#RRGGBB"
-  logoIsDark: boolean | null
-  palette: BrandPalette
-}): { background: string; plate: boolean }
+resolveLogoBackground(
+  logoBackground: string | null,   // null=auto | "transparent" | "#RRGGBB"
+  logoIsDark: boolean | null,
+): { background: string; plate: boolean }
 ```
 
 - `"transparent"` → `{ background: 'transparent', plate: false }`
@@ -135,6 +134,10 @@ resolveLogoBackground(input: {
 - Auto (`null`):
   - `logoIsDark === false` (light/knockout logo) → `{ background: 'transparent', plate: false }`
   - otherwise (dark logo, or unknown hint) → `{ background: '#FFFFFF', plate: true }`
+
+(No palette dependency — Auto's plate is a plain white frame, which reads on the dark
+welcome scrim and in either admin theme. Keeps the resolver importable anywhere
+without pulling in derivation.)
 
 `plate: false` means callers render the logo with no plate chrome (no padding box /
 shadow); `plate: true` renders the framed plate using `background`.
