@@ -1,10 +1,10 @@
-import { deriveBrandPalette, type BrandInput, type BrandPalette } from '@shared/branding/derive'
+import { deriveBrandPalette, hexToRgb, type BrandInput, type BrandPalette } from '@shared/branding/derive'
 
 // Order matters only for readability; keys are the authoritative list used by
 // both applyBrand (write) and clearBrand (remove) so they stay symmetric.
 function paletteToVarMap(p: BrandPalette): Record<string, string> {
-  const { r, g, b } = hexToRgbLocal(p.ink)
-  const bg = hexToRgbLocal(p.paper)
+  const { r, g, b } = hexToRgb(p.ink)
+  const bg = hexToRgb(p.paper)
   return {
     '--paper': p.paper,
     '--paperHi': p.paperHi,
@@ -24,15 +24,6 @@ function paletteToVarMap(p: BrandPalette): Record<string, string> {
     '--lime': p.lime,
     '--onLime': p.onLime,
     '--gold': p.gold,
-  }
-}
-
-function hexToRgbLocal(hex: string) {
-  const h = hex.replace('#', '')
-  return {
-    r: parseInt(h.slice(0, 2), 16),
-    g: parseInt(h.slice(2, 4), 16),
-    b: parseInt(h.slice(4, 6), 16),
   }
 }
 

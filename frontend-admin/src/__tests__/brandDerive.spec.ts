@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  deriveBrandPalette, contrastRatio, bestOnColor, relativeLuminance,
+  deriveBrandPalette, contrastRatio, bestOnColor,
 } from '@shared/branding/derive'
 
 const PRESETS = {
