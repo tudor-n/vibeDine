@@ -45,7 +45,7 @@ function summary(m: PartyMember): string {
         >{{ (m.displayName || 'G').replace(/[^0-9]/g, '') || 'G' }}</span>
         <span class="party-name">
           {{ m.displayName }}
-          <span v-if="isYou(m)" class="you-badge" :style="{ background: T.accent, color: '#fff' }">{{ t('party.you') }}</span>
+          <span v-if="isYou(m)" class="you-badge" :style="{ background: T.accent, color: T.onAccent }">{{ t('party.you') }}</span>
         </span>
         <span class="party-summary" :style="{ color: T.ink70 }">{{ summary(m) }}</span>
       </li>
