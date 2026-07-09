@@ -283,4 +283,6 @@ export interface RestaurantBranding {
   logoUrl: string | null;
   photoUrl: string | null;
   presetKey?: string | null;
+  logoBackground: string | null;
+  logoIsDark: boolean | null;
 }
