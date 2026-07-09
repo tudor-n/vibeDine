@@ -254,6 +254,15 @@ const happyHourEnabled = computed(
 const happyHourPopupActive = computed(
   () => happyHourEnabled.value && happyHourStore.open && Boolean(happyHourStore.active),
 )
+// True while the return-to-happy-hour banner occupies the top of the menu. It
+// sits above the header and pushes it (and the back button the flash-deal pill
+// aligns to) down by its own footprint, so we shift that pill down to match.
+const happyHourReturnVisible = computed(
+  () => happyHourEnabled.value && !happyHourStore.open && Boolean(happyHourStore.active),
+)
+// The return banner's margin-box height (tile 34 + 22 padding + 2 border + 20
+// vertical margin ≈ 78px). Kept in sync with HappyHourBanner's own metrics.
+const happyHourBannerOffset = computed(() => (happyHourReturnVisible.value ? '78px' : '0px'))
 
 function openFlashDeal() {
   showFlashDealModal.value = true
@@ -310,7 +319,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 
 <template>
   <div class="stage" :style="{ background: T.paper }">
-    <div class="phone-frame">
+    <div class="phone-frame" :style="{ '--hh-banner-offset': happyHourBannerOffset }">
       <div
         v-if="showSessionError"
         class="session-error"
