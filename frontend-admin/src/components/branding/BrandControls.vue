@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import BrandPreview from './BrandPreview.vue'
 import { BRAND_PRESETS, type BrandDraft, type BrandPreset } from './presets'
 import { resolveMediaUrl } from '@/services/mediaUrl'
@@ -45,15 +45,27 @@ const LOGO_BG_LABELS: Record<LogoBgMode, string> = {
 }
 const LOGO_BG_MODES = ['auto', 'white', 'transparent', 'custom'] as const
 
-const logoBgMode = computed<LogoBgMode>(() => {
-  const v = props.modelValue.logoBackground
+// Mode is LOCAL UI state, not derived from the value: a custom colour of
+// #FFFFFF is indistinguishable from the "white" preset, so deriving the mode
+// from the value would snap "Personalizat" back to "Alb" and hide the picker.
+function modeFromValue(v: string | null): LogoBgMode {
   if (v === null) return 'auto'
   if (v === 'transparent') return 'transparent'
   if (v.toUpperCase() === '#FFFFFF') return 'white'
   return 'custom'
+}
+
+const logoBgMode = ref<LogoBgMode>(modeFromValue(props.modelValue.logoBackground))
+
+// Resync when the value changes from outside (e.g. a draft reload), but never
+// clobber an explicit "custom" selection that happens to hold a hex colour.
+watch(() => props.modelValue.logoBackground, (v) => {
+  if (logoBgMode.value === 'custom' && !!v && v.startsWith('#')) return
+  logoBgMode.value = modeFromValue(v)
 })
 
 function setLogoBgMode(mode: LogoBgMode) {
+  logoBgMode.value = mode
   const current = props.modelValue.logoBackground
   const map: Record<LogoBgMode, string | null> = {
     auto: null,
