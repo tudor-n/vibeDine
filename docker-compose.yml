@@ -138,6 +138,10 @@ services:
       VITE_WS_URL: "ws://localhost:5005"
     volumes:
       - ./frontend-customer:/app
+      # Branding pulls runtime code from @shared (../shared → /shared): the
+      # welcome lockup + useTheme import shared/branding/derive at runtime, so
+      # the shared dir must be mounted here just like the other frontends.
+      - ./shared:/shared:ro
       - /app/node_modules
 
   frontend-admin:

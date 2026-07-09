@@ -70,6 +70,19 @@ async function onPhoto(file: File) {
   }
 }
 
+// Choosing a preset or editing a colour is a customization — it implies the user
+// wants branding active, so flip the master toggle on for them (they can still turn
+// it off explicitly). Without this, a fresh restaurant's scheme edits would save with
+// enabled:false and never apply, which reads as "the theme doesn't change".
+function onDraftUpdate(next: BrandDraft) {
+  const schemeChanged =
+    next.presetKey !== draft.value.presetKey ||
+    next.primary !== draft.value.primary ||
+    next.secondary !== draft.value.secondary ||
+    next.background !== draft.value.background
+  draft.value = schemeChanged ? { ...next, enabled: true } : next
+}
+
 async function onSave() {
   saving.value = true
   try {
@@ -127,7 +140,13 @@ async function onSave() {
     </label>
 
     <p v-if="loading" class="brand-loading">Se încarcă…</p>
-    <BrandControls v-else v-model="draft" @upload-logo="onLogo" @upload-photo="onPhoto" />
+    <BrandControls
+      v-else
+      :model-value="draft"
+      @update:model-value="onDraftUpdate"
+      @upload-logo="onLogo"
+      @upload-photo="onPhoto"
+    />
   </div>
 </template>
 
