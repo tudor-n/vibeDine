@@ -24,10 +24,13 @@ const showSheet = computed(() => props.enabled && hh.open && Boolean(hh.active))
 const showToast = computed(() => props.enabled && hh.added && Boolean(hh.active))
 
 const countdown = computed(() => {
-  const s = Math.max(0, hh.secs)
-  const mm = String(Math.floor(s / 60)).padStart(2, '0')
-  const ss = String(s % 60).padStart(2, '0')
-  return `${mm}:${ss}`
+  const total = Math.max(0, hh.secs)
+  const h = Math.floor(total / 3600)
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(2, '0')
+  const ss = String(total % 60).padStart(2, '0')
+  // Only surface the hours segment once the window is an hour or more out, so a
+  // long window reads "1:20:20" instead of "80:20"; shorter ones stay "MM:SS".
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 })
 // A gentle urgency pulse on the timer in the final minute — subtle, not flashy.
 const urgent = computed(() => hh.secs > 0 && hh.secs <= 60)
@@ -346,6 +349,7 @@ function addToCart() {
   font-size: 19px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .hh-timer.urgent {
   animation: hh-timer-pulse 1s ease-in-out infinite;

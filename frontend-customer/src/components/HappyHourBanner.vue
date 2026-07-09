@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useHappyHourStore } from '@/stores/useHappyHourStore'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
@@ -8,8 +9,21 @@ import { useLocale } from '@/composables/useLocale'
 // dismissed the offer sheet. Tapping it reopens the sheet. Colours come from the
 // app's own light/dark tokens so it matches the surrounding menu in both themes.
 const hh = useHappyHourStore()
-const { tokens: T } = useTheme()
+const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
+
+// A warm, theme-tinted surface so the banner reads as a distinct highlight above
+// the neutral menu background instead of blending into it. Mirrors the accent
+// wash used by the category panels (orange in light, pink in dark).
+const surface = computed(() => {
+  const rgb = theme.value === 'dark' ? '232, 37, 90' : '255, 74, 28'
+  const bgAlpha = theme.value === 'dark' ? 0.18 : 0.12
+  const borderAlpha = theme.value === 'dark' ? 0.34 : 0.24
+  return {
+    background: `rgba(${rgb}, ${bgAlpha})`,
+    border: `1px solid rgba(${rgb}, ${borderAlpha})`,
+  }
+})
 </script>
 
 <template>
@@ -17,7 +31,7 @@ const { t } = useLocale()
     v-if="hh.active && !hh.open"
     class="hh-banner"
     type="button"
-    :style="{ background: T.paperHi, border: `1px solid ${T.ink12}`, color: T.ink }"
+    :style="{ ...surface, color: T.ink }"
     :aria-label="t('hh.reopenAria')"
     @click="hh.reopen()"
   >
