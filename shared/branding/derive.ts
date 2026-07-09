@@ -144,9 +144,9 @@ export function deriveBrandPalette(input: BrandInput): BrandPalette {
     accentDk: darken(primary, 0.14),
     accentSoft: withAlpha(primary, 0.1),
     accentBorder: withAlpha(primary, 0.3),
-    onAccent: bestOnColor(primary, ink),
+    onAccent: bestOnColor(primary, LIGHT_INK),
     lime: secondary,
-    onLime: bestOnColor(secondary, ink),
+    onLime: bestOnColor(secondary, LIGHT_INK),
     gold: secondary,
   }
 }
