@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { T, TD, type ThemeTokens } from '@/design/tokens'
+import { useTheme } from '@/composables/useTheme'
 
 const props = withDefaults(
   defineProps<{
@@ -20,7 +20,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'click', ev: MouseEvent): void }>()
 
-const t = computed<ThemeTokens>(() => (props.theme === 'dark' ? TD : T))
+const { tokens: t, mode } = useTheme()
 const bg = computed(() => props.bg ?? t.value.accent)
 const color = computed(() => props.color ?? t.value.onAccent)
 // When the button is the brand accent, the arrow circle uses the on-accent
@@ -30,7 +30,7 @@ const arrowBg = computed(() => {
   if (props.arrowBg) return props.arrowBg
   if (!props.bg) {
     // Default brand button — same logic as before.
-    return props.theme === 'dark' ? t.value.ink : t.value.onAccent
+    return mode.value === 'dark' ? t.value.ink : t.value.onAccent
   }
   return color.value
 })
