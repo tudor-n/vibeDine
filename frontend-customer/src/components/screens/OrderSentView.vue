@@ -66,6 +66,7 @@ const isPreparing = computed(() =>
   currentStatus.value === 'preparing' || currentStatus.value === 'ready' || currentStatus.value === 'completed',
 )
 const isServed = computed(() => currentStatus.value === 'completed')
+const isCancelled = computed(() => currentStatus.value === 'cancelled')
 
 const steps = computed(() => [
   {
@@ -112,6 +113,15 @@ const steps = computed(() => [
 
     <div class="scroll">
     <div class="hero">
+      <template v-if="isCancelled">
+        <h1 class="title">
+          <span :style="{ color: T.accent }">{{ t('sent.cancelledTitle') }}</span>
+        </h1>
+        <p class="lede" :style="{ color: T.ink70 }">
+          {{ t('sent.cancelledBody') }}
+        </p>
+      </template>
+      <template v-else>
       <h1 class="title">
         {{ t('sent.title1') }}<br /><span :style="{ color: T.accent }">{{ t('sent.title2') }}</span><br />{{ t('sent.title3') }}
       </h1>
@@ -166,6 +176,7 @@ const steps = computed(() => [
         </div>
         <div class="total-hint" :style="{ color: totalHintColor }">{{ t('sent.payHint') }}</div>
       </div>
+      </template>
     </div>
     </div>
 

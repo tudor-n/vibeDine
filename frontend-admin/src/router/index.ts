@@ -60,6 +60,11 @@ const router = createRouter({
             component: () => import('@/views/MenuManagementView.vue')
         },
         {
+            path: '/inventory',
+            name: 'inventory',
+            component: () => import('@/views/InventoryView.vue')
+        },
+        {
             path: '/happy-hour',
             name: 'happy-hour',
             component: () => import('@/views/HappyHourView.vue')

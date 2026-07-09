@@ -422,6 +422,55 @@ namespace RestaurantApi.Migrations
                     b.ToTable("help_requests", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.Ingredient", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("LinkedProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("linked_product_id");
+
+                    b.Property<decimal>("LowStockThreshold")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(12,3)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("low_stock_threshold");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<decimal>("QuantityOnHand")
+                        .HasColumnType("decimal(12,3)")
+                        .HasColumnName("quantity_on_hand");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<int>("Unit")
+                        .HasColumnType("integer")
+                        .HasColumnName("unit");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LinkedProductId")
+                        .IsUnique()
+                        .HasFilter("linked_product_id IS NOT NULL");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.ToTable("ingredients", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.Invitation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -688,6 +737,12 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("status");
 
+                    b.Property<bool>("StockDecremented")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("stock_decremented");
+
                     b.Property<Guid>("TableId")
                         .HasColumnType("uuid")
                         .HasColumnName("table_id");
@@ -827,6 +882,12 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
 
+                    b.Property<int>("StockTrackingMode")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("stock_tracking_mode");
+
                     b.Property<Guid?>("SubcategoryId")
                         .HasColumnType("uuid")
                         .HasColumnName("subcategory_id");
@@ -840,6 +901,41 @@ namespace RestaurantApi.Migrations
                     b.HasIndex("SubcategoryId");
 
                     b.ToTable("products", (string)null);
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.RecipeItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("IngredientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ingredient_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<decimal>("QuantityPerPortion")
+                        .HasColumnType("decimal(12,3)")
+                        .HasColumnName("quantity_per_portion");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IngredientId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("ProductId", "IngredientId")
+                        .IsUnique();
+
+                    b.ToTable("recipe_items", (string)null);
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.RecommendationDirective", b =>
@@ -1323,6 +1419,16 @@ namespace RestaurantApi.Migrations
                     b.Navigation("Table");
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.Ingredient", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Product", "LinkedProduct")
+                        .WithMany()
+                        .HasForeignKey("LinkedProductId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("LinkedProduct");
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.Invitation", b =>
                 {
                     b.HasOne("RestaurantApi.Models.Organization", "Organization")
@@ -1419,6 +1525,25 @@ namespace RestaurantApi.Migrations
                     b.Navigation("Category");
 
                     b.Navigation("Subcategory");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.RecipeItem", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Ingredient", "Ingredient")
+                        .WithMany()
+                        .HasForeignKey("IngredientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RestaurantApi.Models.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ingredient");
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.RefreshToken", b =>

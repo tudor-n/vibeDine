@@ -13,4 +13,11 @@ public class CustomerHub : Hub
     {
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, TenantGroups.Table(restaurantId, tableId));
     }
+
+    // Join the restaurant-wide menu group to receive live stock availability updates
+    // (items going out of / back into stock) while browsing the menu.
+    public async Task JoinRestaurantMenuGroup(string restaurantId)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, TenantGroups.Menu(restaurantId));
+    }
 }

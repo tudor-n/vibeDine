@@ -1,12 +1,24 @@
 import { ref, computed } from 'vue'
 import { apiClient } from '@/services/api-client'
-import type { Category, Product } from '@shared/types/models'
+import type { Category, Product, RecipeLine, StockUnitCode } from '@shared/types/models'
 
 const categories = ref<Category[]>([])
 const products = ref<Product[]>([])
 const isLoading = ref(false)
 const error = ref<string | null>(null)
 let loadPromise: Promise<void> | null = null
+
+// Normalizes the recipe lines a recipe-tracked product carries. Tolerant of both camelCase and
+// snake_case, like the rest of this loader. Returns undefined when the product has no recipe.
+function mapRecipe(raw: unknown): RecipeLine[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  return (raw as Array<Record<string, unknown>>).map((r) => ({
+    ingredientId: (r.ingredientId ?? r.ingredient_id ?? '') as string,
+    ingredientName: (r.ingredientName ?? r.ingredient_name ?? '') as string,
+    unit: (r.unit ?? 'piece') as StockUnitCode,
+    quantityPerPortion: Number(r.quantityPerPortion ?? r.quantity_per_portion ?? 0),
+  }))
+}
 
 async function load() {
   if (loadPromise) return loadPromise
@@ -50,6 +62,13 @@ async function load() {
                 : p.is_available !== undefined
                   ? Boolean(p.is_available)
                   : true,
+            outOfStock:
+              p.outOfStock !== undefined
+                ? Boolean(p.outOfStock)
+                : p.out_of_stock !== undefined
+                  ? Boolean(p.out_of_stock)
+                  : false,
+            recipe: mapRecipe(p.recipe ?? p.recipe_lines),
           })
         }
       }
@@ -69,6 +88,16 @@ function productsByCategory(categoryId: string) {
   return products.value.filter((p) => p.categoryId === categoryId)
 }
 
+// Live stock update from SignalR: flip a product's availability in place so the
+// menu blurs / un-blurs reactively without a refetch.
+function setAvailability(productId: string, isAvailable: boolean, outOfStock: boolean) {
+  const p = products.value.find((x) => x.id === productId)
+  if (p) {
+    p.isAvailable = isAvailable
+    p.outOfStock = outOfStock
+  }
+}
+
 export function useMenu() {
   return {
     categories,
@@ -77,6 +106,7 @@ export function useMenu() {
     error,
     load,
     productsByCategory,
+    setAvailability,
     countByCategory: (categoryId: string) =>
       computed(() => productsByCategory(categoryId).length),
   }

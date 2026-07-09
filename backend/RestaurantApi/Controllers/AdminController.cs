@@ -23,6 +23,7 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IFlashDealService _flashDealService;
+    private readonly IStockService _stockService;
     private readonly IHubContext<CustomerHub> _customerHub;
     private readonly IHubContext<StaffHub> _staffHub;
     private readonly ITenantAccess _access;
@@ -42,6 +43,7 @@ public class AdminController : ControllerBase
         AppDbContext dbContext,
         IHttpClientFactory httpClientFactory,
         IFlashDealService flashDealService,
+        IStockService stockService,
         IHubContext<CustomerHub> customerHub,
         IHubContext<StaffHub> staffHub,
         ITenantAccess access,
@@ -50,6 +52,7 @@ public class AdminController : ControllerBase
         _dbContext = dbContext;
         _httpClientFactory = httpClientFactory;
         _flashDealService = flashDealService;
+        _stockService = stockService;
         _customerHub = customerHub;
         _staffHub = staffHub;
         _access = access;
@@ -526,6 +529,46 @@ public class AdminController : ControllerBase
             status = order.Status,
             readyAt = order.ReadyAt,
         });
+    }
+
+    // Cancels an active order: marks it cancelled, drops it off the board (soft-delete so it
+    // lands in the finalized log), and restores the stock that was decremented at dispatch.
+    // No cancel handler existed before this feature — UpdateOrderStatus rejects anything outside
+    // submitted/preparing/ready, so cancellation needs its own endpoint.
+    [HttpPost("orders/{orderId:guid}/cancel")]
+    public async Task<IActionResult> CancelOrder(Guid restaurantId, Guid orderId)
+    {
+        var order = await _dbContext.Orders
+            .FirstOrDefaultAsync(o => o.Id == orderId && o.DeletedAt == null);
+
+        if (order == null)
+            return NotFound(new { message = "Comanda nu a fost găsită sau a fost deja finalizată." });
+
+        // Only orders still on the active board can be cancelled (these are the ones whose stock
+        // was decremented at dispatch). Completed/already-cancelled/merged orders are terminal.
+        if (!ActiveStatuses.Contains(order.Status))
+            return Conflict(new { message = $"Comanda nu mai poate fi anulată (stare: {order.Status})." });
+
+        order.Status = "cancelled";
+        order.DeletedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+
+        // Put the ingredients back (idempotent via Order.StockDecremented) — this also broadcasts
+        // the resulting availability changes so any out-of-stock items un-blur on the menu.
+        await _stockService.ApplyRestoreForOrderAsync(order);
+
+        // Customer at the table sees the cancelled state on their status screen.
+        await _customerHub.Clients
+            .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
+            .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
+
+        // Other admin tabs drop the card from the board.
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
+            .SendAsync("OrderStatusUpdated", new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status });
+
+        _logger.LogInformation("Cancelled order {OrderId} (#{Number})", order.Id, order.OrderNumber);
+        return Ok(new { id = order.Id, status = order.Status });
     }
 
     // Waiter (or manager) takes ownership of an order from the floor plan

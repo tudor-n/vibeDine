@@ -78,11 +78,13 @@ export const useMenuManagementStore = defineStore('menuManagement', () => {
             cat.products.push(created)
             cat.products.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
         }
+        return created
     }
 
     async function updateProduct(id: string, payload: UpdateProductPayload) {
         const updated = await apiClient.updateProduct(id, payload)
         moveOrUpdateProduct(id, updated)
+        return updated
     }
 
     async function reorderProducts(categoryId: string, productIds: string[]) {

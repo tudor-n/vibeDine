@@ -20,13 +20,15 @@ public class FlashDealService : IFlashDealService
     private readonly IHubContext<CustomerHub> _customerhub;
     private readonly IHubContext<StaffHub> _staffhub;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IStockService _stockService;
     private readonly ILogger<FlashDealService> _logger;
-    
+
     public FlashDealService(
         AppDbContext context,
         IHubContext<CustomerHub> customerHub,
         IHubContext<StaffHub> staffHub,
         IServiceScopeFactory scopeFactory,
+        IStockService stockService,
         ILogger<FlashDealService> logger
     )
     {
@@ -34,6 +36,7 @@ public class FlashDealService : IFlashDealService
         _customerhub = customerHub;
         _staffhub = staffHub;
         _scopeFactory = scopeFactory;
+        _stockService = stockService;
         _logger = logger;
     }
 
@@ -107,7 +110,10 @@ public class FlashDealService : IFlashDealService
         if (order == null || order.Status != "pending_dispatch") return;
 
         order.Status = "submitted";
-        await _context.SaveChangesAsync();
+        // Sending to the kitchen is the commitment point: subtract the order's ingredient usage
+        // from stock here. Idempotent, and persists the status change in the same transaction
+        // (handles recipe, simple and untracked products alike).
+        await _stockService.ApplyDecrementForOrderAsync(order);
 
         await _staffhub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))

@@ -3,14 +3,47 @@ import { onMounted, ref, computed, reactive, watch, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
 import BrandSelect from '@/components/BrandSelect.vue'
 import { useMenuManagementStore } from '@/stores/useMenuManagementStore'
+import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useToast } from '@/composables/useToast'
 import { resolveMediaUrl } from '@/services/mediaUrl'
-import type { AdminMenuCategoryNode, AdminProduct } from '@shared/types/models'
+import { apiClient, type SetProductStockPayload } from '@/services/api-client'
+import type { AdminMenuCategoryNode, AdminProduct, StockTrackingMode, StockUnitCode } from '@shared/types/models'
 
 const store = useMenuManagementStore()
+const inventoryStore = useInventoryStore()
 const toast = useToast()
 
-onMounted(() => store.fetchMenu())
+onMounted(() => {
+    store.fetchMenu()
+    inventoryStore.fetchIngredients()
+})
+
+// ---------- Stock / recipe helpers ----------
+const STOCK_MODE_OPTIONS = [
+    { value: 'untracked', label: 'Fără urmărire stoc' },
+    { value: 'recipe', label: 'Rețetă · din ingrediente' },
+    { value: 'simple', label: 'Stoc simplu · la bucată' },
+]
+const UNIT_OPTIONS = [
+    { value: 'piece', label: 'buc · bucăți' },
+    { value: 'gram', label: 'g · grame' },
+    { value: 'kilogram', label: 'kg · kilograme' },
+    { value: 'milliliter', label: 'ml · mililitri' },
+    { value: 'liter', label: 'l · litri' },
+]
+const UNIT_LABELS: Record<string, string> = {
+    piece: 'buc', gram: 'g', kilogram: 'kg', milliliter: 'ml', liter: 'l',
+}
+const ingredientOptions = computed(() =>
+    inventoryStore.standaloneIngredients.map((i) => ({
+        value: i.id,
+        label: `${i.name} (${UNIT_LABELS[i.unit] ?? i.unit})`,
+    })),
+)
+function ingredientUnit(id: string): string {
+    const ing = inventoryStore.standaloneIngredients.find((i) => i.id === id)
+    return ing ? (UNIT_LABELS[ing.unit] ?? ing.unit) : ''
+}
 
 // ---------- Category form ----------
 type CategoryFormMode = 'create' | 'edit'
@@ -101,7 +134,30 @@ const productForm = reactive({
     imageUrl: '',
     isAvailable: true,
     submitting: false,
+    // Stock tracking
+    stockMode: 'untracked' as StockTrackingMode,
+    stockLoading: false,
+    recipeLines: [] as { ingredientId: string; quantityPerPortion: number }[],
+    simpleQuantity: 0 as number,
+    simpleUnit: 'piece' as StockUnitCode,
+    simpleThreshold: 0 as number,
 })
+
+function resetStockFields() {
+    productForm.stockMode = 'untracked'
+    productForm.stockLoading = false
+    productForm.recipeLines = []
+    productForm.simpleQuantity = 0
+    productForm.simpleUnit = 'piece'
+    productForm.simpleThreshold = 0
+}
+
+function addRecipeLine() {
+    productForm.recipeLines.push({ ingredientId: '', quantityPerPortion: 1 })
+}
+function removeRecipeLine(idx: number) {
+    productForm.recipeLines.splice(idx, 1)
+}
 
 function openCreateProduct(categoryId: string) {
     productForm.open = true
@@ -113,9 +169,11 @@ function openCreateProduct(categoryId: string) {
     productForm.price = 0
     productForm.imageUrl = ''
     productForm.isAvailable = true
+    resetStockFields()
+    if (inventoryStore.ingredients.length === 0) inventoryStore.fetchIngredients()
 }
 
-function openEditProduct(p: AdminProduct) {
+async function openEditProduct(p: AdminProduct) {
     productForm.open = true
     productForm.mode = 'edit'
     productForm.id = p.id
@@ -125,10 +183,69 @@ function openEditProduct(p: AdminProduct) {
     productForm.price = p.price
     productForm.imageUrl = p.imageUrl ?? ''
     productForm.isAvailable = p.isAvailable
+    resetStockFields()
+    if (inventoryStore.ingredients.length === 0) inventoryStore.fetchIngredients()
+
+    // Load the product's current stock configuration.
+    productForm.stockLoading = true
+    try {
+        const stock = await apiClient.getProductStock(p.id)
+        productForm.stockMode = stock.mode
+        if (stock.mode === 'recipe') {
+            productForm.recipeLines = stock.recipe.map((r) => ({
+                ingredientId: r.ingredientId,
+                quantityPerPortion: r.quantityPerPortion,
+            }))
+        } else if (stock.mode === 'simple') {
+            productForm.simpleQuantity = stock.simpleQuantity ?? 0
+            productForm.simpleUnit = stock.simpleUnit ?? 'piece'
+            productForm.simpleThreshold = stock.simpleThreshold ?? 0
+        }
+    } catch (e: any) {
+        toast.error(e?.message ?? 'Nu am putut încărca stocul produsului.')
+    } finally {
+        productForm.stockLoading = false
+    }
 }
 
 function closeProductForm() {
     productForm.open = false
+}
+
+function buildStockPayload(): SetProductStockPayload {
+    if (productForm.stockMode === 'recipe') {
+        return {
+            mode: 'recipe',
+            recipe: productForm.recipeLines.map((l) => ({
+                ingredientId: l.ingredientId,
+                quantityPerPortion: l.quantityPerPortion,
+            })),
+        }
+    }
+    if (productForm.stockMode === 'simple') {
+        return {
+            mode: 'simple',
+            simpleQuantity: productForm.simpleQuantity,
+            simpleUnit: productForm.simpleUnit,
+            simpleThreshold: productForm.simpleThreshold,
+        }
+    }
+    return { mode: 'untracked' }
+}
+
+function validateStock(): string | null {
+    if (productForm.stockMode === 'recipe') {
+        for (const line of productForm.recipeLines) {
+            if (!line.ingredientId) return 'Alege un ingredient pentru fiecare rând din rețetă.'
+            if (!(line.quantityPerPortion > 0)) return 'Cantitatea pe porție trebuie să fie mai mare decât 0.'
+        }
+        const ids = productForm.recipeLines.map((l) => l.ingredientId)
+        if (new Set(ids).size !== ids.length) return 'Un ingredient apare de două ori în rețetă.'
+    }
+    if (productForm.stockMode === 'simple' && productForm.simpleQuantity < 0) {
+        return 'Cantitatea nu poate fi negativă.'
+    }
+    return null
 }
 
 async function submitProductForm() {
@@ -145,12 +262,20 @@ async function submitProductForm() {
         toast.error('Selectează o categorie.')
         return
     }
+    const stockError = validateStock()
+    if (stockError) {
+        toast.error(stockError)
+        return
+    }
+
     productForm.submitting = true
+    let productId = productForm.id
+    let productSaved = false
     try {
         const description = productForm.description.trim()
         const imageUrl = productForm.imageUrl.trim()
         if (productForm.mode === 'create') {
-            await store.createProduct({
+            const created = await store.createProduct({
                 categoryId: productForm.categoryId,
                 name,
                 description: description || null,
@@ -158,7 +283,7 @@ async function submitProductForm() {
                 imageUrl: imageUrl || null,
                 isAvailable: productForm.isAvailable,
             })
-            toast.success('Produsul a fost adăugat.')
+            productId = created.id
         } else {
             await store.updateProduct(productForm.id, {
                 categoryId: productForm.categoryId,
@@ -168,11 +293,25 @@ async function submitProductForm() {
                 imageUrl,
                 isAvailable: productForm.isAvailable,
             })
-            toast.success('Produsul a fost actualizat.')
         }
+        productSaved = true
+
+        // Persist stock mode + recipe / simple stock. Refresh the inventory store so a newly
+        // created simple-product stock row shows up in Inventar without a manual reload.
+        await apiClient.setProductStock(productId, buildStockPayload())
+        inventoryStore.fetchIngredients()
+
+        toast.success(productForm.mode === 'create' ? 'Produsul a fost adăugat.' : 'Produsul a fost actualizat.')
         closeProductForm()
     } catch (e: any) {
-        toast.error(e?.message ?? 'Eroare la salvarea produsului.')
+        if (productSaved) {
+            // The product itself saved; only the stock step failed. Don't trap the user (re-submitting
+            // a create would duplicate the product) — surface the issue and close.
+            toast.error('Produsul a fost salvat, dar stocul nu a putut fi actualizat: ' + (e?.message ?? ''))
+            closeProductForm()
+        } else {
+            toast.error(e?.message ?? 'Eroare la salvarea produsului.')
+        }
     } finally {
         productForm.submitting = false
     }
@@ -891,6 +1030,106 @@ function formatPrice(n: number) {
                             </div>
                         </div>
 
+                        <!-- Stock management -->
+                        <div class="stock-section">
+                            <div class="field">
+                                <span class="field-label">Gestionare stoc</span>
+                                <BrandSelect
+                                    :model-value="productForm.stockMode"
+                                    :options="STOCK_MODE_OPTIONS"
+                                    aria-label="Mod urmărire stoc"
+                                    @update:model-value="(v) => (productForm.stockMode = v as any)"
+                                />
+                                <span class="field-hint">Cum se scade stocul când produsul e trimis la bucătărie.</span>
+                            </div>
+
+                            <div v-if="productForm.stockLoading" class="stock-loading font-mono">
+                                se încarcă stocul…
+                            </div>
+
+                            <!-- Recipe builder -->
+                            <div v-else-if="productForm.stockMode === 'recipe'" class="field">
+                                <span class="field-label">Rețetă · cantitate pe porție</span>
+                                <div
+                                    v-if="inventoryStore.standaloneIngredients.length === 0"
+                                    class="recipe-empty"
+                                >
+                                    Niciun ingredient disponibil. Adaugă întâi ingrediente în
+                                    <RouterLink to="/inventory" class="recipe-link">Inventar</RouterLink>.
+                                </div>
+                                <template v-else>
+                                    <div
+                                        v-for="(line, idx) in productForm.recipeLines"
+                                        :key="idx"
+                                        class="recipe-line"
+                                    >
+                                        <div class="recipe-line-ing">
+                                            <BrandSelect
+                                                v-model="line.ingredientId"
+                                                :options="ingredientOptions"
+                                                placeholder="— ingredient —"
+                                                aria-label="Ingredient"
+                                            />
+                                        </div>
+                                        <input
+                                            v-model.number="line.quantityPerPortion"
+                                            type="number"
+                                            step="any"
+                                            min="0"
+                                            class="field-input recipe-line-qty"
+                                            placeholder="cant."
+                                        />
+                                        <span class="recipe-line-unit">{{ ingredientUnit(line.ingredientId) }}</span>
+                                        <button
+                                            type="button"
+                                            class="icon-btn icon-btn-danger"
+                                            @click="removeRecipeLine(idx)"
+                                            aria-label="Elimină ingredientul"
+                                            title="Elimină"
+                                        >×</button>
+                                    </div>
+                                    <button type="button" class="btn-ghost recipe-add" @click="addRecipeLine">
+                                        + Adaugă ingredient
+                                    </button>
+                                </template>
+                            </div>
+
+                            <!-- Simple stock -->
+                            <div v-else-if="productForm.stockMode === 'simple'" class="grid grid-cols-3 gap-3">
+                                <label class="field">
+                                    <span class="field-label">În stoc</span>
+                                    <input
+                                        v-model.number="productForm.simpleQuantity"
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        class="field-input"
+                                        placeholder="ex. 24"
+                                    />
+                                </label>
+                                <div class="field">
+                                    <span class="field-label">Unitate</span>
+                                    <BrandSelect
+                                        :model-value="productForm.simpleUnit"
+                                        :options="UNIT_OPTIONS"
+                                        aria-label="Unitate"
+                                        @update:model-value="(v) => (productForm.simpleUnit = v as any)"
+                                    />
+                                </div>
+                                <label class="field">
+                                    <span class="field-label">Prag alertă</span>
+                                    <input
+                                        v-model.number="productForm.simpleThreshold"
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        class="field-input"
+                                        placeholder="ex. 5"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
                         <label class="field">
                             <span class="field-label">URL imagine</span>
                             <input
@@ -1058,6 +1297,57 @@ textarea.field-input {
     max-height: 180px;
     border-radius: 8px;
     object-fit: cover;
+}
+
+/* ── Stock / recipe section ────────────────────────────────────────────── */
+.stock-section {
+    border: 1px solid var(--ink12);
+    border-radius: 14px;
+    padding: 14px;
+    background: var(--paper);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.stock-loading {
+    font-size: 12px;
+    color: var(--ink40);
+}
+.recipe-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.recipe-line-ing {
+    flex: 1;
+    min-width: 0;
+}
+.recipe-line-qty {
+    width: 92px;
+    flex-shrink: 0;
+}
+.recipe-line-unit {
+    width: 32px;
+    flex-shrink: 0;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--ink40);
+}
+.recipe-add {
+    align-self: flex-start;
+    padding: 8px 14px;
+    font-size: 13px;
+}
+.recipe-empty {
+    font-size: 13px;
+    color: var(--ink70);
+    padding: 10px 12px;
+    border: 1px dashed var(--ink12);
+    border-radius: 10px;
+}
+.recipe-link {
+    color: var(--accent);
+    text-decoration: underline;
 }
 
 .line-clamp-3 {

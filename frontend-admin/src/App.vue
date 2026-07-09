@@ -7,6 +7,7 @@ import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
+import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useFloorStore } from '@/stores/useFloorStore'
 
 const { theme, toggle: toggleTheme } = useTheme()
@@ -15,6 +16,7 @@ const route = useRoute()
 const router = useRouter()
 const importStore = useMenuImportStore()
 const waiterCalls = useWaiterCallsStore()
+const inventory = useInventoryStore()
 const floor = useFloorStore()
 
 // Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
@@ -47,6 +49,8 @@ watch(
       // Keep the active-order feed alive app-wide so the sidebar "Sala" dot and
       // the Comenzi board stay live regardless of which page is open.
       void floor.startRealtime(rid)
+      // Load stock once per restaurant so the "Inventar" nav badge can show the low-stock count.
+      if (!auth.isWaiter) void inventory.fetchIngredients()
     } else {
       void waiterCalls.stop()
       void floor.stopRealtime()
@@ -130,6 +134,7 @@ const navGroups = computed<NavGroup[]>(() => {
       label: 'Meniu & AI',
       items: [
         { to: '/menu', icon: '☰', label: 'Meniu', show: full },
+        { to: '/inventory', icon: '▣', label: 'Inventar', show: full, badge: inventory.lowStockCount },
         { to: '/happy-hour', icon: '◷', label: 'Happy Hour', show: full },
         { to: '/flash-deal', icon: '◈', label: 'Flash Deal', show: full },
         { to: '/rules', icon: '∞', label: 'Reguli', show: full },
