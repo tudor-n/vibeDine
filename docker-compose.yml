@@ -80,6 +80,35 @@ services:
     volumes:
       - ./backend/PlatformApi:/src
 
+  # vibeDine Ops — server/infrastructure management console. Shares the Postgres DB with
+  # backend-api but owns its own auth (ops_admins) and ops_* tables. Manages Railway today and a
+  # VPS (Hetzner/SSH) later through a pluggable provider layer; provider tokens are AES-GCM encrypted.
+  ops-api:
+    build: ./backend/OpsApi
+    ports:
+      - "5007:5000"
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
+      ASPNETCORE_ENVIRONMENT: "Development"
+      Jwt__Key: "dev-only-ops-signing-key-change-me-32+chars"
+      Jwt__Issuer: "vibedine-ops"
+      Jwt__Audience: "vibedine-ops"
+      Jwt__AccessTokenMinutes: "720"
+      # Default ops operator seeded on first start — change in production.
+      OpsSeed__Email: "ops@vibedine.local"
+      OpsSeed__Password: "ChangeMe123!"
+      # 32+ char secret that AES-GCM encrypts provider tokens at rest — change in production.
+      Ops__Encryption__Key: "dev-only-ops-encryption-key-change-me-32chars"
+      Ops__Railway__GraphqlEndpoint: "https://backboard.railway.com/graphql/v2"
+      AllowedOrigins__0: "http://localhost:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-api:
+        condition: service_started
+    volumes:
+      - ./backend/OpsApi:/src
+
   mailpit:
     image: axllent/mailpit:latest
     ports:
@@ -132,6 +161,18 @@ services:
       VITE_API_URL: "http://localhost:5006/"
     volumes:
       - ./frontend-platform:/app
+      - ./shared:/shared:ro
+      - /app/node_modules
+
+  # vibeDine Ops console — talks to ops-api (5007).
+  frontend-ops:
+    build: ./frontend-ops
+    ports:
+      - "3003:3003"
+    environment:
+      VITE_API_URL: "http://localhost:5007/"
+    volumes:
+      - ./frontend-ops:/app
       - ./shared:/shared:ro
       - /app/node_modules
 
