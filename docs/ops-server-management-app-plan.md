@@ -62,9 +62,9 @@ the stored connection, so **adding a provider = one class + registry line**, no 
 | Logs | build/deploy/http fetch (+ filter), archive query, ingest | Railway filter syntax passthrough |
 | Variables | get / upsert | destructive `replace` guarded |
 | Audit | ops audit log + provider audit log | |
-| Metrics | best-effort provider metrics | `[DE CONFIRMAT]` — degrades gracefully |
+| Metrics | per-service, per-server aggregate, fleet-wide roll-up (CPU/RAM/network) | **verified** against live Railway 2026-07-09 |
 
-`[DE CONFIRMAT]` Railway queries (network-flow logs, live subscriptions, metrics, exact `auditLogs`
+`[DE CONFIRMAT]` Railway queries (network-flow logs, live subscriptions, exact `auditLogs`
 signature) can't be introspected without a live token, so they're implemented as clearly-marked,
 **gracefully-degrading** methods returning empty/`NotSupported` instead of guessing field names.
 

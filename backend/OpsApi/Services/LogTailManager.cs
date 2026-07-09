@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using OpsApi.Data;
 using OpsApi.Hubs;
@@ -18,7 +17,11 @@ public sealed class LogTailManager
     private readonly IServiceScopeFactory _scopes;
     private readonly IHubContext<LogStreamHub> _hub;
     private readonly ILogger<LogTailManager> _logger;
-    private readonly ConcurrentDictionary<string, Worker> _workers = new();
+    // All lifecycle state is guarded by _sync so ref-counts can't race across concurrent hub calls.
+    private readonly Dictionary<string, Worker> _workers = new();
+    // Hub connection id -> groups it subscribed to, so a dropped connection releases its refs.
+    private readonly Dictionary<string, HashSet<string>> _connectionGroups = new();
+    private readonly object _sync = new();
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
 
@@ -32,37 +35,62 @@ public sealed class LogTailManager
     public static string GroupName(string connectionId, string deploymentId, string logType) =>
         $"tail:{connectionId}:{deploymentId}:{logType}";
 
-    public void Start(Guid connectionId, string deploymentId, string logType, string group)
+    public void Subscribe(string hubConnectionId, Guid connectionId, string deploymentId, string logType, string group)
     {
-        _workers.AddOrUpdate(group,
-            _ =>
+        lock (_sync)
+        {
+            if (!_connectionGroups.TryGetValue(hubConnectionId, out var groups))
+                groups = _connectionGroups[hubConnectionId] = new HashSet<string>();
+            if (!groups.Add(group)) return; // this hub connection already tails this group
+
+            if (_workers.TryGetValue(group, out var worker))
             {
-                var worker = new Worker { Refs = 1, Cts = new CancellationTokenSource() };
+                worker.Refs++;
+            }
+            else
+            {
+                worker = new Worker { Refs = 1, Cts = new CancellationTokenSource() };
                 worker.Task = RunAsync(connectionId, deploymentId, logType, group, worker.Cts.Token);
+                _workers[group] = worker;
                 _logger.LogInformation("Started log tail for {Group}", group);
-                return worker;
-            },
-            (_, existing) =>
-            {
-                existing.Refs++;
-                return existing;
-            });
+            }
+        }
     }
 
-    public void Stop(string group)
+    public void Unsubscribe(string hubConnectionId, string group)
+    {
+        lock (_sync)
+        {
+            if (_connectionGroups.TryGetValue(hubConnectionId, out var groups) && groups.Remove(group))
+                Release(group);
+        }
+    }
+
+    /// <summary>Release every tail a dropped hub connection held (called from OnDisconnectedAsync).</summary>
+    public void Disconnect(string hubConnectionId)
+    {
+        lock (_sync)
+        {
+            if (!_connectionGroups.TryGetValue(hubConnectionId, out var groups)) return;
+            foreach (var group in groups) Release(group);
+            _connectionGroups.Remove(hubConnectionId);
+        }
+    }
+
+    // Caller must hold _sync.
+    private void Release(string group)
     {
         if (!_workers.TryGetValue(group, out var worker)) return;
         if (--worker.Refs > 0) return;
-        if (_workers.TryRemove(group, out var removed))
-        {
-            removed.Cts.Cancel();
-            _logger.LogInformation("Stopped log tail for {Group}", group);
-        }
+        _workers.Remove(group);
+        worker.Cts.Cancel();
+        _logger.LogInformation("Stopped log tail for {Group}", group);
     }
 
     private async Task RunAsync(Guid connectionId, string deploymentId, string logType, string group, CancellationToken ct)
     {
         var seen = new HashSet<string>();
+        var floor = DateTime.MinValue; // high-water mark: lines older than this were already processed
 
         while (!ct.IsCancellationRequested)
         {
@@ -79,11 +107,13 @@ public sealed class LogTailManager
                 var fresh = new List<LogEntry>();
                 foreach (var entry in logs.OrderBy(l => l.Timestamp))
                 {
+                    if (entry.Timestamp < floor) continue; // already processed in an earlier window
                     var key = $"{entry.Timestamp.Ticks}|{entry.Message}";
                     if (seen.Add(key)) fresh.Add(entry);
+                    if (entry.Timestamp > floor) floor = entry.Timestamp;
                 }
 
-                // Keep the dedup set bounded.
+                // Bound the dedup set. Clearing is safe: `floor` stops older lines being re-archived.
                 if (seen.Count > 5000) seen.Clear();
 
                 if (fresh.Count > 0)

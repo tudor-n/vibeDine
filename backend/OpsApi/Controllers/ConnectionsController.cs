@@ -66,6 +66,9 @@ public sealed class ConnectionsController : OpsControllerBase
         if (string.IsNullOrWhiteSpace(req.Token))
             return BadRequest(new { message = "A token/credential is required." });
 
+        var adminId = User.OpsAdminId();
+        if (adminId is null) return Unauthorized(new { message = "Missing admin identity." });
+
         var metadata = req.Metadata ?? new Dictionary<string, string?>();
         var result = await provider.ValidateAsync(new ProviderCredentials(req.Token, req.TokenKind), metadata, HttpContext.RequestAborted);
         if (!result.Success)
@@ -88,7 +91,7 @@ public sealed class ConnectionsController : OpsControllerBase
             Status = ConnectionStatus.Active,
             StatusDetail = result.Detail,
             LastCheckedAt = DateTime.UtcNow,
-            CreatedByAdminId = User.OpsAdminId() ?? Guid.Empty,
+            CreatedByAdminId = adminId.Value,
         };
 
         _db.Connections.Add(conn);

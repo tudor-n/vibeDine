@@ -48,6 +48,10 @@ public sealed class FleetMetricsController : ControllerBase
                 else
                     error = "Metrics not supported by this provider yet.";
             }
+            catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                throw; // client went away — abort the whole request, don't report it as a server error
+            }
             catch (Exception ex)
             {
                 error = ex.Message;

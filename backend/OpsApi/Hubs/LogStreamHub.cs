@@ -23,13 +23,20 @@ public sealed class LogStreamHub : Hub
         var group = LogTailManager.GroupName(connectionId, deploymentId, logType);
         await Groups.AddToGroupAsync(Context.ConnectionId, group);
         if (Guid.TryParse(connectionId, out var cid))
-            _tails.Start(cid, deploymentId, logType, group);
+            _tails.Subscribe(Context.ConnectionId, cid, deploymentId, logType, group);
     }
 
     public async Task Unsubscribe(string connectionId, string deploymentId, string logType)
     {
         var group = LogTailManager.GroupName(connectionId, deploymentId, logType);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, group);
-        _tails.Stop(group);
+        _tails.Unsubscribe(Context.ConnectionId, group);
+    }
+
+    // A closed tab / lost connection must release its tails, or the poller runs forever.
+    public override Task OnDisconnectedAsync(Exception? exception)
+    {
+        _tails.Disconnect(Context.ConnectionId);
+        return base.OnDisconnectedAsync(exception);
     }
 }

@@ -19,6 +19,7 @@ export function createLogStream(onBatch: (entries: LogEntry[]) => void): {
     connection = new HubConnectionBuilder()
       .withUrl(`${BASE_URL}/hubs/logs`, {
         accessTokenFactory: () => useAuthStore().accessToken ?? '',
+        withCredentials: false, // Bearer token only; no cookies (matches server CORS)
       })
       .withAutomaticReconnect()
       .configureLogging(LogLevel.Warning)

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -69,7 +70,8 @@ var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<stri
     ?? ["http://localhost:3003"];
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
-        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+        // Bearer-token auth only (no cookies) — credentials are not needed and would loosen CORS.
+        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
 
 // ── MVC + SignalR + Swagger ─────────────────────────────────────────────────────────
 builder.Services.AddControllers()
@@ -79,7 +81,32 @@ builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Basic brute-force protection on login: fixed window per client IP.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
+
 var app = builder.Build();
+
+// Fail-fast outside Development if the JWT/encryption secrets are missing or still the committed dev
+// defaults — otherwise a prod deploy that forgets the env vars would ship forgeable ops-admin JWTs and
+// provider tokens encrypted under a publicly known key. (Mirrors RestaurantApi's Jwt:Key guard.)
+if (!app.Environment.IsDevelopment())
+{
+    RequireSecret(app.Configuration["Jwt:Key"], "Jwt:Key");
+    RequireSecret(app.Configuration["Ops:Encryption:Key"], "Ops:Encryption:Key");
+
+    static void RequireSecret(string? value, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.StartsWith("dev-only", StringComparison.Ordinal))
+            throw new InvalidOperationException($"{name} must be set to a non-default secret outside Development.");
+    }
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -90,6 +117,7 @@ if (app.Environment.IsDevelopment())
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHub<LogStreamHub>("/hubs/logs");

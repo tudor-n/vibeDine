@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using OpsApi.Auth;
 using OpsApi.Data;
@@ -24,6 +25,7 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest req)
     {
         var email = req.Email.Trim().ToLowerInvariant();
