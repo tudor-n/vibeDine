@@ -254,7 +254,7 @@ function addRecommendation(rec: Recommendation) {
       class="recs"
       :style="{ background: T.paperHi, borderTop: `1px solid ${T.ink12}` }"
     >
-      <div class="recs-pill" :style="{ background: T.lime, color: T.ink }">
+      <div class="recs-pill" :style="{ background: T.lime, color: T.onLime }">
         {{ t('menu.recommendedForYou') }}
       </div>
       <div class="recs-strip">

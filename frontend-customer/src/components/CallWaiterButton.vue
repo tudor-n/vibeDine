@@ -41,7 +41,7 @@ const isErrorToast = computed(() => store.feedback === 'error')
 const toastStyle = computed(() =>
   isErrorToast.value
     ? { background: T.value.accent, color: '#fff' }
-    : { background: T.value.lime, color: T.value.ink },
+    : { background: T.value.lime, color: T.value.onLime },
 )
 </script>
 

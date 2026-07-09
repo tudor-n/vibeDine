@@ -4,6 +4,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale, type Locale } from '@/composables/useLocale'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { resolveMediaUrl } from '@/services/mediaUrl'
+import { resolveLogoBackground } from '@shared/branding/derive'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 import VibeDineLockup from '@/components/ui/VibeDineLockup.vue'
@@ -16,6 +17,9 @@ const session = useSessionStore()
 
 const photoUrl = computed(() => resolveMediaUrl(session.branding?.photoUrl))
 const logoUrl = computed(() => resolveMediaUrl(session.branding?.logoUrl))
+const logoPlate = computed(() =>
+  resolveLogoBackground(session.branding?.logoBackground ?? null, session.branding?.logoIsDark ?? null),
+)
 
 const bgStyle = computed(() => ({
   backgroundImage:
@@ -34,7 +38,12 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
       <div class="center">
         <div class="eyebrow" :style="{ fontFamily: tokens.mono }">{{ t('welcome.line1') }}</div>
 
-        <div v-if="logoUrl" class="logo-plate">
+        <div
+          v-if="logoUrl"
+          class="logo-plate"
+          :class="{ 'logo-plate--bare': !logoPlate.plate }"
+          :style="logoPlate.plate ? { background: logoPlate.background } : undefined"
+        >
           <img :src="logoUrl" :alt="session.restaurantName || ''" class="logo-img" />
         </div>
 
@@ -97,7 +106,6 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
 }
 
 .logo-plate {
-  background: rgba(255, 255, 255, 0.95);
   border-radius: 26px;
   padding: 30px 34px;
   box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.7);
@@ -105,6 +113,15 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
   display: grid;
   place-items: center;
   max-width: 260px;
+}
+
+/* Auto picked "transparent" for a light/knockout logo — drop the plate chrome
+   so the logo sits directly on the photo scrim. */
+.logo-plate--bare {
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .logo-img {

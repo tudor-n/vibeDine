@@ -409,7 +409,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       <button
         v-if="showProgressButton"
         class="progress-toggle"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
         :aria-label="t('sent.viewProgress')"
         @click="viewProgress"
       >

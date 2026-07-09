@@ -105,7 +105,7 @@ const steps = computed(() => [
       <div class="status-table" :style="{ color: T.ink70 }">{{ tableLabel }}</div>
       <div
         class="confirm-pill"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
       >
         {{ t('sent.confirmed') }}
       </div>

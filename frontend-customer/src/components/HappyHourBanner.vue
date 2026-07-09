@@ -47,7 +47,7 @@ onBeforeUnmount(() => {
   <div
     v-if="hh.active"
     class="hh-banner"
-    :style="{ background: T.lime, color: T.ink, border: `1px solid ${T.ink12}` }"
+    :style="{ background: T.lime, color: T.onLime, border: `1px solid ${T.ink12}` }"
     role="status"
   >
     <div class="hh-top">

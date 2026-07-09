@@ -40,7 +40,7 @@ function summary(m: PartyMember): string {
           class="avatar"
           :style="{
             background: isYou(m) ? T.accent : T.lime,
-            color: isYou(m) ? '#fff' : T.ink,
+            color: isYou(m) ? T.onAccent : T.onLime,
           }"
         >{{ (m.displayName || 'G').replace(/[^0-9]/g, '') || 'G' }}</span>
         <span class="party-name">

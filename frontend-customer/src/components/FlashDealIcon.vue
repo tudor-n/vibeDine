@@ -76,7 +76,7 @@ const label = computed(() => t('flash.iconLabel'))
     tabindex="-1"
     class="flash-pill"
     :aria-label="label"
-    :style="{ background: T.lime, color: '#000' }"
+    :style="{ background: T.lime, color: T.onLime }"
     @mousedown="preventFocus"
     @focus="dropFocus"
     @click="handleClick"

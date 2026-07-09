@@ -139,9 +139,9 @@ function dismiss() {
     <div class="header">
       <div
         class="badge"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
       >
-        <span class="dot" :style="{ background: '#000' }" />
+        <span class="dot" :style="{ background: T.onLime }" />
         {{ t('flash.badge') }}
       </div>
       <button
@@ -158,7 +158,7 @@ function dismiss() {
       <h1 class="title">
         {{ t('flash.title1') }}<br /><span
           class="hero-mark"
-          :style="{ background: T.lime, color: '#000' }"
+          :style="{ background: T.lime, color: T.onLime }"
         >{{ t('flash.titleMark') }}</span><br />{{ t('flash.title3') }}
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
@@ -179,7 +179,7 @@ function dismiss() {
           <div
             v-if="discountPercent"
             class="discount"
-            :style="{ background: T.lime, color: T.ink }"
+            :style="{ background: T.lime, color: T.onLime }"
           >{{ t('flash.discount', { percent: discountPercent }) }}</div>
           <div class="deal-name">
             {{ store.activeDeal.menuItem.name }}
@@ -243,8 +243,8 @@ function dismiss() {
       <BigButton
         :theme="theme"
         :bg="T.lime"
-        :color="T.ink"
-        :arrow-bg="T.ink"
+        :color="T.onLime"
+        :arrow-bg="T.onLime"
         :arrow-color="T.lime"
         :disabled="isClaiming || claimSuccess"
         @click="claim"

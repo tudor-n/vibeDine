@@ -137,7 +137,7 @@ async function submit() {
           <div
             v-if="isRecommended(it.id)"
             class="ai-pill"
-            :style="{ background: T.lime, color: T.ink }"
+            :style="{ background: T.lime, color: T.onLime }"
           >{{ t('cart.aiSuggested') }}</div>
           <div class="item-row">
             <div class="item-price">
