@@ -65,10 +65,13 @@ export const useVibeyStore = defineStore('vibey', () => {
 
   // The ONLY place a Vibey network call may originate. Guarded by
   // `recsLoaded` so re-opening the sheet (or calling openSheet again after a
-  // prior success or graceful failure) never re-hits the model.
+  // prior success or graceful failure) never re-hits the model. Opening the
+  // sheet always works; the *fetch* is additionally gated by `thinking` so a
+  // double-tap before the first request resolves can't fire a second
+  // concurrent call — the cost invariant is "exactly one".
   async function openSheet() {
     sheetOpen.value = true
-    if (recsLoaded.value) return
+    if (recsLoaded.value || thinking.value) return
 
     thinking.value = true
     try {

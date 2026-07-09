@@ -105,6 +105,22 @@ describe('useVibeyStore — openSheet (the ONLY fetch trigger)', () => {
     expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('does not fire a second concurrent fetch on a double-tap before the first resolves', async () => {
+    const store = useVibeyStore()
+    store.ensureTeaser('order-abc', 'ro')
+
+    // Two taps of "Da, arată-mi" before the first request resolves: the second
+    // still opens the sheet but must be blocked by the in-flight (thinking)
+    // guard so only one model call is ever made.
+    const p1 = store.openSheet()
+    const p2 = store.openSheet()
+    await Promise.all([p1, p2])
+
+    expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
+    expect(store.sheetOpen).toBe(true)
+    expect(store.recsLoaded).toBe(true)
+  })
+
   it('fails gracefully to an empty, calm state without throwing', async () => {
     vibeyRecsSpy.mockRejectedValueOnce(new Error('boom'))
     const store = useVibeyStore()
