@@ -2,13 +2,17 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import { useBrandTheme } from '@/composables/useBrandTheme'
 import BrandLogo from '@/components/BrandLogo.vue'
+import VibeDineLockup from '@/components/VibeDineLockup.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
 import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useFloorStore } from '@/stores/useFloorStore'
+import { useBrandingStore } from '@/stores/useBrandingStore'
+import { resolveMediaUrl } from '@/services/mediaUrl'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
@@ -18,6 +22,25 @@ const importStore = useMenuImportStore()
 const waiterCalls = useWaiterCallsStore()
 const inventory = useInventoryStore()
 const floor = useFloorStore()
+const branding = useBrandingStore()
+const brandTheme = useBrandTheme()
+
+// Re-skin the shell for a branded restaurant on bootstrap/switch (Task 9). A
+// fetch failure must never block the shell, so it falls back to the classic
+// palette rather than surfacing an error.
+async function refreshBranding() {
+  try {
+    await branding.load()
+    const b = branding.branding
+    if (b?.enabled && b.primary && b.secondary && b.background) {
+      brandTheme.applyBrand({ primary: b.primary, secondary: b.secondary, background: b.background })
+    } else {
+      brandTheme.clearBrand()
+    }
+  } catch {
+    brandTheme.clearBrand()
+  }
+}
 
 // Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
 // full-screen without the admin shell.
@@ -51,9 +74,12 @@ watch(
       void floor.startRealtime(rid)
       // Load stock once per restaurant so the "Inventar" nav badge can show the low-stock count.
       if (!auth.isWaiter) void inventory.fetchIngredients()
+      // Re-skin the shell to the restaurant's tenant palette, if branded.
+      void refreshBranding()
     } else {
       void waiterCalls.stop()
       void floor.stopRealtime()
+      brandTheme.clearBrand()
     }
   },
   { immediate: true },
@@ -219,6 +245,7 @@ onUnmounted(() => {
       <div class="topbar-right ml-auto">
         <span v-if="waiterCalls.count" class="nav-badge" aria-label="chemări active">{{ waiterCalls.count }}</span>
         <button
+          v-if="!branding.isEnabled"
           type="button"
           class="hamburger"
           :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
@@ -257,10 +284,21 @@ onUnmounted(() => {
 
       <!-- Brand block (desktop) -->
       <div class="hidden md:block mb-6">
-        <BrandLogo class="mb-3" />
-        <div class="display-title text-[34px] leading-[0.95]">
-          {{ auth.activeRestaurant?.name ?? 'Restaurant' }}
-        </div>
+        <template v-if="branding.isEnabled && branding.branding?.logoUrl">
+          <img
+            :src="resolveMediaUrl(branding.branding.logoUrl)"
+            alt=""
+            style="height: 72px; object-fit: contain"
+            class="mb-2"
+          />
+          <VibeDineLockup />
+        </template>
+        <template v-else>
+          <BrandLogo class="mb-3" />
+          <div class="display-title text-[34px] leading-[0.95]">
+            {{ auth.activeRestaurant?.name ?? 'Restaurant' }}
+          </div>
+        </template>
       </div>
 
       <!-- Mobile brand (leaves room for the fixed top-right toggle) -->
@@ -288,6 +326,7 @@ onUnmounted(() => {
         </div>
         <div class="account-actions">
           <button
+            v-if="!branding.isEnabled"
             type="button"
             class="icon-btn"
             :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"

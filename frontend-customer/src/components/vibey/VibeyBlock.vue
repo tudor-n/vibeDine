@@ -6,14 +6,17 @@ import { computed } from 'vue'
 import { useVibeyStore } from '@/stores/useVibeyStore'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
-import { bestOn } from '@/design/contrast'
+import { bestOnColor } from '@shared/branding/derive'
 import VibeyAvatar from './VibeyAvatar.vue'
 
 const store = useVibeyStore()
 const { tokens: T } = useTheme()
 const { t } = useLocale()
 
-const onSec = computed(() => bestOn(T.value.lime))
+// On-secondary (text/icon over the lime pill/badge) derived the same way the
+// white-label system derives all its on-colours, so Vibey stays legible for any
+// tenant secondary. '#15140F' is the shared LIGHT_INK dark-ink candidate.
+const onSec = computed(() => bestOnColor(T.value.lime, '#15140F'))
 const revealLabel = computed(() => (store.sheetOpen ? t('vibey.revealHide') : t('vibey.revealShow')))
 const thinkDelays = [0, 0.16, 0.32]
 

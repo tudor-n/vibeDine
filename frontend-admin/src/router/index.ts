@@ -144,6 +144,11 @@ const router = createRouter({
                     name: 'settings-collaborators',
                     component: () => import('@/views/Settings/CollaboratorsTab.vue'),
                 },
+                {
+                    path: 'brand',
+                    name: 'settings-brand',
+                    component: () => import('@/views/Settings/BrandTab.vue'),
+                },
             ],
         },
     ]

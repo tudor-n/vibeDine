@@ -27,6 +27,7 @@ const ro: Dict = {
   'theme.toDark': 'Comutați la tema închisă',
 
   'welcome.line1': 'Bun venit la',
+  'welcome.cta': 'Vezi meniul',
   'welcome.fallbackLocation': 'Restaurant',
   'welcome.today': 'AZI',
   'welcome.featuredName': 'Mușchi de vită Oltenia',
@@ -179,6 +180,7 @@ const en: Dict = {
   'theme.toDark': 'Switch to dark theme',
 
   'welcome.line1': 'Welcome to',
+  'welcome.cta': 'View the menu',
   'welcome.fallbackLocation': 'Restaurant',
   'welcome.today': 'TODAY',
   'welcome.featuredName': 'Oltenia beef tenderloin',

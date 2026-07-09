@@ -144,3 +144,12 @@ export interface DailyMetrics {
     recommendationClicks: number;
     upsellRevenue: number;
 }
+export interface RestaurantBranding {
+    enabled: boolean;
+    primary: string | null;
+    secondary: string | null;
+    background: string | null;
+    logoUrl: string | null;
+    photoUrl: string | null;
+    presetKey?: string | null;
+}
