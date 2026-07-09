@@ -421,10 +421,16 @@ public class CustomerController : ControllerBase
 
         var response = await _recommendationService.GetVibeyRecommendationsAsync(request.Items, locale);
 
-        _memoryCache.Set(cacheKey, response, new MemoryCacheEntryOptions
+        // Never cache a graceful-empty result (transient AI outage, exhausted
+        // candidate pool) — that would poison this cart's cache with a false
+        // "nothing to suggest" for up to the full sliding expiration.
+        if (response.Recommendations.Count > 0)
         {
-            SlidingExpiration = TimeSpan.FromMinutes(2)
-        });
+            _memoryCache.Set(cacheKey, response, new MemoryCacheEntryOptions
+            {
+                SlidingExpiration = TimeSpan.FromMinutes(2)
+            });
+        }
 
         return Ok(response);
     }

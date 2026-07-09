@@ -82,6 +82,12 @@ export const useVibeyStore = defineStore('vibey', () => {
   // double-tap before the first request resolves can't fire a second
   // concurrent call — the cost invariant is "exactly one".
   async function openSheet() {
+    // The AI already came back with nothing (or failed) for this cart — the
+    // reveal pill that triggers openSheet() is hidden in this state, but
+    // guard defensively against a stray re-open call ever popping a blank
+    // sheet back open.
+    if (recsLoaded.value && !hadRecs.value) return
+
     sheetOpen.value = true
     if (recsLoaded.value || thinking.value) return
 
@@ -101,16 +107,21 @@ export const useVibeyStore = defineStore('vibey', () => {
       botMsg.value = hadRecs.value
         ? summary.value || botMsg.value
         : nothingToSuggest(locale.value)
+      // A genuinely-empty AI response must not leave a blank sheet open (header
+      // only, no recs) behind the scrim — close it so the calm nothingToSuggest
+      // bubble line in VibeyBlock is what the guest actually sees.
+      if (!hadRecs.value) sheetOpen.value = false
     } catch {
       // Graceful empty state — an AI-service failure must never surface as an
       // error to the guest; Vibey simply doesn't push anything. Same calm line
       // as a legitimately-empty response so the guest never sees a false
-      // "all added" claim.
+      // "all added" claim. Also must not leave a blank sheet open.
       const { locale } = useLocale()
       recs.value = []
       hadRecs.value = false
       summary.value = ''
       botMsg.value = nothingToSuggest(locale.value)
+      sheetOpen.value = false
     } finally {
       recsLoaded.value = true
       thinking.value = false

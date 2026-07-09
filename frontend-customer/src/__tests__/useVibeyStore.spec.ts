@@ -151,6 +151,42 @@ describe('useVibeyStore — openSheet (the ONLY fetch trigger)', () => {
     expect(store.allAdded).toBe(false) // nothing was added — must NOT claim it was
     expect(store.botMsg).toBe(nothingToSuggest('ro'))
   })
+
+  it('closes the sheet on a genuinely-empty AI response instead of leaving a blank sheet open', async () => {
+    vibeyRecsSpy.mockResolvedValueOnce({ summary: '', recommendations: [] })
+    const store = useVibeyStore()
+    store.ensureTeaser('order-empty-sheet', 'ro')
+
+    await store.openSheet()
+
+    // The scrim-covered blank sheet (header only, no recs) must not linger —
+    // the calm nothingToSuggest bubble line behind it is what the guest sees.
+    expect(store.sheetOpen).toBe(false)
+    expect(store.noRecs).toBe(true)
+    expect(store.botMsg).toBe(nothingToSuggest('ro'))
+
+    // Re-opening must not re-fetch (recsLoaded guard) and must not pop a
+    // blank sheet back open.
+    await store.openSheet()
+    expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
+    expect(store.sheetOpen).toBe(false)
+  })
+
+  it('closes the sheet on a failed AI fetch instead of leaving a blank sheet open', async () => {
+    vibeyRecsSpy.mockRejectedValueOnce(new Error('boom'))
+    const store = useVibeyStore()
+    store.ensureTeaser('order-fail-sheet', 'ro')
+
+    await store.openSheet()
+
+    expect(store.sheetOpen).toBe(false)
+    expect(store.noRecs).toBe(true)
+    expect(store.botMsg).toBe(nothingToSuggest('ro'))
+
+    await store.openSheet()
+    expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
+    expect(store.sheetOpen).toBe(false)
+  })
 })
 
 describe('useVibeyStore — addRec (no fetch, deterministic follow-up)', () => {
