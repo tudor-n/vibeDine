@@ -135,4 +135,28 @@ public class MenuImportPythonClientTests : IAsyncLifetime
         var act = async () => await client.ExtractPdfAsync(MakePayload(), CancellationToken.None);
         await act.Should().ThrowAsync<HttpRequestException>();
     }
+
+    [Fact]
+    public async Task Appends_extract_item_photos_part_only_when_flag_set()
+    {
+        StubSuccess();
+        var client = new MenuImportPythonClient(_httpClient);
+
+        await client.ExtractPdfAsync(MakePayload() with { ExtractItemPhotos = true }, CancellationToken.None);
+
+        var body = _python.LogEntries.Should().ContainSingle().Subject.RequestMessage.Body ?? string.Empty;
+        body.Should().MatchRegex("name=\"?extract_item_photos\"?");
+    }
+
+    [Fact]
+    public async Task Omits_extract_item_photos_part_when_flag_unset()
+    {
+        StubSuccess();
+        var client = new MenuImportPythonClient(_httpClient);
+
+        await client.ExtractPdfAsync(MakePayload(), CancellationToken.None);
+
+        var body = _python.LogEntries.Should().ContainSingle().Subject.RequestMessage.Body ?? string.Empty;
+        body.Should().NotContain("extract_item_photos");
+    }
 }

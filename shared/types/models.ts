@@ -40,6 +40,39 @@ export interface AdminMenuTree {
   categories: AdminMenuCategoryNode[];
 }
 
+// ── Inventory / stock ────────────────────────────────────────────────────────
+export type StockUnitCode = 'piece' | 'gram' | 'kilogram' | 'milliliter' | 'liter';
+export type StockTrackingMode = 'untracked' | 'recipe' | 'simple';
+
+export interface AdminIngredient {
+  id: UUID;
+  name: string;
+  unit: StockUnitCode;
+  quantityOnHand: number;
+  lowStockThreshold: number;
+  isLow: boolean;
+  /** Non-null when this stock row backs a simple-tracked product. */
+  linkedProductId: UUID | null;
+  linkedProductName: string | null;
+}
+
+export interface RecipeLine {
+  ingredientId: UUID;
+  ingredientName: string;
+  unit: StockUnitCode;
+  quantityPerPortion: number;
+}
+
+export interface ProductStock {
+  productId: UUID;
+  mode: StockTrackingMode;
+  recipe: RecipeLine[];
+  simpleIngredientId: UUID | null;
+  simpleQuantity: number | null;
+  simpleUnit: StockUnitCode | null;
+  simpleThreshold: number | null;
+}
+
 export interface Product {
   id: UUID;
   categoryId: UUID;
@@ -49,6 +82,11 @@ export interface Product {
   price: number;
   imageUrl: string | null;
   isAvailable: boolean;
+  /** Stock-tracked product that currently can't be made — shown blurred, not orderable. */
+  outOfStock?: boolean;
+  /** Ingredients of a recipe-tracked dish; rendered as a subtle line under the description on the
+   *  customer menu. Absent/empty for non-recipe products. */
+  recipe?: RecipeLine[];
 }
 
 
@@ -159,12 +197,37 @@ export interface AdminAIConfig {
   createdAt: ISODateString;
 }
 
-export interface AIDirective {
+export interface HappyHourDeal {
   id: UUID;
-  rawPrompt: string | null;
-  parsedRules: Record<string, unknown> | null;
-  createdAt: ISODateString;
-  isActive: boolean | null;
+  productId: UUID;
+  productName: string | null;
+  discountPercent: number;
+  startTime: string; // "HH:mm" wall-clock, interpreted in the restaurant's timezone
+  endTime: string; // "HH:mm"
+  isEnabled: boolean;
+  updatedAt: ISODateString;
+}
+
+// Deterministic flash-deal config (admin). Drives the post-order claimable popup.
+export interface FlashDealRule {
+  id: UUID;
+  productId: UUID;
+  productName: string | null;
+  discountPercent: number;
+  minOrderTotal: number | null; // null = offer after every order
+  isEnabled: boolean;
+  updatedAt: ISODateString;
+}
+
+// The customer-facing happy hour when it's live now (from GET /happy-hour).
+export interface ActiveHappyHour {
+  productId: UUID;
+  productName: string;
+  discountPercent: number;
+  originalPrice: number;
+  discountedPrice: number;
+  startTime: string; // "HH:mm"
+  endTime: string; // "HH:mm"
 }
 
 export interface RecommendationDirective {

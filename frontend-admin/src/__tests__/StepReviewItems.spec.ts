@@ -38,7 +38,8 @@ describe('StepReviewItems', () => {
     const wrapper = mount(StepReviewItems)
     const nameInput = wrapper.find<HTMLInputElement>('[data-testid="row-name"]')
     await nameInput.setValue('')
-    expect(wrapper.find('[data-testid="row-name-error"]').exists()).toBe(true)
+    // Invalid rows are flagged with an `is-error` class on the name input (no separate error node).
+    expect(wrapper.find('[data-testid="row-name"]').classes()).toContain('is-error')
     expect(wrapper.find<HTMLButtonElement>('[data-testid="import-btn"]').element.disabled).toBe(true)
   })
 
@@ -50,5 +51,38 @@ describe('StepReviewItems', () => {
     await wrapper.find('[data-testid="row-skip"]').trigger('click')
     expect(wrapper.find<HTMLButtonElement>('[data-testid="import-btn"]').element.disabled).toBe(true)
     // No active rows now — button stays disabled because canImport requires ≥ 1 active row.
+  })
+
+  it('renders a dish thumbnail and removes it on click', async () => {
+    const store = useMenuImportStore()
+    store.$patch({
+      step: 3,
+      reviewItems: [
+        {
+          clientId: 'a',
+          name: 'Pizza',
+          price: 28,
+          sourcePage: 0,
+          categoryHint: 'Pizza',
+          resolvedCategory: { kind: 'existing', categoryId: 'cat-c' },
+          skipped: false,
+          imageUrl: '/uploads/menu-items/r/x.jpg',
+        },
+      ],
+    })
+    const wrapper = mount(StepReviewItems)
+    const thumb = wrapper.find<HTMLImageElement>('[data-testid="row-thumb"]')
+    expect(thumb.exists()).toBe(true)
+    expect(thumb.attributes('src')).toContain('/uploads/menu-items/r/x.jpg')
+
+    await wrapper.find('[data-testid="row-thumb-remove"]').trigger('click')
+    expect(wrapper.find('[data-testid="row-thumb"]').exists()).toBe(false)
+  })
+
+  it('renders no thumbnail when the item has no photo', () => {
+    const store = useMenuImportStore()
+    seed(store) // seeded rows carry no imageUrl
+    const wrapper = mount(StepReviewItems)
+    expect(wrapper.find('[data-testid="row-thumb"]').exists()).toBe(false)
   })
 })

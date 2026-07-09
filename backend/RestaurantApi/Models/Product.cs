@@ -27,4 +27,7 @@ public class Product : ITenantScoped {
     public bool? IsAvailable { get; set; } = true;
 
     public int SortOrder { get; set; } = 0;
+
+    /// <summary>Whether/how this product consumes stock when ordered. Untracked by default.</summary>
+    public StockTrackingMode StockTrackingMode { get; set; } = StockTrackingMode.Untracked;
 }

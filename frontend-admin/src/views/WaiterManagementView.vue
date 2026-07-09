@@ -153,7 +153,7 @@ async function remove(w: WaiterRow) {
         <div v-if="loading && !pending.length" class="text-ink-70 text-sm">Se încarcă…</div>
         <div v-else-if="!pending.length" class="text-ink-70 text-sm">Nicio cerere în așteptare.</div>
         <ul v-else class="divide-y divide-ink-12">
-          <li v-for="w in pending" :key="w.membershipId" class="py-3 flex items-center gap-3">
+          <li v-for="w in pending" :key="w.membershipId" class="py-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
             <div class="flex-1 min-w-0">
               <div class="font-semibold truncate">{{ w.fullName }}</div>
               <div class="text-xs text-ink-70 font-mono truncate">{{ w.email }}</div>
@@ -161,10 +161,12 @@ async function remove(w: WaiterRow) {
                 Email neconfirmat încă.
               </div>
             </div>
-            <button type="button" class="btn btn-primary" :disabled="busy || !w.emailConfirmed" @click="approve(w)">
-              Aprobă
-            </button>
-            <button type="button" class="btn btn-danger" :disabled="busy" @click="reject(w)">Respinge</button>
+            <div class="flex gap-2 flex-wrap shrink-0">
+              <button type="button" class="btn btn-primary flex-1 sm:flex-none" :disabled="busy || !w.emailConfirmed" @click="approve(w)">
+                Aprobă
+              </button>
+              <button type="button" class="btn btn-danger flex-1 sm:flex-none" :disabled="busy" @click="reject(w)">Respinge</button>
+            </div>
           </li>
         </ul>
       </section>
@@ -173,12 +175,12 @@ async function remove(w: WaiterRow) {
         <div class="eyebrow mb-2">Ospătari activi ({{ active.length }})</div>
         <div v-if="!active.length" class="text-ink-70 text-sm">Niciun ospătar activ.</div>
         <ul v-else class="divide-y divide-ink-12">
-          <li v-for="w in active" :key="w.membershipId" class="py-3 flex items-center gap-3">
+          <li v-for="w in active" :key="w.membershipId" class="py-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
             <div class="flex-1 min-w-0">
               <div class="font-semibold truncate">{{ w.fullName }}</div>
               <div class="text-xs text-ink-70 font-mono truncate">{{ w.email }}</div>
             </div>
-            <button type="button" class="btn btn-danger" :disabled="busy" @click="remove(w)">Elimină</button>
+            <button type="button" class="btn btn-danger shrink-0" :disabled="busy" @click="remove(w)">Elimină</button>
           </li>
         </ul>
       </section>
@@ -186,12 +188,12 @@ async function remove(w: WaiterRow) {
       <section v-if="rejected.length" class="card p-6">
         <div class="eyebrow mb-2">Respinși ({{ rejected.length }})</div>
         <ul class="divide-y divide-ink-12">
-          <li v-for="w in rejected" :key="w.membershipId" class="py-3 flex items-center gap-3">
+          <li v-for="w in rejected" :key="w.membershipId" class="py-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
             <div class="flex-1 min-w-0">
               <div class="font-semibold truncate">{{ w.fullName }}</div>
               <div class="text-xs text-ink-70 font-mono truncate">{{ w.email }}</div>
             </div>
-            <button type="button" class="btn" :disabled="busy" @click="remove(w)">Șterge</button>
+            <button type="button" class="btn shrink-0" :disabled="busy" @click="remove(w)">Șterge</button>
           </li>
         </ul>
       </section>
@@ -209,8 +211,10 @@ async function remove(w: WaiterRow) {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 8px 14px;
+  min-height: var(--tap-min);
   border-radius: 999px;
   border: 1px solid var(--ink12);
   background: transparent;

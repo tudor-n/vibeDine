@@ -7,6 +7,7 @@ import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { apiClient } from '@/services/api-client'
+import { formatMoney } from '@/utils/money'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
@@ -50,10 +51,9 @@ const isSubmitting = ref(false)
 const submitError = ref<string | null>(null)
 
 const tableLabel = computed(() => {
-  const id = sessionStore.tableId
-  if (!id) return t('common.table')
-  const tail = id.slice(-2).replace(/^0+/, '') || id.slice(-2)
-  return `${t('common.table')} ${tail}`
+  const number = sessionStore.tableNumber
+  if (!number) return t('common.table')
+  return `${t('common.table')} ${number}`
 })
 
 const itemCount = computed(() =>
@@ -141,7 +141,11 @@ async function submit() {
           >{{ t('cart.aiSuggested') }}</div>
           <div class="item-row">
             <div class="item-price">
-              {{ it.price * it.quantity }}
+              <span
+                v-if="cartStore.effectivePrice(it) !== it.price"
+                :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.8em', marginRight: '5px', fontWeight: 500 }"
+              >{{ formatMoney(it.price * it.quantity) }}</span>
+              {{ formatMoney(cartStore.effectivePrice(it) * it.quantity) }}
               <span class="item-price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </div>
             <div

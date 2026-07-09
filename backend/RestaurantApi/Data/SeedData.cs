@@ -9,7 +9,7 @@ public static class SeedData
     // Stable IDs so the demo restaurant's QR tokens / seed data survive reseeds.
     private static readonly Guid DemoOrgId        = Guid.Parse("00000000-0000-0000-0000-0000000000a1");
     private static readonly Guid DemoRestaurantId = Guid.Parse("00000000-0000-0000-0000-0000000000b1");
-    private const string DemoOwnerEmail    = "owner@demo.local";
+    private const string DemoOwnerEmail    = "supporter@demo.test";
     private const string DemoOwnerPassword = "Demo1234!";
 
     public static async Task InitializeAsync(IServiceProvider services)

@@ -204,6 +204,19 @@ function thumbUrl(file: File): string {
 
 <template>
   <section class="space-y-4">
+    <!-- Opt-in BEFORE any file is added: a dropped PDF auto-starts the import,
+         so the choice must be made first. -->
+    <label class="photo-toggle">
+      <input
+        type="checkbox"
+        data-testid="extract-photos-toggle"
+        v-model="store.extractItemPhotos"
+      />
+      <span class="photo-toggle-text">
+        Extrage și fotografiile preparatelor (se aplică și la PDF)
+      </span>
+    </label>
+
     <div
       class="dropzone"
       :class="{ 'is-drag': dragOver, 'has-files': store.files.length > 0 }"
@@ -401,6 +414,15 @@ function thumbUrl(file: File): string {
 }
 .thumb:hover .thumb-remove { opacity: 1; }
 .thumb-remove:hover { transform: scale(1.08); }
+/* Touch devices have no hover — keep the remove button visible and tappable. */
+@media (hover: none) {
+  .thumb-remove {
+    opacity: 1;
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+  }
+}
 .thumb-name {
   display: block;
   padding: 6px 8px;

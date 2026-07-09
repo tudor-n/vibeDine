@@ -266,7 +266,7 @@ from google import genai
 from google.genai import types as genai_types
 
 
-GEMINI_VISION_DEFAULT_MODEL = "gemini-3.1-pro-preview"
+GEMINI_VISION_DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
 GEMINI_RESPONSE_SCHEMA = {
     "type": "object",

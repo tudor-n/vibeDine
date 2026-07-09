@@ -5,10 +5,12 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useCartStore } from '@/stores/useCartStore'
+import { useHappyHourStore } from '@/stores/useHappyHourStore'
 import { useRecommendations } from '@/composables/useRecommendations'
-import type { Product, Recommendation } from '@shared/types/models'
+import type { Product, Recommendation, RecipeLine } from '@shared/types/models'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
+import HappyHourBanner from '@/components/HappyHourBanner.vue'
 
 const props = defineProps<{ categoryId: string }>()
 const emit = defineEmits<{
@@ -18,6 +20,7 @@ const emit = defineEmits<{
 
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const cartStore = useCartStore()
+const happyHour = useHappyHourStore()
 const { pairings, upsells } = useRecommendations()
 const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
@@ -34,6 +37,15 @@ function toggleSearch() {
 
 function normalize(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+}
+
+// Renders a recipe-tracked dish's ingredients as one compact line, e.g.
+// "mozzarella 80 g · roșii 100 g · busuioc 5 g". Quantities use the Romanian number format.
+const qtyFmt = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 3 })
+function formatRecipe(recipe: RecipeLine[]): string {
+  return recipe
+    .map((r) => `${r.ingredientName} ${qtyFmt.format(r.quantityPerPortion)} ${t('menu.unit.' + r.unit)}`)
+    .join(' · ')
 }
 
 const FILTERS = computed<Array<{ key: FilterKey; label: string }>>(() => [
@@ -55,6 +67,7 @@ const FILTER_PATTERNS: Record<Exclude<FilterKey, 'all'>, RegExp> = {
 
 onMounted(() => {
   load().catch(() => undefined)
+  happyHour.startPolling()
 })
 
 const category = computed(() =>
@@ -161,6 +174,7 @@ function addRecommendation(rec: Recommendation) {
     </div>
 
     <div class="scroll">
+    <HappyHourBanner />
     <div class="chips">
       <button
         v-for="f in FILTERS"
@@ -189,6 +203,7 @@ function addRecommendation(rec: Recommendation) {
         v-for="m in items"
         :key="m.id"
         class="dish"
+        :class="{ 'dish-out': m.outOfStock }"
         :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
       >
         <div class="dish-row">
@@ -200,12 +215,26 @@ function addRecommendation(rec: Recommendation) {
           />
           <div class="dish-body">
             <div class="dish-name">{{ m.name }}</div>
+            <div
+              v-if="m.outOfStock"
+              class="oos-chip"
+              :style="{ background: T.ink06, color: T.ink70, border: `1px solid ${T.ink12}` }"
+            >{{ t('menu.unavailableNow') }}</div>
             <div class="dish-desc" :style="{ color: T.ink70 }">{{ m.description }}</div>
+            <div
+              v-if="m.recipe && m.recipe.length"
+              class="dish-recipe"
+              :style="{ color: T.ink40 }"
+            >{{ formatRecipe(m.recipe) }}</div>
           </div>
         </div>
         <div class="dish-foot" :style="{ borderTop: `1px solid ${T.ink06}` }">
           <div class="price">
-            {{ m.price }}
+            <template v-if="happyHour.discountedPriceFor(m.id) != null">
+              {{ happyHour.discountedPriceFor(m.id) }}
+              <span :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.78em', marginLeft: '5px', fontWeight: 500 }">{{ m.price }}</span>
+            </template>
+            <template v-else>{{ m.price }}</template>
             <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
           </div>
           <button
@@ -214,7 +243,7 @@ function addRecommendation(rec: Recommendation) {
             :disabled="!m.isAvailable"
             @click="cartStore.addItem(m)"
           >
-            <span class="plus">+</span> {{ m.isAvailable ? t('menu.add') : t('menu.outOfStock') }}
+            <span class="plus">+</span> {{ m.isAvailable ? t('menu.add') : t('menu.unavailableNow') }}
           </button>
         </div>
       </article>
@@ -426,6 +455,18 @@ function addRecommendation(rec: Recommendation) {
   box-shadow: 0 2px 10px -6px rgba(21, 20, 15, 0.08);
   --tile: clamp(76px, 24vw, 100px);
 }
+.dish-out {
+  opacity: 0.55;
+  filter: grayscale(0.45);
+}
+.oos-chip {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
 .dish-row {
   display: grid;
   grid-template-columns: var(--tile) 1fr;
@@ -453,6 +494,11 @@ function addRecommendation(rec: Recommendation) {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.dish-recipe {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 .dish-foot {
   display: flex;

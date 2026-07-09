@@ -233,6 +233,33 @@ def test_extract_pdf_allows_configured_callback_host(client, monkeypatch):
 # Test: upload handling — the service gets a real local file with the bytes
 # ---------------------------------------------------------------------------
 
+def test_extract_pdf_forwards_extract_item_photos_flag(client):
+    """The per-import extract_item_photos flag reaches the PdfJobRequest."""
+    received: list[PdfJobRequest] = []
+    _install_canned_factory(received)
+
+    response = client.post(
+        "/menu/extract-pdf",
+        data=_valid_form(extract_item_photos="true"),
+        files=_pdf_file(),
+    )
+
+    assert response.status_code == 200
+    assert len(received) == 1
+    assert received[0].extract_item_photos is True
+
+
+def test_extract_pdf_defaults_extract_item_photos_to_false(client):
+    received: list[PdfJobRequest] = []
+    _install_canned_factory(received)
+
+    response = client.post("/menu/extract-pdf", data=_valid_form(), files=_pdf_file())
+
+    assert response.status_code == 200
+    assert len(received) == 1
+    assert received[0].extract_item_photos is False
+
+
 def test_extract_pdf_factory_receives_request_data(client, storage_root):
     """Form fields reach the factory/service; storage_path is server-controlled."""
     received: list[PdfJobRequest] = []

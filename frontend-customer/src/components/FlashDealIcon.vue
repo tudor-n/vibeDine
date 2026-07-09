@@ -10,16 +10,11 @@ const { t } = useLocale()
 
 const emit = defineEmits<{ (e: 'open'): void }>()
 
-// Prevent the browser from focusing the button on mousedown — that's what was
-// leaving the rectangular focus outline behind after the modal closed. Click
-// still fires, so the open action works as before.
+// Mirror CallWaiterButton's focus handling: stop the browser focusing the
+// button on tap so no rectangular outline lingers on touch devices.
 function preventFocus(event: MouseEvent) {
   event.preventDefault()
 }
-
-// Safety net: if anything else assigns focus (e.g. modal close redirecting
-// focus to the next interactive element), drop it on the next tick so the
-// outline never has a chance to render.
 function dropFocus(event: FocusEvent) {
   ;(event.currentTarget as HTMLElement | null)?.blur()
 }
@@ -29,7 +24,6 @@ function handleClick() {
 }
 
 const remaining = ref(0)
-const totalSeconds = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
 
 function tick() {
@@ -55,7 +49,6 @@ watch(
       timer = null
     }
     if (!id) return
-    totalSeconds.value = Math.max(store.activeDeal?.countdownSeconds || 0, 1)
     tick()
     timer = setInterval(tick, 1000)
   },
@@ -73,17 +66,7 @@ const seconds = computed(() =>
   Math.floor(remaining.value % 60).toString().padStart(2, '0'),
 )
 
-// SVG ring: progress shrinks as the timer runs out. Matches the button size
-// so the ring sits flush against the circle edge.
-const SIZE = 56
-const STROKE = 4
-const RADIUS = (SIZE - STROKE) / 2
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS
-const dashOffset = computed(() => {
-  if (!totalSeconds.value) return CIRCUMFERENCE
-  const pct = Math.max(0, Math.min(1, remaining.value / totalSeconds.value))
-  return CIRCUMFERENCE * (1 - pct)
-})
+const label = computed(() => t('flash.iconLabel'))
 </script>
 
 <template>
@@ -91,130 +74,88 @@ const dashOffset = computed(() => {
     v-if="store.activeDeal"
     type="button"
     tabindex="-1"
-    class="flash-icon"
-    :aria-label="t('flash.iconLabel')"
+    class="flash-pill"
+    :aria-label="label"
     :style="{ background: T.lime, color: '#000' }"
     @mousedown="preventFocus"
     @focus="dropFocus"
     @click="handleClick"
   >
     <svg
-      class="ring"
-      :width="SIZE"
-      :height="SIZE"
-      :viewBox="`0 0 ${SIZE} ${SIZE}`"
-      aria-hidden="true"
-    >
-      <circle
-        :cx="SIZE / 2"
-        :cy="SIZE / 2"
-        :r="RADIUS"
-        fill="none"
-        stroke="rgba(0,0,0,0.18)"
-        :stroke-width="STROKE"
-      />
-      <circle
-        :cx="SIZE / 2"
-        :cy="SIZE / 2"
-        :r="RADIUS"
-        fill="none"
-        stroke="#000"
-        :stroke-width="STROKE"
-        stroke-linecap="round"
-        :stroke-dasharray="CIRCUMFERENCE"
-        :stroke-dashoffset="dashOffset"
-        :transform="`rotate(-90 ${SIZE / 2} ${SIZE / 2})`"
-      />
-    </svg>
-    <svg
-      class="bolt"
+      class="pill-ic"
       viewBox="0 0 24 24"
-      width="18"
-      height="18"
+      width="20"
+      height="20"
       aria-hidden="true"
     >
-      <path d="M13 2 L4 14 h7 l-2 8 l9 -12 h-7 l2 -8 Z" fill="#000" />
+      <path d="M13 2 L4 14 h7 l-2 8 l9 -12 h-7 l2 -8 Z" fill="currentColor" />
     </svg>
-    <span class="countdown">{{ minutes }}:{{ seconds }}</span>
+    <span class="pill-label">{{ minutes }}:{{ seconds }}</span>
   </button>
 </template>
 
 <style scoped>
-.flash-icon {
-  /* Floating action button — anchored bottom-right with enough clearance to
-     sit clearly above the screen's CTA bar (which lives ~28-90px from bottom).
-     Stays visible across every screen without colliding with header content
-     or bottom buttons. */
+/* Flash-deal pill — same shape, size and behaviour as the call-waiter pill,
+   and tinted lime to keep its "limited offer" identity. Vertically centred on
+   the screen header row so it sits between the back button on the left and the
+   table name on the right (rather than up in the top status strip). The 74px
+   top lines up the 40px pill with the 48px back button, which starts just below
+   the PhoneScreen status-clear (58px) + header padding. */
+.flash-pill {
   position: absolute;
-  bottom: calc(110px + var(--safe-bottom, 0px));
-  right: clamp(12px, 4vw, 16px);
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
+  top: 74px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  max-width: min(44%, 160px);
+  border-radius: 999px;
   border: none;
   outline: none !important;
   -webkit-tap-highlight-color: transparent;
-  /* Kill the tap/selection "blue box": no long-press callout, no text selection
-     of the bolt/countdown, and neutralise an inherited Tailwind ring. */
   -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
   --tw-ring-shadow: 0 0 #0000;
   --tw-ring-offset-shadow: 0 0 #0000;
-  display: grid;
-  place-items: center;
   cursor: pointer;
-  z-index: 55;
+  z-index: 57;
   font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
   box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45);
-  animation: pulse 1.6s ease-in-out infinite;
+  transition: opacity 0.2s ease, transform 0.15s ease;
 }
-.flash-icon:focus,
-.flash-icon:focus-visible,
-.flash-icon:focus-within {
+.flash-pill:focus,
+.flash-pill:focus-visible,
+.flash-pill:focus-within {
   outline: none !important;
   outline-width: 0 !important;
   outline-style: none !important;
   outline-color: transparent !important;
   box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45) !important;
 }
-/* Firefox draws an inner dotted border on focused buttons — kill it. */
-.flash-icon::-moz-focus-inner {
+.flash-pill::-moz-focus-inner {
   border: 0 !important;
   outline: 0 !important;
   padding: 0 !important;
 }
-.flash-icon:active {
-  transform: scale(0.94);
+.flash-pill:active {
+  transform: translateX(-50%) scale(0.96);
 }
-.ring {
-  position: absolute;
-  inset: 0;
-  transition: stroke-dashoffset 1s linear;
+.pill-ic {
+  flex-shrink: 0;
 }
-.bolt {
-  position: absolute;
-  top: 8px;
-  pointer-events: none;
-}
-.countdown {
-  position: absolute;
-  bottom: 8px;
-  font-size: 11px;
-  font-weight: 700;
+.pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
   letter-spacing: -0.02em;
-  pointer-events: none;
-}
-@keyframes pulse {
-  0%,
-  100% {
-    box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45),
-      0 0 0 0 rgba(199, 235, 67, 0.7);
-  }
-  50% {
-    box-shadow: 0 10px 24px -8px rgba(21, 20, 15, 0.45),
-      0 0 0 12px rgba(199, 235, 67, 0);
-  }
 }
 </style>

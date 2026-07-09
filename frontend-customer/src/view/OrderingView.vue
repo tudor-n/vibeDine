@@ -5,6 +5,7 @@ import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
+import { useHappyHourStore } from '@/stores/useHappyHourStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useTheme } from '@/composables/useTheme'
@@ -27,18 +28,87 @@ const cartStore = useCartStore()
 const sessionStore = useSessionStore()
 const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
+const happyHourStore = useHappyHourStore()
 const orderStatusStore = useOrderStatusStore()
 const { theme, tokens: T, toggle: toggleTheme } = useTheme()
 const { t } = useLocale()
 
 useWebSocket()
 
-const screen = ref<Screen>('language')
-const activeCategoryId = ref<string | null>(null)
-const lastTotal = ref(0)
+// Navigation state is persisted so an accidental tab refresh keeps the diner on
+// the screen they were on instead of bouncing them back to the language picker
+// (their cart already survives via restoreFromServerIfEmpty). sessionStorage is
+// per-tab and clears when the tab closes, so a genuinely fresh QR scan still
+// starts at the language screen — we only restore within the same tab session.
+const SCREEN_KEY = 'screen'
+const CATEGORY_KEY = 'activeCategoryId'
+const CART_ORIGIN_KEY = 'cartOrigin'
+const SCREENS: Screen[] = ['language', 'pebbles', 'menu', 'cart', 'sent', 'merged']
+
+function readScreen(key: string, fallback: Screen): Screen {
+  const stored = sessionStorage.getItem(key)
+  return stored && SCREENS.includes(stored as Screen) ? (stored as Screen) : fallback
+}
+
+const restoredCategory = sessionStorage.getItem(CATEGORY_KEY) || null
+const restoredScreen = readScreen(SCREEN_KEY, 'language')
+// The menu screen can't render without a category, so fall back to the category
+// list if the restored category is gone.
+const screen = ref<Screen>(
+  restoredScreen === 'menu' && !restoredCategory ? 'pebbles' : restoredScreen,
+)
+const activeCategoryId = ref<string | null>(restoredCategory)
+// Screen the cart was opened from, so closing it returns there (the menu, or
+// the categories page when the cart was opened from its "Coșul meu" bar).
+const cartOrigin = ref<Screen>(readScreen(CART_ORIGIN_KEY, 'menu'))
+
+watch(screen, (v) => sessionStorage.setItem(SCREEN_KEY, v))
+watch(activeCategoryId, (v) => {
+  if (v) sessionStorage.setItem(CATEGORY_KEY, v)
+  else sessionStorage.removeItem(CATEGORY_KEY)
+})
+watch(cartOrigin, (v) => sessionStorage.setItem(CART_ORIGIN_KEY, v))
+// lastTotal + orderInProgress are persisted so the "view order status" button
+// (and the total it shows) survive an accidental tab refresh while an order is
+// live — see useOrderStatusStore for the matching timeline persistence.
+const lastTotal = ref(Number(sessionStorage.getItem('lastTotal')) || 0)
 // True once the diner has sent at least one order this session. Keeps the
 // top "view progress" button available after they leave the progress screen.
-const orderInProgress = ref(false)
+const orderInProgress = ref(sessionStorage.getItem('orderInProgress') === 'true')
+watch(lastTotal, (v) => sessionStorage.setItem('lastTotal', String(v)))
+watch(orderInProgress, (v) => sessionStorage.setItem('orderInProgress', v ? 'true' : 'false'))
+// The order is "archived to the order log" when its status flips to completed:
+// the kitchen's 45s ready-grace elapses, the order leaves the admin's active
+// list, and the customer gets that completed event (stamped as servedAt). We
+// keep the re-open button for 30s past that, then retire it for the round.
+const PROGRESS_DISMISS_MS = 30_000
+const progressDismissed = ref(false)
+let progressDismissTimer: ReturnType<typeof setTimeout> | null = null
+
+// Derive the button's retirement from the persisted archive timestamp rather
+// than a fired-once timer, so it stays correct across a refresh (e.g. the order
+// was already archived 10s before reload → hide it 20s after reload).
+function evaluateProgressDismissal() {
+  if (progressDismissTimer) {
+    clearTimeout(progressDismissTimer)
+    progressDismissTimer = null
+  }
+  const archivedAt = orderStatusStore.servedAt
+  if (!archivedAt) {
+    progressDismissed.value = false
+    return
+  }
+  const remaining = PROGRESS_DISMISS_MS - (Date.now() - archivedAt.getTime())
+  if (remaining <= 0) {
+    progressDismissed.value = true
+    return
+  }
+  progressDismissed.value = false
+  progressDismissTimer = setTimeout(() => {
+    progressDismissed.value = true
+    progressDismissTimer = null
+  }, remaining)
+}
 const sessionError = ref<null | 'missing' | 'invalid'>(null)
 // First time a deal arrives we pop the full-screen offer; once the user
 // dismisses it the icon takes over and stays visible for the remaining 2 min.
@@ -64,8 +134,15 @@ onMounted(async () => {
     return
   }
   try {
-    await sessionStore.initializeSession(tokenFromUrl)
+    const session = await sessionStore.initializeSession(tokenFromUrl)
+    // Refresh recovery: if this load lost its sessionStorage cart (a phone
+    // re-scanning the QR opens a fresh browser context), rebuild it from the
+    // backend's persisted draft so the diner keeps the order they were building.
+    cartStore.restoreFromServerIfEmpty(session.activeOrder.items)
     if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
+    // Poll the live happy hour app-wide (not just on the menu screen) so the bar
+    // shows on the categories page and stays visible after an order is sent.
+    happyHourStore.startPolling()
   } catch (e) {
     console.error('Could not initialize session', e)
     sessionError.value = 'invalid'
@@ -73,10 +150,15 @@ onMounted(async () => {
   }
   partyPoll = setInterval(() => guestStore.refreshParty(sessionStore.qrToken), PARTY_POLL_MS)
   document.addEventListener('visibilitychange', onVisibilityChange)
+  // After a refresh the order may already be archived (or partway through its
+  // 30s grace) — reconcile the button's retirement against the restored state.
+  evaluateProgressDismissal()
 })
 
 onUnmounted(() => {
   if (partyPoll) clearInterval(partyPoll)
+  if (progressDismissTimer) clearTimeout(progressDismissTimer)
+  happyHourStore.stopPolling()
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
@@ -88,8 +170,12 @@ function openCategory(id: string) {
   screen.value = 'menu'
 }
 function backToPebbles() { screen.value = 'pebbles' }
-function openCart() { screen.value = 'cart' }
-function backFromCart() { screen.value = 'menu' }
+function openCart() {
+  // Remember where we came from (menu or pebbles) so close returns there.
+  if (screen.value === 'menu' || screen.value === 'pebbles') cartOrigin.value = screen.value
+  screen.value = 'cart'
+}
+function backFromCart() { screen.value = cartOrigin.value }
 
 function handleSubmitted() {
   lastTotal.value = cartStore.total
@@ -97,6 +183,9 @@ function handleSubmitted() {
   // Drop the previous round's status so the timeline starts fresh instead of
   // instantly showing the last order's "completed" stage.
   orderStatusStore.clear()
+  // New round → revive the progress button and cancel any pending auto-hide
+  // (clear() nulled servedAt, so this resets dismissal to "not archived yet").
+  evaluateProgressDismissal()
   orderInProgress.value = true
   screen.value = 'sent'
   // Deliberately NO re-join here: the backend freed this guest's seat when the
@@ -188,11 +277,17 @@ function viewProgress() {
 const showProgressButton = computed(
   () =>
     orderInProgress.value &&
+    !progressDismissed.value &&
     screen.value !== 'sent' &&
     screen.value !== 'language' &&
     !showSessionError.value &&
     !flashOverlayActive.value,
 )
+
+// Re-arm the retirement whenever the archive timestamp changes (set on the
+// completed event, nulled on a new round). evaluateProgressDismissal reads the
+// timestamp itself, so it handles both fresh archival and post-refresh revival.
+watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 </script>
 
 <template>
@@ -224,6 +319,7 @@ const showProgressButton = computed(
           v-else-if="screen === 'pebbles'"
           key="pebbles"
           @open-category="openCategory"
+          @open-cart="openCart"
           @back="screen = 'language'"
         />
         <MenuView

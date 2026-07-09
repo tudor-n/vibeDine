@@ -59,4 +59,57 @@ public class ProductValidatorTests
     {
         ProductValidator.ValidateDescription(null).IsValid.Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ImageUrl_NullOrWhitespace_IsValidNull(string? url)
+    {
+        var result = ProductValidator.ValidateImageUrl(url);
+        result.IsValid.Should().BeTrue();
+        result.Value.Should().BeNull();
+    }
+
+    [Fact]
+    public void ImageUrl_AbsoluteHttps_IsValid()
+    {
+        var result = ProductValidator.ValidateImageUrl("https://cdn.example.com/dish.jpg");
+        result.IsValid.Should().BeTrue();
+        result.Value.Should().Be("https://cdn.example.com/dish.jpg");
+    }
+
+    [Fact]
+    public void ImageUrl_RootRelative_IsValid()
+    {
+        var result = ProductValidator.ValidateImageUrl("/uploads/menu-items/abc/def.jpg");
+        result.IsValid.Should().BeTrue();
+        result.Value.Should().Be("/uploads/menu-items/abc/def.jpg");
+    }
+
+    [Fact]
+    public void ImageUrl_ProtocolRelative_IsInvalid()
+    {
+        // "//evil.com/x" would resolve to an external origin — must be rejected.
+        ProductValidator.ValidateImageUrl("//evil.com/x.jpg").IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ImageUrl_RootRelativeWithWhitespace_IsInvalid()
+    {
+        ProductValidator.ValidateImageUrl("/uploads/a b.jpg").IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ImageUrl_TooLong_IsInvalid()
+    {
+        var url = "/uploads/" + new string('a', 500) + ".jpg";
+        ProductValidator.ValidateImageUrl(url).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ImageUrl_RelativeWithoutLeadingSlash_IsInvalid()
+    {
+        ProductValidator.ValidateImageUrl("uploads/menu-items/x.jpg").IsValid.Should().BeFalse();
+    }
 }

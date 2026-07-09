@@ -21,7 +21,7 @@ public class RecommendationService
         _logger = logger;
     }
 
-    public async Task<List<RecommendationResponse>> GetRecommendationsAsync(Guid orderId)
+    public async Task<List<RecommendationResponse>> GetRecommendationsAsync(Guid orderId, string language = "ro")
     {
         var order = await _dbContext.Orders
             .Include(o => o.Items)
@@ -30,6 +30,12 @@ public class RecommendationService
         if (order == null) return [];
 
         var cartProductIds = order.Items.Select(i => i.ProductId).ToHashSet();
+
+        // The AI needs the names of cart items to reason about pairings — passing bare
+        // UUIDs produces generic, nonsensical "reason" text.
+        var cartProductNames = await _dbContext.Products
+            .Where(p => cartProductIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.Name);
 
         var availableProducts = await _dbContext.Products
             .Where(p => p.IsAvailable == true && !cartProductIds.Contains(p.Id))
@@ -45,6 +51,7 @@ public class RecommendationService
             cart_items = order.Items.Select(i => new
             {
                 product_id = i.ProductId.ToString(),
+                name = cartProductNames.GetValueOrDefault(i.ProductId, ""),
                 quantity = i.Quantity
             }).ToList(),
             table_id = order.TableId.ToString(),
@@ -53,7 +60,8 @@ public class RecommendationService
                 product_id = p.Id.ToString(),
                 name = p.Name
             }).ToList(),
-            order_history = new List<string>()
+            order_history = new List<string>(),
+            language = language
         };
 
         List<RecommendationResponse> aiRecs = new();
@@ -104,10 +112,14 @@ public class RecommendationService
 
         if (combined.Count > 0) return combined;
 
+        var fallbackReason = language.StartsWith("en", StringComparison.OrdinalIgnoreCase)
+            ? "Goes well with your order"
+            : "Se potrivește cu comanda ta";
+
         return availableProducts
             .OrderBy(_ => Guid.NewGuid())
             .Take(2)
-            .Select(p => new RecommendationResponse(p.Id.ToString(), "pairing", 0.5))
+            .Select(p => new RecommendationResponse(p.Id.ToString(), fallbackReason, 0.5))
             .ToList();
     }
 

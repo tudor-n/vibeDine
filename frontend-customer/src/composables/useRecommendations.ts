@@ -1,12 +1,14 @@
 import { ref, watch } from 'vue'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useLocale } from '@/composables/useLocale'
 import { apiClient } from '@/services/api-client'
 import type { Recommendation, Product } from '@shared/types/models'
 
 export function useRecommendations() {
   const cartStore = useCartStore()
   const sessionStore = useSessionStore()
+  const { locale } = useLocale()
 
   const pairings = ref<Recommendation[]>([])
   const upsells = ref<Recommendation[]>([])
@@ -37,7 +39,7 @@ export function useRecommendations() {
 
           const itemIds = newItems.map((item) => item.id)
 
-          const response = await apiClient.getRecommendations(sessionStore.orderId!, itemIds)
+          const response = await apiClient.getRecommendations(sessionStore.orderId!, itemIds, locale.value)
 
           if (Array.isArray(response)) {
             const menuResponse = await apiClient.getMenu()

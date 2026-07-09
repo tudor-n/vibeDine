@@ -200,16 +200,16 @@ onMounted(fetchOrders)
           <span class="order-arrow" :class="{ 'rotate-90': expandedOrderId === order.id }" aria-hidden="true">›</span>
 
           <div class="order-table" aria-hidden="true">
-            <span class="font-mono text-[12px] uppercase tracking-[0.06em] leading-none" style="color: rgba(245,240,232,0.75);">Masa</span>
-            <span class="font-display text-xl font-bold leading-tight mt-0.5">{{ order.tableNumber ?? '?' }}</span>
+            <span class="font-mono text-[10px] uppercase tracking-[0.06em] leading-none" style="color: rgba(245,240,232,0.75);">Masa</span>
+            <span class="font-display text-lg font-bold leading-tight mt-0.5">{{ order.tableNumber ?? '?' }}</span>
           </div>
 
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap mb-1">
-              <span v-if="order.orderNumber != null" class="font-mono text-[12px] uppercase tracking-[0.06em] text-ink-70 font-bold">
+              <span v-if="order.orderNumber != null" class="font-mono text-[11px] uppercase tracking-[0.06em] text-ink-70 font-bold">
                 #{{ order.orderNumber }}
               </span>
-              <span class="font-bold text-ink text-lg">
+              <span class="font-bold text-ink text-base">
                 {{ order.items.length }} {{ order.items.length === 1 ? 'preparat' : 'preparate' }}
               </span>
               <span
@@ -234,18 +234,17 @@ onMounted(fetchOrders)
           </div>
 
           <div class="text-right flex-shrink-0" aria-hidden="true">
-            <div class="font-mono text-[12px] uppercase tracking-[0.06em] text-ink font-semibold">total</div>
-            <div class="font-display text-2xl font-bold text-ink leading-tight">
+            <div class="font-mono text-[11px] uppercase tracking-[0.06em] text-ink font-semibold">total</div>
+            <div class="font-display text-xl font-bold text-ink leading-tight">
               {{ order.totalAmount.toFixed(2) }}
-              <span class="text-base font-semibold text-ink">RON</span>
+              <span class="text-sm font-semibold text-ink">RON</span>
             </div>
           </div>
         </button>
 
         <Transition name="expand">
           <div v-if="expandedOrderId === order.id" class="order-expand" :id="`order-detail-${order.id}`">
-            <div class="grid items-center px-5 py-3 text-[12.5px] uppercase tracking-[0.06em] text-ink font-mono font-semibold"
-                 style="grid-template-columns: 1fr 60px 100px 110px;">
+            <div class="expand-head px-5 py-3 text-[12.5px] uppercase tracking-[0.06em] text-ink font-mono font-semibold">
               <span>Produs</span>
               <span class="text-center">Cant.</span>
               <span class="text-right">Preț/buc</span>
@@ -254,10 +253,9 @@ onMounted(fetchOrders)
             <div
               v-for="item in order.items"
               :key="item.id"
-              class="grid items-center px-5 py-4 text-base"
-              style="grid-template-columns: 1fr 60px 100px 110px; border-top: 1px solid var(--ink06);"
+              class="expand-item px-5 py-3 text-[15px]"
             >
-              <div class="flex items-center gap-2 flex-wrap">
+              <div class="oi-name flex items-center gap-2 flex-wrap">
                 <span class="font-medium text-ink">{{ item.productName }}</span>
                 <span
                   v-if="itemLabel(item)"
@@ -269,9 +267,9 @@ onMounted(fetchOrders)
                   }"
                 >{{ itemLabel(item)!.icon }} {{ itemLabel(item)!.text }}</span>
               </div>
-              <div class="text-center text-ink font-mono text-[15px]">× {{ item.quantity }}</div>
-              <div class="text-right text-ink">{{ item.unitPrice.toFixed(2) }} RON</div>
-              <div class="text-right font-semibold text-ink">{{ item.subtotal.toFixed(2) }} RON</div>
+              <div class="oi-qty text-center text-ink font-mono text-[15px]">× {{ item.quantity }}</div>
+              <div class="oi-price text-right text-ink">{{ item.unitPrice.toFixed(2) }} RON</div>
+              <div class="oi-sub text-right font-semibold text-ink">{{ item.subtotal.toFixed(2) }} RON</div>
             </div>
             <div class="order-total-row">
               <span class="eyebrow">Total comandă</span>
@@ -337,10 +335,10 @@ onMounted(fetchOrders)
 .order-row {
   width: 100%;
   text-align: left;
-  padding: 16px 18px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -352,9 +350,9 @@ onMounted(fetchOrders)
 }
 .order-arrow {
   color: var(--ink40);
-  font-size: 20px;
+  font-size: 18px;
   font-family: 'JetBrains Mono', monospace;
-  width: 16px;
+  width: 14px;
   display: inline-block;
   transition: transform 0.18s ease;
   line-height: 1;
@@ -363,9 +361,9 @@ onMounted(fetchOrders)
   transform: rotate(90deg);
 }
 .order-table {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
   background: var(--ink);
   color: var(--paperHi);
   display: flex;
@@ -373,7 +371,7 @@ onMounted(fetchOrders)
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  padding-top: 4px;
+  padding-top: 3px;
 }
 .order-table span:first-child {
   color: var(--paperHi);
@@ -396,6 +394,32 @@ onMounted(fetchOrders)
 .order-expand {
   border-top: 1px solid var(--ink12);
   background: var(--card);
+}
+/* Line-item table: fixed numeric columns on desktop. */
+.expand-head,
+.expand-item {
+  display: grid;
+  grid-template-columns: 1fr 60px 100px 110px;
+  align-items: center;
+}
+.expand-item { border-top: 1px solid var(--ink06); }
+
+/* Below 640px the four fixed columns overflow the card, so each line item
+   restacks: product name full-width, then quantity, then a price/subtotal row. */
+@media (max-width: 640px) {
+  .expand-head { display: none; }
+  .expand-item {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "name name"
+      "qty  qty"
+      "price sub";
+    gap: 2px 12px;
+  }
+  .oi-name  { grid-area: name; margin-bottom: 4px; }
+  .oi-qty   { grid-area: qty;   text-align: left; }
+  .oi-price { grid-area: price; text-align: left; }
+  .oi-sub   { grid-area: sub; }
 }
 .order-total-row {
   display: flex;

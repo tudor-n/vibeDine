@@ -3,13 +3,47 @@ import { onMounted, ref, computed, reactive, watch, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
 import BrandSelect from '@/components/BrandSelect.vue'
 import { useMenuManagementStore } from '@/stores/useMenuManagementStore'
+import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useToast } from '@/composables/useToast'
-import type { AdminMenuCategoryNode, AdminProduct } from '@shared/types/models'
+import { resolveMediaUrl } from '@/services/mediaUrl'
+import { apiClient, type SetProductStockPayload } from '@/services/api-client'
+import type { AdminMenuCategoryNode, AdminProduct, StockTrackingMode, StockUnitCode } from '@shared/types/models'
 
 const store = useMenuManagementStore()
+const inventoryStore = useInventoryStore()
 const toast = useToast()
 
-onMounted(() => store.fetchMenu())
+onMounted(() => {
+    store.fetchMenu()
+    inventoryStore.fetchIngredients()
+})
+
+// ---------- Stock / recipe helpers ----------
+const STOCK_MODE_OPTIONS = [
+    { value: 'untracked', label: 'Fără urmărire stoc' },
+    { value: 'recipe', label: 'Rețetă · din ingrediente' },
+    { value: 'simple', label: 'Stoc simplu · la bucată' },
+]
+const UNIT_OPTIONS = [
+    { value: 'piece', label: 'buc · bucăți' },
+    { value: 'gram', label: 'g · grame' },
+    { value: 'kilogram', label: 'kg · kilograme' },
+    { value: 'milliliter', label: 'ml · mililitri' },
+    { value: 'liter', label: 'l · litri' },
+]
+const UNIT_LABELS: Record<string, string> = {
+    piece: 'buc', gram: 'g', kilogram: 'kg', milliliter: 'ml', liter: 'l',
+}
+const ingredientOptions = computed(() =>
+    inventoryStore.standaloneIngredients.map((i) => ({
+        value: i.id,
+        label: `${i.name} (${UNIT_LABELS[i.unit] ?? i.unit})`,
+    })),
+)
+function ingredientUnit(id: string): string {
+    const ing = inventoryStore.standaloneIngredients.find((i) => i.id === id)
+    return ing ? (UNIT_LABELS[ing.unit] ?? ing.unit) : ''
+}
 
 // ---------- Category form ----------
 type CategoryFormMode = 'create' | 'edit'
@@ -100,7 +134,30 @@ const productForm = reactive({
     imageUrl: '',
     isAvailable: true,
     submitting: false,
+    // Stock tracking
+    stockMode: 'untracked' as StockTrackingMode,
+    stockLoading: false,
+    recipeLines: [] as { ingredientId: string; quantityPerPortion: number }[],
+    simpleQuantity: 0 as number,
+    simpleUnit: 'piece' as StockUnitCode,
+    simpleThreshold: 0 as number,
 })
+
+function resetStockFields() {
+    productForm.stockMode = 'untracked'
+    productForm.stockLoading = false
+    productForm.recipeLines = []
+    productForm.simpleQuantity = 0
+    productForm.simpleUnit = 'piece'
+    productForm.simpleThreshold = 0
+}
+
+function addRecipeLine() {
+    productForm.recipeLines.push({ ingredientId: '', quantityPerPortion: 1 })
+}
+function removeRecipeLine(idx: number) {
+    productForm.recipeLines.splice(idx, 1)
+}
 
 function openCreateProduct(categoryId: string) {
     productForm.open = true
@@ -112,9 +169,11 @@ function openCreateProduct(categoryId: string) {
     productForm.price = 0
     productForm.imageUrl = ''
     productForm.isAvailable = true
+    resetStockFields()
+    if (inventoryStore.ingredients.length === 0) inventoryStore.fetchIngredients()
 }
 
-function openEditProduct(p: AdminProduct) {
+async function openEditProduct(p: AdminProduct) {
     productForm.open = true
     productForm.mode = 'edit'
     productForm.id = p.id
@@ -124,10 +183,69 @@ function openEditProduct(p: AdminProduct) {
     productForm.price = p.price
     productForm.imageUrl = p.imageUrl ?? ''
     productForm.isAvailable = p.isAvailable
+    resetStockFields()
+    if (inventoryStore.ingredients.length === 0) inventoryStore.fetchIngredients()
+
+    // Load the product's current stock configuration.
+    productForm.stockLoading = true
+    try {
+        const stock = await apiClient.getProductStock(p.id)
+        productForm.stockMode = stock.mode
+        if (stock.mode === 'recipe') {
+            productForm.recipeLines = stock.recipe.map((r) => ({
+                ingredientId: r.ingredientId,
+                quantityPerPortion: r.quantityPerPortion,
+            }))
+        } else if (stock.mode === 'simple') {
+            productForm.simpleQuantity = stock.simpleQuantity ?? 0
+            productForm.simpleUnit = stock.simpleUnit ?? 'piece'
+            productForm.simpleThreshold = stock.simpleThreshold ?? 0
+        }
+    } catch (e: any) {
+        toast.error(e?.message ?? 'Nu am putut încărca stocul produsului.')
+    } finally {
+        productForm.stockLoading = false
+    }
 }
 
 function closeProductForm() {
     productForm.open = false
+}
+
+function buildStockPayload(): SetProductStockPayload {
+    if (productForm.stockMode === 'recipe') {
+        return {
+            mode: 'recipe',
+            recipe: productForm.recipeLines.map((l) => ({
+                ingredientId: l.ingredientId,
+                quantityPerPortion: l.quantityPerPortion,
+            })),
+        }
+    }
+    if (productForm.stockMode === 'simple') {
+        return {
+            mode: 'simple',
+            simpleQuantity: productForm.simpleQuantity,
+            simpleUnit: productForm.simpleUnit,
+            simpleThreshold: productForm.simpleThreshold,
+        }
+    }
+    return { mode: 'untracked' }
+}
+
+function validateStock(): string | null {
+    if (productForm.stockMode === 'recipe') {
+        for (const line of productForm.recipeLines) {
+            if (!line.ingredientId) return 'Alege un ingredient pentru fiecare rând din rețetă.'
+            if (!(line.quantityPerPortion > 0)) return 'Cantitatea pe porție trebuie să fie mai mare decât 0.'
+        }
+        const ids = productForm.recipeLines.map((l) => l.ingredientId)
+        if (new Set(ids).size !== ids.length) return 'Un ingredient apare de două ori în rețetă.'
+    }
+    if (productForm.stockMode === 'simple' && productForm.simpleQuantity < 0) {
+        return 'Cantitatea nu poate fi negativă.'
+    }
+    return null
 }
 
 async function submitProductForm() {
@@ -144,12 +262,20 @@ async function submitProductForm() {
         toast.error('Selectează o categorie.')
         return
     }
+    const stockError = validateStock()
+    if (stockError) {
+        toast.error(stockError)
+        return
+    }
+
     productForm.submitting = true
+    let productId = productForm.id
+    let productSaved = false
     try {
         const description = productForm.description.trim()
         const imageUrl = productForm.imageUrl.trim()
         if (productForm.mode === 'create') {
-            await store.createProduct({
+            const created = await store.createProduct({
                 categoryId: productForm.categoryId,
                 name,
                 description: description || null,
@@ -157,7 +283,7 @@ async function submitProductForm() {
                 imageUrl: imageUrl || null,
                 isAvailable: productForm.isAvailable,
             })
-            toast.success('Produsul a fost adăugat.')
+            productId = created.id
         } else {
             await store.updateProduct(productForm.id, {
                 categoryId: productForm.categoryId,
@@ -167,11 +293,25 @@ async function submitProductForm() {
                 imageUrl,
                 isAvailable: productForm.isAvailable,
             })
-            toast.success('Produsul a fost actualizat.')
         }
+        productSaved = true
+
+        // Persist stock mode + recipe / simple stock. Refresh the inventory store so a newly
+        // created simple-product stock row shows up in Inventar without a manual reload.
+        await apiClient.setProductStock(productId, buildStockPayload())
+        inventoryStore.fetchIngredients()
+
+        toast.success(productForm.mode === 'create' ? 'Produsul a fost adăugat.' : 'Produsul a fost actualizat.')
         closeProductForm()
     } catch (e: any) {
-        toast.error(e?.message ?? 'Eroare la salvarea produsului.')
+        if (productSaved) {
+            // The product itself saved; only the stock step failed. Don't trap the user (re-submitting
+            // a create would duplicate the product) — surface the issue and close.
+            toast.error('Produsul a fost salvat, dar stocul nu a putut fi actualizat: ' + (e?.message ?? ''))
+            closeProductForm()
+        } else {
+            toast.error(e?.message ?? 'Eroare la salvarea produsului.')
+        }
     } finally {
         productForm.submitting = false
     }
@@ -229,6 +369,11 @@ function matchesFilter(p: AdminProduct): boolean {
     if (productFilter.value === 'active') return p.isAvailable
     if (productFilter.value === 'hidden') return !p.isAvailable
     return true
+}
+
+function backgroundImageStyle(url: string | null | undefined) {
+    const resolved = resolveMediaUrl(url)
+    return resolved ? { backgroundImage: `url(${resolved})` } : {}
 }
 
 const visibleCategories = computed(() => {
@@ -357,6 +502,24 @@ async function onDrop(event: DragEvent, categoryId: string, targetProductId: str
 function onDragEnd() {
     dragState.value = null
     dragOverProductId.value = null
+}
+
+// Touch-friendly reorder: HTML5 drag-and-drop never fires on touchscreens, so
+// the up/down buttons drive the same reorder endpoint. Only offered while the
+// list is unfiltered, where the displayed order matches the stored order.
+async function moveProduct(categoryId: string, productId: string, dir: -1 | 1) {
+    const cat = store.categories.find((c) => c.id === categoryId)
+    if (!cat) return
+    const ids = cat.products.map((p) => p.id)
+    const idx = ids.indexOf(productId)
+    const target = idx + dir
+    if (idx === -1 || target < 0 || target >= ids.length) return
+    ;[ids[idx], ids[target]] = [ids[target], ids[idx]]
+    try {
+        await store.reorderProducts(categoryId, ids)
+    } catch (e: any) {
+        toast.error(e?.message ?? 'Eroare la reordonarea produselor.')
+    }
 }
 
 const priceFormatter = computed(
@@ -556,7 +719,7 @@ function formatPrice(n: number) {
 
                         <div
                             class="cat-thumb"
-                            :style="entry.cat.imageUrl ? `background-image: url('${entry.cat.imageUrl}');` : ''"
+                            :style="backgroundImageStyle(entry.cat.imageUrl)"
                             :aria-label="entry.cat.imageUrl ? 'imagine categorie' : 'fără imagine'"
                         >
                             <span v-if="!entry.cat.imageUrl" class="font-mono text-xs text-ink-40">·</span>
@@ -632,19 +795,37 @@ function formatPrice(n: number) {
                                 @dragleave="onDragLeave(p.id)"
                                 @drop="onDrop($event, entry.cat.id, p.id)"
                             >
-                                <div
-                                    class="drag-handle shrink-0"
-                                    draggable="true"
-                                    title="Trage pentru a reordona"
-                                    @dragstart="onDragStart($event, entry.cat.id, p.id)"
-                                    @dragend="onDragEnd"
-                                >
-                                    <span aria-hidden="true">⋮⋮</span>
+                                <div v-if="!isFiltering" class="prod-reorder shrink-0">
+                                    <button
+                                        type="button"
+                                        class="reorder-btn"
+                                        :disabled="pIdx === 0"
+                                        title="Mută mai sus"
+                                        aria-label="Mută mai sus"
+                                        @click="moveProduct(entry.cat.id, p.id, -1)"
+                                    >▲</button>
+                                    <div
+                                        class="drag-handle"
+                                        draggable="true"
+                                        title="Trage pentru a reordona"
+                                        @dragstart="onDragStart($event, entry.cat.id, p.id)"
+                                        @dragend="onDragEnd"
+                                    >
+                                        <span aria-hidden="true">⋮⋮</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="reorder-btn"
+                                        :disabled="pIdx === entry.products.length - 1"
+                                        title="Mută mai jos"
+                                        aria-label="Mută mai jos"
+                                        @click="moveProduct(entry.cat.id, p.id, 1)"
+                                    >▼</button>
                                 </div>
 
                                 <div
                                     class="prod-thumb"
-                                    :style="p.imageUrl ? `background-image: url('${p.imageUrl}');` : ''"
+                                    :style="backgroundImageStyle(p.imageUrl)"
                                 >
                                     <span v-if="!p.imageUrl" class="font-mono text-[10px] text-ink-40">no img</span>
                                 </div>
@@ -675,7 +856,7 @@ function formatPrice(n: number) {
                                     </p>
                                 </div>
 
-                                <div class="flex flex-col items-end gap-2 shrink-0">
+                                <div class="prod-actions flex flex-col items-end gap-2 shrink-0">
                                     <div class="font-mono text-base font-bold text-ink">
                                         {{ formatPrice(p.price) }}
                                     </div>
@@ -744,16 +925,16 @@ function formatPrice(n: number) {
                             <span class="field-label">URL imagine</span>
                             <input
                                 v-model="categoryForm.imageUrl"
-                                type="url"
+                                type="text"
                                 class="field-input"
-                                placeholder="https://..."
+                                placeholder="https://... sau /uploads/..."
                                 maxlength="500"
                             />
-                            <span class="field-hint">URL absolut (https://). Lasă gol pentru a elimina.</span>
+                            <span class="field-hint">URL absolut sau cale /uploads. Lasă gol pentru a elimina.</span>
                         </label>
 
                         <div v-if="categoryForm.imageUrl" class="preview-box">
-                            <img :src="categoryForm.imageUrl" alt="previzualizare" />
+                            <img :src="resolveMediaUrl(categoryForm.imageUrl)" alt="previzualizare" />
                         </div>
 
                         <div class="flex items-center justify-end gap-2 pt-2">
@@ -822,7 +1003,7 @@ function formatPrice(n: number) {
                             </span>
                         </label>
 
-                        <div class="grid grid-cols-2 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <label class="field">
                                 <span class="field-label">Preț (RON)</span>
                                 <input
@@ -849,20 +1030,120 @@ function formatPrice(n: number) {
                             </div>
                         </div>
 
+                        <!-- Stock management -->
+                        <div class="stock-section">
+                            <div class="field">
+                                <span class="field-label">Gestionare stoc</span>
+                                <BrandSelect
+                                    :model-value="productForm.stockMode"
+                                    :options="STOCK_MODE_OPTIONS"
+                                    aria-label="Mod urmărire stoc"
+                                    @update:model-value="(v) => (productForm.stockMode = v as any)"
+                                />
+                                <span class="field-hint">Cum se scade stocul când produsul e trimis la bucătărie.</span>
+                            </div>
+
+                            <div v-if="productForm.stockLoading" class="stock-loading font-mono">
+                                se încarcă stocul…
+                            </div>
+
+                            <!-- Recipe builder -->
+                            <div v-else-if="productForm.stockMode === 'recipe'" class="field">
+                                <span class="field-label">Rețetă · cantitate pe porție</span>
+                                <div
+                                    v-if="inventoryStore.standaloneIngredients.length === 0"
+                                    class="recipe-empty"
+                                >
+                                    Niciun ingredient disponibil. Adaugă întâi ingrediente în
+                                    <RouterLink to="/inventory" class="recipe-link">Inventar</RouterLink>.
+                                </div>
+                                <template v-else>
+                                    <div
+                                        v-for="(line, idx) in productForm.recipeLines"
+                                        :key="idx"
+                                        class="recipe-line"
+                                    >
+                                        <div class="recipe-line-ing">
+                                            <BrandSelect
+                                                v-model="line.ingredientId"
+                                                :options="ingredientOptions"
+                                                placeholder="— ingredient —"
+                                                aria-label="Ingredient"
+                                            />
+                                        </div>
+                                        <input
+                                            v-model.number="line.quantityPerPortion"
+                                            type="number"
+                                            step="any"
+                                            min="0"
+                                            class="field-input recipe-line-qty"
+                                            placeholder="cant."
+                                        />
+                                        <span class="recipe-line-unit">{{ ingredientUnit(line.ingredientId) }}</span>
+                                        <button
+                                            type="button"
+                                            class="icon-btn icon-btn-danger"
+                                            @click="removeRecipeLine(idx)"
+                                            aria-label="Elimină ingredientul"
+                                            title="Elimină"
+                                        >×</button>
+                                    </div>
+                                    <button type="button" class="btn-ghost recipe-add" @click="addRecipeLine">
+                                        + Adaugă ingredient
+                                    </button>
+                                </template>
+                            </div>
+
+                            <!-- Simple stock -->
+                            <div v-else-if="productForm.stockMode === 'simple'" class="grid grid-cols-3 gap-3">
+                                <label class="field">
+                                    <span class="field-label">În stoc</span>
+                                    <input
+                                        v-model.number="productForm.simpleQuantity"
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        class="field-input"
+                                        placeholder="ex. 24"
+                                    />
+                                </label>
+                                <div class="field">
+                                    <span class="field-label">Unitate</span>
+                                    <BrandSelect
+                                        :model-value="productForm.simpleUnit"
+                                        :options="UNIT_OPTIONS"
+                                        aria-label="Unitate"
+                                        @update:model-value="(v) => (productForm.simpleUnit = v as any)"
+                                    />
+                                </div>
+                                <label class="field">
+                                    <span class="field-label">Prag alertă</span>
+                                    <input
+                                        v-model.number="productForm.simpleThreshold"
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        class="field-input"
+                                        placeholder="ex. 5"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
                         <label class="field">
                             <span class="field-label">URL imagine</span>
                             <input
                                 v-model="productForm.imageUrl"
-                                type="url"
+                                type="text"
                                 class="field-input"
-                                placeholder="https://..."
+                                placeholder="https://... sau /uploads/..."
                                 maxlength="500"
                             />
-                            <span class="field-hint">URL absolut (https://). Lasă gol pentru a elimina.</span>
+                            <span class="field-hint">URL absolut sau cale /uploads. Lasă gol pentru a elimina.</span>
                         </label>
 
                         <div v-if="productForm.imageUrl" class="preview-box">
-                            <img :src="productForm.imageUrl" alt="previzualizare" />
+                            <img :src="resolveMediaUrl(productForm.imageUrl)" alt="previzualizare" />
                         </div>
 
                         <div class="flex items-center justify-end gap-2 pt-2">
@@ -1018,6 +1299,57 @@ textarea.field-input {
     object-fit: cover;
 }
 
+/* ── Stock / recipe section ────────────────────────────────────────────── */
+.stock-section {
+    border: 1px solid var(--ink12);
+    border-radius: 14px;
+    padding: 14px;
+    background: var(--paper);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.stock-loading {
+    font-size: 12px;
+    color: var(--ink40);
+}
+.recipe-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.recipe-line-ing {
+    flex: 1;
+    min-width: 0;
+}
+.recipe-line-qty {
+    width: 92px;
+    flex-shrink: 0;
+}
+.recipe-line-unit {
+    width: 32px;
+    flex-shrink: 0;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--ink40);
+}
+.recipe-add {
+    align-self: flex-start;
+    padding: 8px 14px;
+    font-size: 13px;
+}
+.recipe-empty {
+    font-size: 13px;
+    color: var(--ink70);
+    padding: 10px 12px;
+    border: 1px dashed var(--ink12);
+    border-radius: 10px;
+}
+.recipe-link {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
 .line-clamp-3 {
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -1037,9 +1369,40 @@ textarea.field-input {
     transform: translateY(-1px);
 }
 
+/* Reorder control: drag handle (mouse) flanked by up/down buttons (touch). */
+.prod-reorder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    width: 30px;
+}
+.reorder-btn {
+    width: 30px;
+    height: 26px;
+    border: 1px solid var(--ink12);
+    border-radius: 8px;
+    background: var(--paper);
+    color: var(--ink70);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    line-height: 1;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+.reorder-btn:hover:not(:disabled) {
+    background: var(--ink06);
+    color: var(--ink);
+}
+.reorder-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
 .drag-handle {
-    width: 26px;
-    align-self: stretch;
+    width: 30px;
+    flex: 1;
+    min-height: 30px;
     border-radius: 8px;
     background: var(--ink06);
     color: var(--ink40);
@@ -1059,6 +1422,11 @@ textarea.field-input {
 }
 .drag-handle:active {
     cursor: grabbing;
+}
+/* Touch devices can't drag the handle — hide it and lean on the buttons. */
+@media (hover: none) {
+    .drag-handle { display: none; }
+    .reorder-btn { height: 36px; }
 }
 
 /* ── Inline header stats (replaces chip strip) ─────────────────────── */
@@ -1406,5 +1774,30 @@ textarea.field-input {
 
 .scroll-mt-24 {
     scroll-margin-top: 96px;
+}
+
+/* ── Mobile: let product rows breathe ──────────────────────────────────
+   The reorder column + thumb + name stay on the first line; the price and
+   edit/hide actions wrap to a full-width second line instead of squeezing
+   the name to a few characters. */
+@media (max-width: 640px) {
+    .prod-row { flex-wrap: wrap; }
+    .prod-thumb { width: 52px; height: 52px; }
+    .prod-actions {
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between;
+        width: 100%;
+        margin-top: 2px;
+    }
+}
+
+/* ── Touch: meet the 44px tap-target floor for the dense icon controls ── */
+@media (hover: none) {
+    .icon-btn { width: 44px; height: 44px; }
+    .cat-toggle { width: 44px; height: 44px; font-size: 14px; }
+    .btn-add-product { min-height: var(--tap-min); }
+    .filter-chip { padding: 11px 16px; }
+    .toolbar-search-clear { width: 32px; height: 32px; }
 }
 </style>
