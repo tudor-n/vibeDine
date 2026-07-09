@@ -262,6 +262,7 @@ app.UseCors();
 var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "avatars"));
 Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "menu-items"));
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "branding"));
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(webRoot),
