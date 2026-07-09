@@ -20,6 +20,7 @@ import OrderSentView from '@/components/screens/OrderSentView.vue'
 import MergedView from '@/components/screens/MergedView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
 import CallWaiterButton from '@/components/CallWaiterButton.vue'
+import HappyHourPopup from '@/components/HappyHourPopup.vue'
 
 type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
 
@@ -238,6 +239,22 @@ const flashOverlayActive = computed(
   () => Boolean(flashDealStore.activeDeal) && showFlashDealModal.value,
 )
 
+// The happy-hour offer popup + reopen banner only make sense while the diner is
+// browsing (categories or a menu), and the flash-deal modal takes precedence so
+// two offers never stack. The popup is an overlay; the reopen banner lives inline
+// on those screens. The session-error case is excluded where the popup is rendered.
+const happyHourEnabled = computed(
+  () =>
+    (screen.value === 'pebbles' || screen.value === 'menu') &&
+    !flashOverlayActive.value,
+)
+// True while the modal offer popup is actually covering the screen — used to hide
+// the floating action buttons underneath it (the theme toggle stays reachable so
+// the diner can switch themes with the popup open).
+const happyHourPopupActive = computed(
+  () => happyHourEnabled.value && happyHourStore.open && Boolean(happyHourStore.active),
+)
+
 function openFlashDeal() {
   showFlashDealModal.value = true
 }
@@ -281,7 +298,8 @@ const showProgressButton = computed(
     screen.value !== 'sent' &&
     screen.value !== 'language' &&
     !showSessionError.value &&
-    !flashOverlayActive.value,
+    !flashOverlayActive.value &&
+    !happyHourPopupActive.value,
 )
 
 // Re-arm the retirement whenever the archive timestamp changes (set on the
@@ -354,6 +372,10 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
         </div>
       </Transition>
 
+      <!-- Happy-hour offer popup (opens once per deal) + "added" toast. The
+           reopen banner it collapses into lives inline on the menu screens. -->
+      <HappyHourPopup v-if="!showSessionError" :enabled="happyHourEnabled" />
+
       <!-- "Someone joined your table" toast — auto-dismissed by the guest store. -->
       <Transition name="toast" mode="out-in">
         <div
@@ -371,12 +393,12 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       </Transition>
 
       <FlashDealIcon
-        v-if="flashIconVisible && !flashOverlayActive"
+        v-if="flashIconVisible && !flashOverlayActive && !happyHourPopupActive"
         @open="openFlashDeal"
       />
 
       <CallWaiterButton
-        v-if="screen !== 'language' && !showSessionError && !flashOverlayActive"
+        v-if="screen !== 'language' && !showSessionError && !flashOverlayActive && !happyHourPopupActive"
       />
 
       <!-- Re-open the live order's progress timeline. Appears once an order has

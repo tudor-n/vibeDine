@@ -116,6 +116,10 @@ function addRecommendation(rec: Recommendation) {
       :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
     />
 
+    <!-- Return-to-happy-hour banner — pinned at the very top of the screen once
+         the diner has dismissed the offer sheet; tapping it reopens the offer. -->
+    <HappyHourBanner />
+
     <div class="header">
       <button
         class="circle-btn"
@@ -165,7 +169,6 @@ function addRecommendation(rec: Recommendation) {
     </div>
 
     <div class="scroll">
-    <HappyHourBanner />
     <div class="chips">
       <button
         v-for="f in FILTERS"
