@@ -84,4 +84,20 @@ describe('deriveBrandPalette contrast on adversarial custom schemes', () => {
       expect(contrastRatio(p.onLime, p.lime)).toBeGreaterThanOrEqual(AA)
     }
   })
+
+  // accentDk is used as *text* on pale accent tints (kanban headers, status
+  // chips). A fixed darken() of the primary breaks on pastel primaries (stays
+  // pale) and on dark schemes (stays dark) — it must be contrast-driven.
+  it('accentDk is readable (AA) against paper for pastel-light and dark schemes', () => {
+    const cases = [
+      { primary: '#F3C9CE', secondary: '#E8A33B', background: '#FBF2F3' }, // pastel pink, light
+      { primary: '#8B1E3F', secondary: '#3E7BFA', background: '#1A1216' }, // deep red on dark
+      { primary: '#C8B8A0', secondary: '#9A8C6E', background: '#EDE7DA' }, // muted, light
+      ...Object.values(PRESETS),
+    ]
+    for (const s of cases) {
+      const p = deriveBrandPalette(s)
+      expect(contrastRatio(p.accentDk, p.paper)).toBeGreaterThanOrEqual(AA)
+    }
+  })
 })

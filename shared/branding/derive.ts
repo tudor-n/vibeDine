@@ -140,6 +140,23 @@ export function bestOnColor(bg: string, ink: string): string {
   return readableText(bg, ink, WHITE)
 }
 
+/**
+ * A readable, accent-hued text colour on `surface`: shift the accent's lightness
+ * away from the surface (darker on a light surface, lighter on a dark one) until
+ * it meets WCAG AA, preserving the hue. This is what makes accent-tinted chips
+ * (pale accent background + accent text) legible for *any* primary — a pastel
+ * primary gets darkened enough, a dark scheme's accent gets lightened enough.
+ */
+export function readableAccent(accent: string, surface: string): string {
+  const goDarker = relativeLuminance(surface) >= 0.4
+  let c = accent
+  for (let i = 0; i < 24; i++) {
+    if (contrastRatio(c, surface) >= CONTRAST_AA) return c
+    c = goDarker ? darken(c, 0.04) : lighten(c, 0.04)
+  }
+  return c
+}
+
 export function deriveBrandPalette(input: BrandInput): BrandPalette {
   const { primary, secondary, background } = input
   const isDark = relativeLuminance(background) < DARK_MODE_LUMINANCE
@@ -159,7 +176,9 @@ export function deriveBrandPalette(input: BrandInput): BrandPalette {
     ink12: withAlpha(ink, 0.12),
     ink06: withAlpha(ink, 0.05),
     accent: primary,
-    accentDk: darken(primary, 0.14),
+    // accentDk doubles as text on pale accent tints, so it must clear AA on the
+    // paper — a fixed darken() fails on pastel primaries and dark schemes.
+    accentDk: readableAccent(primary, background),
     accentSoft: withAlpha(primary, 0.1),
     accentBorder: withAlpha(primary, 0.3),
     onAccent: bestOnColor(primary, LIGHT_INK),
