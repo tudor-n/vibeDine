@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RestaurantApi.Data;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Hubs;
@@ -20,6 +21,7 @@ public class CustomerController : ControllerBase
     private readonly RecommendationService _recommendationService;
     private readonly IHubContext<StaffHub> _staffHub;
     private readonly IHubContext<CustomerHub> _customerHub;
+    private readonly IMemoryCache _memoryCache;
 
     public CustomerController(
         AppDbContext context,
@@ -27,7 +29,8 @@ public class CustomerController : ControllerBase
         IHappyHourService happyHourService,
         RecommendationService recommendationService,
         IHubContext<StaffHub> staffHub,
-        IHubContext<CustomerHub> customerHub)
+        IHubContext<CustomerHub> customerHub,
+        IMemoryCache memoryCache)
     {
         _context = context;
         _flashDealService = flashDealService;
@@ -35,6 +38,7 @@ public class CustomerController : ControllerBase
         _recommendationService = recommendationService;
         _staffHub = staffHub;
         _customerHub = customerHub;
+        _memoryCache = memoryCache;
     }
 
     [HttpPost("restaurants/{restaurantId:guid}/orders/{orderId:guid}/submit")]
@@ -387,86 +391,36 @@ public class CustomerController : ControllerBase
         }
     }
    
-    [HttpGet("restaurants/{restaurantId:guid}/orders/{id:guid}/recommendations")]
-    public async Task<IActionResult> GetRecommendation(Guid id, [FromQuery] string? language)
+    // Vibey: lazy, tap-triggered in-cart recommendations. Anonymous customer
+    // endpoint, tenant-scoped by the restaurantId ROUTE param only (resolved by
+    // TenantResolutionMiddleware) — the request body's cart is never trusted for
+    // tenancy. Cached briefly per (restaurant, locale, cart) so re-opening the
+    // Vibey sheet on an unchanged cart never re-hits the model.
+    [HttpPost("restaurants/{restaurantId:guid}/recommendations")]
+    public async Task<IActionResult> GetVibeyRecommendations(
+        Guid restaurantId, [FromBody] VibeyRecommendationRequest request)
     {
-        var order = await _context.Orders.FindAsync(id);
-
-        if (order == null)
+        if (request?.Items == null || request.Items.Count == 0)
         {
-            return NotFound(new { message = "Order not found." });
+            return Ok(new VibeyRecommendationResponse("", []));
         }
 
-        var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id, language ?? "ro");
+        var locale = request.Locale ?? "ro";
+        var sortedIds = string.Join(',', request.Items.Select(i => i.Id).OrderBy(id => id, StringComparer.Ordinal));
+        var cacheKey = $"vibey:{restaurantId}:{locale}:{sortedIds}";
 
-        if (rawRecommendations == null || !rawRecommendations.Any())
+        if (_memoryCache.TryGetValue(cacheKey, out VibeyRecommendationResponse? cached) && cached is not null)
         {
-            return Ok(new { pairings = new List<object>(), upsells = new List<object>(), flashDeal = (object?)null });        
+            return Ok(cached);
         }
 
-        // Safely convert string ProductIds from AI into valid Guids for the database query
-        var recommendedProductIds = rawRecommendations
-            .Select(r => Guid.TryParse(r.ProductId, out var guid) ? guid : Guid.Empty)
-            .Where(g => g != Guid.Empty)
-            .ToList();
+        var response = await _recommendationService.GetVibeyRecommendationsAsync(request.Items, locale);
 
-        var products = await _context.Products
-            .Where(p => recommendedProductIds.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id);
-
-        var mappedItems = rawRecommendations
-            .Where(r => Guid.TryParse(r.ProductId, out var g) && products.ContainsKey(g))
-            .Select(r => 
-            {
-                var pId = Guid.Parse(r.ProductId);
-                return new
-                {
-                    reason = r.Reason,
-                    confidence = r.Confidence,
-                    menuItem = new
-                    {
-                        id = products[pId].Id,
-                        name = products[pId].Name,
-                        price = products[pId].Price,
-                        imageUrl = products[pId].ImageUrl 
-                    }
-                };
-            })
-            .OrderByDescending(r => r.confidence)
-            .ToList();
-            
-        var splitIndex = mappedItems.Count / 2;
-        var pairings = mappedItems.Take(splitIndex).ToList();
-        var upsells = mappedItems.Skip(splitIndex).ToList();
-
-        var activeFlashDeal = await _context.FlashDealOffers
-            .Include(d => d.Product)
-            .Where(d => d.OrderId == id && d.Status == "pending" && d.ExpiresAt > DateTime.UtcNow)
-            .FirstOrDefaultAsync();
-
-        object? flashDealResponse = null;
-        if (activeFlashDeal != null && activeFlashDeal.Product != null)
+        _memoryCache.Set(cacheKey, response, new MemoryCacheEntryOptions
         {
-            flashDealResponse = new 
-            {
-                id = activeFlashDeal.Id,
-                discountPrice = activeFlashDeal.DiscountPrice,
-                expiresAt = activeFlashDeal.ExpiresAt,
-                menuItem = new 
-                {
-                    id = activeFlashDeal.Product.Id,
-                    name = activeFlashDeal.Product.Name,
-                    price = activeFlashDeal.Product.Price,
-                    imageUrl = activeFlashDeal.Product.ImageUrl
-                }
-            };
-        }
-
-        return Ok(new
-        {
-            pairings = pairings,
-            upsells = upsells,
-            flashDeal = flashDealResponse
+            SlidingExpiration = TimeSpan.FromMinutes(2)
         });
+
+        return Ok(response);
     }
 }

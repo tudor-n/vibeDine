@@ -11,7 +11,7 @@ GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 def get_recommendations(request: RecommendationRequest) -> dict:
     if not request.menu_items:
-        return {"recommendations": []}
+        return {"recommendations": [], "summary": ""}
 
     valid_ids = {item.product_id for item in request.menu_items}
     menu_context = [{"product_id": item.product_id, "name": item.name} for item in request.menu_items]
@@ -38,8 +38,13 @@ sentence (max ~12 words) that explains WHY this specific product goes well with 
 is already in the cart. Refer to the real items by what they are. Do NOT output the
 literal word "pairing" or any placeholder text. Write every "reason" in {language_name}.
 
+Also write "summary": one warm, concise customer-facing sentence (in {language_name})
+introducing the picks as a whole — e.g. for Romanian something like "Am găsit câteva
+completări care merg de minune cu ce ai ales."
+
 Respond ONLY with JSON matching this schema, no other text:
 {{
+    "summary": "<one warm {language_name} sentence introducing the picks>",
     "recommendations": [
         {{
             "product_id": "exact-uuid-from-available-list",
@@ -60,6 +65,6 @@ Every product_id in your response MUST appear verbatim in the available products
         result = json.loads(response.text)
         recs = result.get("recommendations", [])
         validated = [r for r in recs if r.get("product_id") in valid_ids]
-        return {"recommendations": validated}
+        return {"recommendations": validated, "summary": result.get("summary", "")}
     except Exception:
-        return {"recommendations": []}
+        return {"recommendations": [], "summary": ""}
