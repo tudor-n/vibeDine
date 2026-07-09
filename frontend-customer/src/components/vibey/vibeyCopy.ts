@@ -46,6 +46,16 @@ export function pickTeaser(seed: string, locale: Locale): string {
   return (list[index] ?? list[0]) as string
 }
 
+// Calm empty-state line for when the AI genuinely returns zero picks (an
+// exhausted candidate pool, or the graceful `{summary:"",recommendations:[]}`
+// failure path). The design requires Vibey to simply not push anything rather
+// than falsely claim everything was added. Deterministic — no model call.
+export function nothingToSuggest(locale: Locale): string {
+  return locale === 'en'
+    ? 'Nothing to add right now — your table already looks complete!'
+    : 'Deocamdată n-am ce să-ți sugerez — dar masa ta arată completă!'
+}
+
 // Post-add follow-up (handoff §4.2). Deterministic — no model call. Branches
 // on whether more recommendations remain in the sheet.
 export function followUpLine(name: string, remaining: number, locale: Locale): string {

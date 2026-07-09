@@ -53,7 +53,7 @@ function toggleSheet() {
     </div>
 
     <button
-      v-if="!store.allAdded"
+      v-if="!store.allAdded && !store.noRecs"
       type="button"
       class="vibey-reveal"
       :style="{
@@ -71,7 +71,7 @@ function toggleSheet() {
       >▾</span>
     </button>
 
-    <div v-else class="vibey-all-added" :style="{ background: T.card, border: `1px dashed ${T.ink12}` }">
+    <div v-else-if="store.allAdded" class="vibey-all-added" :style="{ background: T.card, border: `1px dashed ${T.ink12}` }">
       <span class="vibey-all-added-check" :style="{ background: T.lime, color: onSec }">✓</span>
       <span class="vibey-all-added-text" :style="{ color: T.ink70 }">{{ t('vibey.allAdded') }}</span>
     </div>

@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useVibeyStore } from '@/stores/useVibeyStore'
 import { useCartStore } from '@/stores/useCartStore'
 import { apiClient } from '@/services/api-client'
-import { pickTeaser, followUpLine } from '@/components/vibey/vibeyCopy'
+import { pickTeaser, followUpLine, nothingToSuggest } from '@/components/vibey/vibeyCopy'
 import type { VibeyRecommendationResponse } from '@shared/types/api-responses'
 
 // This suite is the automated guard for the Vibey cost invariant (see
@@ -131,6 +131,25 @@ describe('useVibeyStore — openSheet (the ONLY fetch trigger)', () => {
     expect(store.recs).toHaveLength(0)
     expect(store.recsLoaded).toBe(true)
     expect(store.thinking).toBe(false)
+    // A failure is treated exactly like an empty response: noRecs, NOT allAdded,
+    // and the calm bubble line — never a false "all added" claim.
+    expect(store.noRecs).toBe(true)
+    expect(store.allAdded).toBe(false)
+    expect(store.botMsg).toBe(nothingToSuggest('ro'))
+  })
+
+  it('distinguishes a genuinely-empty AI response from all-added (calm state, no false claim)', async () => {
+    vibeyRecsSpy.mockResolvedValueOnce({ summary: '', recommendations: [] })
+    const store = useVibeyStore()
+    store.ensureTeaser('order-empty', 'ro')
+
+    await store.openSheet()
+
+    expect(store.recs).toHaveLength(0)
+    expect(store.recsLoaded).toBe(true)
+    expect(store.noRecs).toBe(true)
+    expect(store.allAdded).toBe(false) // nothing was added — must NOT claim it was
+    expect(store.botMsg).toBe(nothingToSuggest('ro'))
   })
 })
 
@@ -156,6 +175,9 @@ describe('useVibeyStore — addRec (no fetch, deterministic follow-up)', () => {
     expect(store.sheetOpen).toBe(false) // all added -> sheet closes
     expect(store.botMsg).toBe(followUpLine('IPA Zăganu', 0, 'ro'))
     expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
+    // Every offered rec is now in the cart -> the honest all-added state.
+    expect(store.allAdded).toBe(true)
+    expect(store.noRecs).toBe(false)
   })
 
   it('is a no-op for an unknown id and still makes no fetch', async () => {

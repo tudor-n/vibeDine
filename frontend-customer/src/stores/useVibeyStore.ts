@@ -6,7 +6,7 @@ import type { VibeyRec } from '@shared/types/api-responses'
 import { apiClient } from '@/services/api-client'
 import { useCartStore } from '@/stores/useCartStore'
 import { useLocale, type Locale } from '@/composables/useLocale'
-import { pickTeaser, followUpLine } from '@/components/vibey/vibeyCopy'
+import { pickTeaser, followUpLine, nothingToSuggest } from '@/components/vibey/vibeyCopy'
 
 // Vibey: the in-cart AI recommendation assistant. The cost invariant (see
 // docs/superpowers/specs/2026-07-09-vibey-recommendations-design.md) is that
@@ -24,13 +24,24 @@ export const useVibeyStore = defineStore('vibey', () => {
   const teaser = ref('')
   const recs = ref<VibeyRec[]>([])
   const recsLoaded = ref(false)
+  // Whether the ONE fetch ever returned any recommendations. Captured once, at
+  // fetch time, before addRec can drain `recs` — it's what lets us tell the
+  // "guest added every rec" state (hadRecs true) apart from the "AI genuinely
+  // returned nothing" state (hadRecs false), which must NOT show the
+  // all-added confirmation (that would be a false claim).
+  const hadRecs = ref(false)
   const thinking = ref(false)
   const summary = ref('')
   const sheetOpen = ref(false)
   const botMsg = ref('')
 
   const hasRecs = computed(() => recs.value.length > 0)
-  const allAdded = computed(() => recsLoaded.value && recs.value.length === 0)
+  // True only once the guest has added every recommendation Vibey actually
+  // offered — never when the fetch came back empty.
+  const allAdded = computed(() => recsLoaded.value && hadRecs.value && recs.value.length === 0)
+  // The AI genuinely had nothing to push (exhausted pool or graceful failure).
+  // The calm bubble line carries this; the reveal pill / all-added row hide.
+  const noRecs = computed(() => recsLoaded.value && !hadRecs.value)
 
   /** Clears all Vibey state — call on cart clear / order-id change. */
   function reset() {
@@ -38,6 +49,7 @@ export const useVibeyStore = defineStore('vibey', () => {
     teaser.value = ''
     recs.value = []
     recsLoaded.value = false
+    hadRecs.value = false
     thinking.value = false
     summary.value = ''
     sheetOpen.value = false
@@ -83,13 +95,22 @@ export const useVibeyStore = defineStore('vibey', () => {
       const { locale } = useLocale()
       const res = await apiClient.getVibeyRecommendations({ items, locale: locale.value })
       recs.value = res.recommendations ?? []
+      // Snapshot BEFORE any addRec can drain `recs` — drives allAdded vs noRecs.
+      hadRecs.value = recs.value.length > 0
       summary.value = res.summary ?? ''
-      botMsg.value = summary.value || botMsg.value
+      botMsg.value = hadRecs.value
+        ? summary.value || botMsg.value
+        : nothingToSuggest(locale.value)
     } catch {
       // Graceful empty state — an AI-service failure must never surface as an
-      // error to the guest; Vibey simply doesn't push anything.
+      // error to the guest; Vibey simply doesn't push anything. Same calm line
+      // as a legitimately-empty response so the guest never sees a false
+      // "all added" claim.
+      const { locale } = useLocale()
       recs.value = []
+      hadRecs.value = false
       summary.value = ''
+      botMsg.value = nothingToSuggest(locale.value)
     } finally {
       recsLoaded.value = true
       thinking.value = false
@@ -135,6 +156,7 @@ export const useVibeyStore = defineStore('vibey', () => {
     botMsg,
     hasRecs,
     allAdded,
+    noRecs,
     ensureTeaser,
     openSheet,
     closeSheet,

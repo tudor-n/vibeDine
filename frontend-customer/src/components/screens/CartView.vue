@@ -224,7 +224,7 @@ async function submit() {
       </BigButton>
     </div>
 
-    <VibeySheet />
+    <VibeySheet v-if="cartStore.items.length > 0" />
   </PhoneScreen>
 </template>
 
