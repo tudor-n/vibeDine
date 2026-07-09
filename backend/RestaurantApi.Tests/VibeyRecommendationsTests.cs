@@ -143,6 +143,25 @@ public class VibeyRecommendationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Returns_graceful_empty_when_cart_exceeds_cap()
+    {
+        var items = Enumerable.Range(0, 51)
+            .Select(_ => new VibeyCartItem(Guid.NewGuid().ToString(), "Item", "Feluri principale", 1))
+            .ToList();
+
+        var resp = await _client.PostAsJsonAsync(RecsUrl, new VibeyRecommendationRequest(items, "ro"));
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await resp.Content.ReadFromJsonAsync<VibeyRecommendationResponse>();
+        body.Should().NotBeNull();
+        body!.Summary.Should().BeEmpty();
+        body.Recommendations.Should().BeEmpty();
+
+        // Cap short-circuits before ever reaching the AI service — abusive payloads cost nothing.
+        _python.LogEntries.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Identical_cart_is_served_from_cache_without_a_second_ai_call()
     {
         _python.Given(Request.Create().WithPath("/recommend").UsingPost())

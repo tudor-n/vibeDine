@@ -396,11 +396,16 @@ public class CustomerController : ControllerBase
     // TenantResolutionMiddleware) — the request body's cart is never trusted for
     // tenancy. Cached briefly per (restaurant, locale, cart) so re-opening the
     // Vibey sheet on an unchanged cart never re-hits the model.
+    // A real diner cart never approaches this; an oversized payload is abusive.
+    // Since this endpoint is anonymous and a cache miss triggers a paid model
+    // call that forwards the whole cart, cap the input defensively.
+    private const int MaxCartItems = 50;
+
     [HttpPost("restaurants/{restaurantId:guid}/recommendations")]
     public async Task<IActionResult> GetVibeyRecommendations(
         Guid restaurantId, [FromBody] VibeyRecommendationRequest request)
     {
-        if (request?.Items == null || request.Items.Count == 0)
+        if (request?.Items == null || request.Items.Count == 0 || request.Items.Count > MaxCartItems)
         {
             return Ok(new VibeyRecommendationResponse("", []));
         }
