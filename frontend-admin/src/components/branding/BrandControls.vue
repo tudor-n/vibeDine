@@ -38,6 +38,36 @@ const previewColors = computed(() => ({
   background: props.modelValue.background,
 }))
 
+// ── Logo background ("Fundal logo") ──────────────────────────────────────
+type LogoBgMode = 'auto' | 'white' | 'transparent' | 'custom'
+const LOGO_BG_LABELS: Record<LogoBgMode, string> = {
+  auto: 'Auto', white: 'Alb', transparent: 'Transparent', custom: 'Personalizat',
+}
+const LOGO_BG_MODES = ['auto', 'white', 'transparent', 'custom'] as const
+
+const logoBgMode = computed<LogoBgMode>(() => {
+  const v = props.modelValue.logoBackground
+  if (v === null) return 'auto'
+  if (v === 'transparent') return 'transparent'
+  if (v.toUpperCase() === '#FFFFFF') return 'white'
+  return 'custom'
+})
+
+function setLogoBgMode(mode: LogoBgMode) {
+  const current = props.modelValue.logoBackground
+  const map: Record<LogoBgMode, string | null> = {
+    auto: null,
+    white: '#FFFFFF',
+    transparent: 'transparent',
+    custom: current && current.startsWith('#') ? current : '#FFFFFF',
+  }
+  emitDraft({ logoBackground: map[mode] })
+}
+
+function onLogoBgColor(event: Event) {
+  emitDraft({ logoBackground: (event.target as HTMLInputElement).value })
+}
+
 const logoSrc = computed(() => resolveMediaUrl(props.modelValue.logoUrl))
 const photoSrc = computed(() => resolveMediaUrl(props.modelValue.photoUrl))
 
@@ -167,6 +197,28 @@ function onPhotoFile(event: Event) {
             class="hidden-input"
             @change="onLogoFile"
           />
+
+          <div class="logo-bg-row">
+            <span class="field-label">Fundal logo</span>
+            <div class="logo-bg-modes" role="group" aria-label="Fundal logo">
+              <button
+                v-for="m in LOGO_BG_MODES"
+                :key="m"
+                type="button"
+                class="logo-bg-chip"
+                :class="{ 'is-active': logoBgMode === m }"
+                @click="setLogoBgMode(m)"
+              >{{ LOGO_BG_LABELS[m] }}</button>
+              <input
+                v-if="logoBgMode === 'custom'"
+                type="color"
+                class="color-field-input logo-bg-color"
+                :value="modelValue.logoBackground?.startsWith('#') ? modelValue.logoBackground : '#FFFFFF'"
+                aria-label="Culoare fundal logo"
+                @input="onLogoBgColor"
+              />
+            </div>
+          </div>
         </div>
 
         <div class="upload-field">
@@ -359,6 +411,34 @@ function onPhotoFile(event: Event) {
 }
 
 .hidden-input { display: none; }
+
+/* ── logo background control ─────────────────────────────────────────── */
+.logo-bg-row {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.logo-bg-modes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.logo-bg-chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--ink12);
+  background: var(--card);
+  color: var(--ink70);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.logo-bg-chip:hover { border-color: var(--ink40); }
+.logo-bg-chip.is-active { border-color: var(--accent); color: var(--accent); }
+.logo-bg-color { width: 32px; height: 28px; }
 
 @media (max-width: 860px) {
   .brand-controls { grid-template-columns: 1fr; }

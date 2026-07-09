@@ -17,6 +17,8 @@ export const useBrandingStore = defineStore('branding', () => {
     secondary: string | null
     background: string | null
     presetKey: string | null
+    logoBackground: string | null
+    logoIsDark: boolean | null
   }) {
     branding.value = await brandingApi.update(draft)
     return branding.value
@@ -42,6 +44,8 @@ export const useBrandingStore = defineStore('branding', () => {
       secondary: b?.secondary ?? null,
       background: b?.background ?? null,
       presetKey: b?.presetKey ?? null,
+      logoBackground: b?.logoBackground ?? null,
+      logoIsDark: b?.logoIsDark ?? null,
     })
   }
 

@@ -6,6 +6,7 @@ import { useBrandingStore } from '@/stores/useBrandingStore'
 import { orgApi } from '@/services/api-client'
 import BrandControls from '@/components/branding/BrandControls.vue'
 import { BRAND_PRESETS, type BrandDraft } from '@/components/branding/presets'
+import { computeLogoIsDark } from '@/utils/logoLuminance'
 
 const auth = useAuthStore()
 const branding = useBrandingStore()
@@ -57,6 +58,8 @@ const draft = ref<BrandDraft>({
   presetKey: classicPreset.key,
   logoUrl: null,
   photoUrl: null,
+  logoBackground: null,
+  logoIsDark: null,
 })
 
 const brandError = ref<string | null>(null)
@@ -66,7 +69,8 @@ const skipping = ref(false)
 async function onUploadLogo(file: File) {
   try {
     const url = await branding.uploadLogo(file)
-    draft.value = { ...draft.value, logoUrl: url }
+    const isDark = await computeLogoIsDark(file)
+    draft.value = { ...draft.value, logoUrl: url, logoIsDark: isDark }
   } catch (e) {
     brandError.value = e instanceof Error ? e.message : 'Nu am putut încărca logo-ul.'
   }
@@ -91,6 +95,8 @@ async function finalize() {
       secondary: draft.value.secondary,
       background: draft.value.background,
       presetKey: draft.value.presetKey,
+      logoBackground: draft.value.logoBackground,
+      logoIsDark: draft.value.logoIsDark,
     })
     router.replace('/select-organization')
   } catch (e) {
@@ -110,6 +116,8 @@ async function skipBranding() {
       secondary: draft.value.secondary,
       background: draft.value.background,
       presetKey: draft.value.presetKey,
+      logoBackground: draft.value.logoBackground,
+      logoIsDark: draft.value.logoIsDark,
     })
     router.replace('/select-organization')
   } catch (e) {

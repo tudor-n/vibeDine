@@ -765,6 +765,8 @@ export interface BrandingUpdatePayload {
     secondary: string | null;
     background: string | null;
     presetKey: string | null;
+    logoBackground: string | null;
+    logoIsDark: boolean | null;
 }
 
 export interface BrandingAssetResponse {
