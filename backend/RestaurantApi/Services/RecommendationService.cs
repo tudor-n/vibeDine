@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
+using RestaurantApi.DTOs.Requests;
 using RestaurantApi.DTOs.Responses;
 
 namespace RestaurantApi.Services;
@@ -21,106 +22,131 @@ public class RecommendationService
         _logger = logger;
     }
 
-    public async Task<List<RecommendationResponse>> GetRecommendationsAsync(Guid orderId, string language = "ro")
+    /// <summary>
+    /// Vibey: lazy, cart-based recommendations. Unlike the old order-based flow,
+    /// this does not require a persisted order row — it works straight off the
+    /// guest's in-memory cart, so it can be called before the cart is ever
+    /// submitted. Any failure (unparseable cart, AI unreachable, zero surviving
+    /// recs) degrades to an empty result — never an exception, never a random
+    /// fallback.
+    /// </summary>
+    public async Task<VibeyRecommendationResponse> GetVibeyRecommendationsAsync(
+        IReadOnlyList<VibeyCartItem> cartItems, string language)
     {
-        var order = await _dbContext.Orders
-            .Include(o => o.Items)
-            .FirstOrDefaultAsync(o => o.Id == orderId);
-
-        if (order == null) return [];
-
-        var cartProductIds = order.Items.Select(i => i.ProductId).ToHashSet();
-
-        // The AI needs the names of cart items to reason about pairings — passing bare
-        // UUIDs produces generic, nonsensical "reason" text.
-        var cartProductNames = await _dbContext.Products
-            .Where(p => cartProductIds.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id, p => p.Name);
-
-        var availableProducts = await _dbContext.Products
-            .Where(p => p.IsAvailable == true && !cartProductIds.Contains(p.Id))
-            .Select(p => new { p.Id, p.Name })
-            .ToListAsync();
-
-        var availableIdSet = availableProducts.Select(p => p.Id.ToString()).ToHashSet();
-
-        var ruleDriven = await GetRuleDrivenRecommendationsAsync(cartProductIds, availableIdSet);
-
-        var requestBody = new
-        {
-            cart_items = order.Items.Select(i => new
-            {
-                product_id = i.ProductId.ToString(),
-                name = cartProductNames.GetValueOrDefault(i.ProductId, ""),
-                quantity = i.Quantity
-            }).ToList(),
-            table_id = order.TableId.ToString(),
-            menu_items = availableProducts.Select(p => new
-            {
-                product_id = p.Id.ToString(),
-                name = p.Name
-            }).ToList(),
-            order_history = new List<string>(),
-            language = language
-        };
-
-        List<RecommendationResponse> aiRecs = new();
-
         try
         {
-            var client = _httpClientFactory.CreateClient("AiService");
-            var response = await client.PostAsJsonAsync("/recommend", requestBody);
+            var cartProductIds = cartItems
+                .Select(i => Guid.TryParse(i.Id, out var g) ? g : (Guid?)null)
+                .Where(g => g.HasValue)
+                .Select(g => g!.Value)
+                .ToHashSet();
 
-            if (response.IsSuccessStatusCode)
+            var candidateProducts = await _dbContext.Products
+                .Include(p => p.Category)
+                .Where(p => p.IsAvailable == true && !cartProductIds.Contains(p.Id))
+                .ToListAsync();
+
+            var candidateById = candidateProducts.ToDictionary(p => p.Id);
+            var availableIdSet = candidateProducts.Select(p => p.Id.ToString()).ToHashSet();
+
+            var ruleDriven = await GetRuleDrivenRecommendationsAsync(cartProductIds, availableIdSet);
+
+            var requestBody = new
             {
-                var result = await response.Content.ReadFromJsonAsync<JsonElement>();
-                var rawRecs = result.GetProperty("recommendations")
-                    .Deserialize<List<RecommendationResponse>>(
-                        new JsonSerializerOptions
-                        {
-                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-                            PropertyNameCaseInsensitive = true,
-                        });
-
-                if (rawRecs is { Count: > 0 })
+                cart_items = cartItems.Select(i => new
                 {
-                    aiRecs = rawRecs
-                        .Where(r => availableIdSet.Contains(r.ProductId))
-                        .ToList();
+                    product_id = i.Id,
+                    name = i.Name,
+                    quantity = i.Qty
+                }).ToList(),
+                table_id = "",
+                menu_items = candidateProducts.Select(p => new
+                {
+                    product_id = p.Id.ToString(),
+                    name = p.Name
+                }).ToList(),
+                order_history = new List<string>(),
+                language = language
+            };
+
+            List<RecommendationResponse> aiRecs = new();
+            var summary = "";
+
+            try
+            {
+                var client = _httpClientFactory.CreateClient("AiService");
+                var response = await client.PostAsJsonAsync("/recommend", requestBody);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+                    var rawRecs = result.GetProperty("recommendations")
+                        .Deserialize<List<RecommendationResponse>>(
+                            new JsonSerializerOptions
+                            {
+                                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                                PropertyNameCaseInsensitive = true,
+                            });
+
+                    if (rawRecs is { Count: > 0 })
+                    {
+                        aiRecs = rawRecs
+                            .Where(r => availableIdSet.Contains(r.ProductId))
+                            .ToList();
+                    }
+
+                    if (result.TryGetProperty("summary", out var summaryEl) &&
+                        summaryEl.ValueKind == JsonValueKind.String)
+                    {
+                        summary = summaryEl.GetString() ?? "";
+                    }
+                }
+                else
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning(
+                        "AI /recommend returned non-success status {StatusCode}. Body: {Body}",
+                        (int)response.StatusCode,
+                        body);
                 }
             }
-            else
+            catch (Exception ex)
             {
-                var body = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning(
-                    "AI /recommend returned non-success status {StatusCode}. Body: {Body}",
-                    (int)response.StatusCode,
-                    body);
+                _logger.LogWarning(ex, "AI service unreachable, falling back to rule-driven recommendations.");
             }
+
+            var combined = ruleDriven
+                .Concat(aiRecs)
+                .GroupBy(r => r.ProductId)
+                .Select(g => g.First())
+                .Take(3)
+                .ToList();
+
+            if (combined.Count == 0) return new VibeyRecommendationResponse("", []);
+
+            var enriched = new List<VibeyRec>();
+            foreach (var rec in combined)
+            {
+                if (!Guid.TryParse(rec.ProductId, out var productId)) continue;
+                if (!candidateById.TryGetValue(productId, out var product)) continue;
+
+                enriched.Add(new VibeyRec(
+                    product.Id.ToString(),
+                    product.Name,
+                    product.Category?.Name,
+                    product.Price,
+                    rec.Reason));
+            }
+
+            return enriched.Count == 0
+                ? new VibeyRecommendationResponse("", [])
+                : new VibeyRecommendationResponse(summary, enriched);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AI service unreachable, falling back to rule-driven / random recommendations.");
+            _logger.LogWarning(ex, "Vibey recommendation generation failed; returning empty result.");
+            return new VibeyRecommendationResponse("", []);
         }
-
-        var combined = ruleDriven
-            .Concat(aiRecs)
-            .GroupBy(r => r.ProductId)
-            .Select(g => g.First())
-            .Take(3)
-            .ToList();
-
-        if (combined.Count > 0) return combined;
-
-        var fallbackReason = language.StartsWith("en", StringComparison.OrdinalIgnoreCase)
-            ? "Goes well with your order"
-            : "Se potrivește cu comanda ta";
-
-        return availableProducts
-            .OrderBy(_ => Guid.NewGuid())
-            .Take(2)
-            .Select(p => new RecommendationResponse(p.Id.ToString(), fallbackReason, 0.5))
-            .ToList();
     }
 
     private async Task<List<RecommendationResponse>> GetRuleDrivenRecommendationsAsync(

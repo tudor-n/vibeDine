@@ -206,6 +206,8 @@ builder.Services.AddSingleton<ItemPhotoStorage>();
 builder.Services.AddScoped<MenuImportPhotoMerger>();
 builder.Services.AddHostedService<MenuImportBackgroundService>();
 
+builder.Services.AddMemoryCache();
+
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
 builder.Services.AddScoped<IStockService, StockService>();

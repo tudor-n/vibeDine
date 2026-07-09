@@ -29,6 +29,7 @@ class Recommendation(BaseModel):
 
 class RecommendationResponse(BaseModel):
     recommendations: List[Recommendation]
+    summary: str = ""
 
 
 class AutoGenerateRequest(BaseModel):
