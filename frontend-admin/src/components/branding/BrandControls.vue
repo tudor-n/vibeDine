@@ -249,6 +249,8 @@ function onPhotoFile(event: Event) {
       :colors="previewColors"
       :logo-url="modelValue.logoUrl"
       :photo-url="modelValue.photoUrl"
+      :logo-background="modelValue.logoBackground"
+      :logo-is-dark="modelValue.logoIsDark"
     />
   </div>
 </template>

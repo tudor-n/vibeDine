@@ -13,6 +13,7 @@ import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useFloorStore } from '@/stores/useFloorStore'
 import { useBrandingStore } from '@/stores/useBrandingStore'
 import { resolveMediaUrl } from '@/services/mediaUrl'
+import { resolveLogoBackground } from '@shared/branding/derive'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
@@ -24,6 +25,11 @@ const inventory = useInventoryStore()
 const floor = useFloorStore()
 const branding = useBrandingStore()
 const brandTheme = useBrandTheme()
+
+// Plate behind the tenant logo in the sidebar (Auto/White/Transparent/Custom).
+const logoPlate = computed(() =>
+  resolveLogoBackground(branding.branding?.logoBackground ?? null, branding.branding?.logoIsDark ?? null),
+)
 
 // Re-skin the shell for a branded restaurant on bootstrap/switch (Task 9). A
 // fetch failure must never block the shell, so it falls back to the classic
@@ -285,12 +291,17 @@ onUnmounted(() => {
       <!-- Brand block (desktop) -->
       <div class="hidden md:block mb-6">
         <template v-if="branding.isEnabled && branding.branding?.logoUrl">
-          <img
-            :src="resolveMediaUrl(branding.branding.logoUrl)"
-            alt=""
-            style="height: 72px; object-fit: contain"
-            class="mb-2"
-          />
+          <div
+            class="brand-logo-plate mb-2"
+            :class="{ 'is-plated': logoPlate.plate }"
+            :style="logoPlate.plate ? { background: logoPlate.background } : undefined"
+          >
+            <img
+              :src="resolveMediaUrl(branding.branding.logoUrl)"
+              alt=""
+              style="height: 72px; object-fit: contain"
+            />
+          </div>
           <VibeDineLockup />
         </template>
         <template v-else>
@@ -478,6 +489,16 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--paperHi) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* Tenant logo plate — padded frame only when the resolver asks for a plate;
+   bare (no box) when Auto picks transparent for a light/knockout logo. */
+.brand-logo-plate {
+  display: inline-flex;
+  border-radius: 16px;
+}
+.brand-logo-plate.is-plated {
+  padding: 10px 14px;
 }
 
 /* Sidebar shell — fixed left column on desktop (stays put while the main area
