@@ -56,8 +56,6 @@ public class AdminController : ControllerBase
         _logger = logger;
     }
 
-<<<<<<< Updated upstream
-=======
     // ── Happy hour ───────────────────────────────────────────────────────────
     // One config per restaurant: a single product discounted by a fixed % during a
     // daily time window (restaurant-local). Deterministic — no AI. Replaces the old
@@ -210,7 +208,6 @@ public class AdminController : ControllerBase
         updatedAt = f.UpdatedAt
     };
 
->>>>>>> Stashed changes
     [HttpGet("recommendation-directives")]
     public async Task<IActionResult> GetRecommendationDirectives()
     {
@@ -661,8 +658,6 @@ public class AdminController : ControllerBase
 
 }
 
-<<<<<<< Updated upstream
-=======
 public class SaveHappyHourRequest
 {
     [JsonPropertyName("productId")]
@@ -699,7 +694,6 @@ public class SaveFlashDealRequest
     public bool IsEnabled { get; set; } = true;
 }
 
->>>>>>> Stashed changes
 public class CreateRecommendationDirectiveRequest
 {
     [JsonPropertyName("rawPrompt")]
