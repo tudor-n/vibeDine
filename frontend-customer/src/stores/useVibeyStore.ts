@@ -22,13 +22,18 @@ export const useVibeyStore = defineStore('vibey', () => {
   const cartKey = ref('')
 
   const teaser = ref('')
-  const recs = ref<VibeyRec[]>([])
+  // The full set Vibey fetched, kept intact for the session. The list the guest
+  // actually sees (`recs`) is derived from this minus whatever is already in the
+  // cart, so adding a rec hides it and REMOVING that item from the cart brings
+  // the recommendation back — you can never lose a suggestion by adding then
+  // removing it.
+  const fetchedRecs = ref<VibeyRec[]>([])
   const recsLoaded = ref(false)
   // Whether the ONE fetch ever returned any recommendations. Captured once, at
-  // fetch time, before addRec can drain `recs` — it's what lets us tell the
-  // "guest added every rec" state (hadRecs true) apart from the "AI genuinely
-  // returned nothing" state (hadRecs false), which must NOT show the
-  // all-added confirmation (that would be a false claim).
+  // fetch time — it's what lets us tell the "guest added every rec" state
+  // (hadRecs true) apart from the "AI genuinely returned nothing" state
+  // (hadRecs false), which must NOT show the all-added confirmation (that would
+  // be a false claim).
   const hadRecs = ref(false)
   const thinking = ref(false)
   const summary = ref('')
@@ -38,6 +43,13 @@ export const useVibeyStore = defineStore('vibey', () => {
   // the avatar can smile and hop. Purely cosmetic — never gates any logic.
   const celebrating = ref(false)
   let celebrationTimer: ReturnType<typeof setTimeout> | null = null
+
+  // The suggestions still worth showing: everything Vibey fetched that isn't
+  // already in the cart. Reactive to cart changes, so removing an added item
+  // restores its recommendation automatically.
+  const recs = computed(() =>
+    fetchedRecs.value.filter((r) => !cartStore.items.some((i) => i.id === r.id)),
+  )
 
   const hasRecs = computed(() => recs.value.length > 0)
   // True only once the guest has added every recommendation Vibey actually
@@ -51,7 +63,7 @@ export const useVibeyStore = defineStore('vibey', () => {
   function reset() {
     cartKey.value = ''
     teaser.value = ''
-    recs.value = []
+    fetchedRecs.value = []
     recsLoaded.value = false
     hadRecs.value = false
     thinking.value = false
@@ -118,9 +130,9 @@ export const useVibeyStore = defineStore('vibey', () => {
       }))
       const { locale } = useLocale()
       const res = await apiClient.getVibeyRecommendations({ items, locale: locale.value })
-      recs.value = res.recommendations ?? []
-      // Snapshot BEFORE any addRec can drain `recs` — drives allAdded vs noRecs.
-      hadRecs.value = recs.value.length > 0
+      fetchedRecs.value = res.recommendations ?? []
+      // Did the ONE fetch return anything? Drives allAdded vs noRecs.
+      hadRecs.value = fetchedRecs.value.length > 0
       summary.value = res.summary ?? ''
       botMsg.value = hadRecs.value
         ? summary.value || botMsg.value
@@ -135,7 +147,7 @@ export const useVibeyStore = defineStore('vibey', () => {
       // as a legitimately-empty response so the guest never sees a false
       // "all added" claim. Also must not leave a blank sheet open.
       const { locale } = useLocale()
-      recs.value = []
+      fetchedRecs.value = []
       hadRecs.value = false
       summary.value = ''
       botMsg.value = nothingToSuggest(locale.value)
@@ -167,9 +179,10 @@ export const useVibeyStore = defineStore('vibey', () => {
       imageUrl: null,
       isAvailable: true,
     }
+    // Adds to the cart; `recs` (derived) drops it automatically because it's now
+    // in the cart — and would bring it back if the guest later removes it.
     await cartStore.addRecommendedItem(product)
 
-    recs.value = recs.value.filter((r) => r.id !== id)
     const { locale } = useLocale()
     botMsg.value = followUpLine(rec.name, recs.value.length, locale.value)
     celebrate()

@@ -228,6 +228,44 @@ describe('useVibeyStore — addRec (no fetch, deterministic follow-up)', () => {
     expect(store.recs).toHaveLength(2)
     expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('restores a recommendation when its item is removed from the cart (no refetch)', async () => {
+    const store = useVibeyStore()
+    const cartStore = useCartStore()
+    store.ensureTeaser('order-abc', 'ro')
+    await store.openSheet()
+
+    await store.addRec('rec-1')
+    // Added -> hidden from the list, present in the cart.
+    expect(store.recs.some((r) => r.id === 'rec-1')).toBe(false)
+    expect(cartStore.items.some((i) => i.id === 'rec-1')).toBe(true)
+
+    // The guest changes their mind and removes it from the cart.
+    await cartStore.removeItem('rec-1')
+
+    // It comes back as a suggestion you can re-add — the bug was it vanishing.
+    expect(cartStore.items.some((i) => i.id === 'rec-1')).toBe(false)
+    expect(store.recs.some((r) => r.id === 'rec-1')).toBe(true)
+    expect(store.hasRecs).toBe(true)
+    expect(vibeyRecsSpy).toHaveBeenCalledTimes(1) // restored from state, not re-fetched
+  })
+
+  it('removing an added item after all-added re-offers it (allAdded flips back)', async () => {
+    const store = useVibeyStore()
+    const cartStore = useCartStore()
+    store.ensureTeaser('order-abc', 'ro')
+    await store.openSheet()
+
+    await store.addRec('rec-1')
+    await store.addRec('rec-2')
+    expect(store.allAdded).toBe(true)
+
+    await cartStore.removeItem('rec-2')
+
+    expect(store.allAdded).toBe(false)
+    expect(store.recs.map((r) => r.id)).toEqual(['rec-2'])
+    expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('useVibeyStore — celebration (cosmetic, no fetch)', () => {
