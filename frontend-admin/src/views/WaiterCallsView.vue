@@ -98,7 +98,7 @@ async function accept(requestId: string) {
   padding: 0 14px;
   border-radius: 18px;
   background: var(--accent);
-  color: #fff;
+  color: var(--onAccent);
   display: grid;
   place-items: center;
   font-family: 'JetBrains Mono', ui-monospace, monospace;

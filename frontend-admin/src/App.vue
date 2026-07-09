@@ -921,7 +921,7 @@ button.nav-link {
   padding: 0 7px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--onAccent);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
   font-weight: 800;
@@ -949,7 +949,7 @@ button.nav-link {
   padding: 11px 18px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--onAccent);
   text-decoration: none;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 13px;
