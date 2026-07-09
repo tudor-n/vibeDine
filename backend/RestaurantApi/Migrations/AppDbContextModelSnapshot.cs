@@ -978,6 +978,12 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("Capacity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(4)
+                        .HasColumnName("capacity");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
@@ -997,6 +1003,14 @@ namespace RestaurantApi.Migrations
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid")
                         .HasColumnName("restaurant_id");
+
+                    b.Property<string>("Shape")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("square")
+                        .HasColumnName("shape");
 
                     b.Property<string>("TableNumber")
                         .HasColumnType("text")

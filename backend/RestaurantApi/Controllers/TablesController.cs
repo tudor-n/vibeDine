@@ -25,9 +25,28 @@ public class TablesController : ControllerBase
         _logger = logger;
     }
 
-    public record TableResponse(Guid Id, string? TableNumber, Guid QrToken, Guid? ZoneId, double PositionX, double PositionY);
-    public record CreateTableRequest(string? TableNumber, Guid? ZoneId, double? PositionX, double? PositionY);
-    public record UpdateTableRequest(string? TableNumber, Guid? ZoneId, double? PositionX, double? PositionY);
+    public record TableResponse(Guid Id, string? TableNumber, Guid QrToken, Guid? ZoneId, double PositionX, double PositionY, int Capacity, string Shape);
+    public record CreateTableRequest(string? TableNumber, Guid? ZoneId, double? PositionX, double? PositionY, int? Capacity, string? Shape);
+    public record UpdateTableRequest(string? TableNumber, Guid? ZoneId, double? PositionX, double? PositionY, int? Capacity, string? Shape);
+
+    // Seats a table may sit. The floor-plan draws one chair per seat, so keep the
+    // ceiling in step with what the icon can render (FloorPlanView seat layout).
+    private const int MinCapacity = 1;
+    private const int MaxCapacity = 12;
+    private const int DefaultCapacity = 4;
+
+    private static int ClampCapacity(int value) => Math.Clamp(value, MinCapacity, MaxCapacity);
+
+    // Floor-plan shapes the icon can render. Anything else falls back to the default.
+    private const string DefaultShape = "square";
+    private static readonly HashSet<string> AllowedShapes =
+        new(StringComparer.OrdinalIgnoreCase) { "round", "square", "rectangle", "oval" };
+
+    private static string NormalizeShape(string? value)
+    {
+        var s = value?.Trim().ToLowerInvariant();
+        return s != null && AllowedShapes.Contains(s) ? s : DefaultShape;
+    }
 
     [HttpGet]
     public async Task<IActionResult> List()
@@ -35,7 +54,7 @@ public class TablesController : ControllerBase
         var tables = await _db.Tables
             .Where(t => t.DeletedAt == null)
             .OrderBy(t => t.TableNumber)
-            .Select(t => new TableResponse(t.Id, t.TableNumber, t.QrToken ?? Guid.Empty, t.ZoneId, t.PositionX, t.PositionY))
+            .Select(t => new TableResponse(t.Id, t.TableNumber, t.QrToken ?? Guid.Empty, t.ZoneId, t.PositionX, t.PositionY, t.Capacity, t.Shape))
             .ToListAsync();
 
         return Ok(tables);
@@ -61,13 +80,15 @@ public class TablesController : ControllerBase
             ZoneId = request.ZoneId,
             PositionX = request.PositionX ?? 0,
             PositionY = request.PositionY ?? 0,
+            Capacity = ClampCapacity(request.Capacity ?? DefaultCapacity),
+            Shape = NormalizeShape(request.Shape),
         };
 
         _db.Tables.Add(table);
         await _db.SaveChangesAsync();
         _logger.LogInformation("Created table {Id} (#{Number})", table.Id, number);
 
-        return Created((string?)null, new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value, table.ZoneId, table.PositionX, table.PositionY));
+        return Created((string?)null, new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value, table.ZoneId, table.PositionX, table.PositionY, table.Capacity, table.Shape));
     }
 
     /// <summary>Rotates the QR token, invalidating any previously printed code.</summary>
@@ -81,7 +102,7 @@ public class TablesController : ControllerBase
         await _db.SaveChangesAsync();
         _logger.LogInformation("Regenerated QR token for table {Id}", id);
 
-        return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value, table.ZoneId, table.PositionX, table.PositionY));
+        return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken!.Value, table.ZoneId, table.PositionX, table.PositionY, table.Capacity, table.Shape));
     }
 
     /// <summary>Updates only the provided (non-null) fields on a table.</summary>
@@ -119,10 +140,16 @@ public class TablesController : ControllerBase
         if (request.PositionY.HasValue)
             table.PositionY = request.PositionY.Value;
 
+        if (request.Capacity.HasValue)
+            table.Capacity = ClampCapacity(request.Capacity.Value);
+
+        if (request.Shape != null)
+            table.Shape = NormalizeShape(request.Shape);
+
         await _db.SaveChangesAsync();
         _logger.LogInformation("Updated table {Id}", id);
 
-        return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken ?? Guid.Empty, table.ZoneId, table.PositionX, table.PositionY));
+        return Ok(new TableResponse(table.Id, table.TableNumber, table.QrToken ?? Guid.Empty, table.ZoneId, table.PositionX, table.PositionY, table.Capacity, table.Shape));
     }
 
     // Orders that count as "someone is using this table right now". Drafts (a

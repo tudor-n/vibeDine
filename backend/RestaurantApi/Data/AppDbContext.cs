@@ -105,6 +105,8 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(t => t.RestaurantId).HasColumnName("restaurant_id");
             e.Property(t => t.TableNumber).HasColumnName("table_number");
             e.Property(t => t.QrToken).HasColumnName("qr_token");
+            e.Property(t => t.Capacity).HasColumnName("capacity").HasDefaultValue(4);
+            e.Property(t => t.Shape).HasColumnName("shape").HasMaxLength(20).HasDefaultValue("square");
             e.Property(t => t.ZoneId).HasColumnName("zone_id");
             e.Property(t => t.PositionX).HasColumnName("position_x");
             e.Property(t => t.PositionY).HasColumnName("position_y");

@@ -382,6 +382,8 @@ export interface TableSummary {
     zoneId: string | null;
     positionX: number;
     positionY: number;
+    capacity: number;
+    shape: string;
 }
 
 export const tablesApi = {
@@ -392,6 +394,8 @@ export const tablesApi = {
         zoneId?: string | null;
         positionX?: number;
         positionY?: number;
+        capacity?: number;
+        shape?: string;
     }) =>
         authedFetcher<TableSummary>(scoped('/admin/tables'), {
             method: 'POST',
@@ -405,6 +409,8 @@ export const tablesApi = {
             zoneId?: string | null;
             positionX?: number;
             positionY?: number;
+            capacity?: number;
+            shape?: string;
         },
     ) =>
         authedFetcher<TableSummary>(scoped(`/admin/tables/${id}`), {

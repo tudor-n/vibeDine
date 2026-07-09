@@ -9,6 +9,16 @@ public class RestaurantTable : ITenantScoped {
 
     public Guid? QrToken { get; set; }
 
+    // Number of seats (persons) the table sits. Drives the floor-plan icon —
+    // exactly this many chairs are drawn around the table. Clamped to 1..12 at
+    // the API; defaults to 4.
+    public int Capacity { get; set; } = 4;
+
+    // Floor-plan shape of the table: "round" | "square" | "rectangle" | "oval".
+    // Drives how the icon is drawn and where chairs sit. Validated at the API;
+    // defaults to "square".
+    public string Shape { get; set; } = "square";
+
     // Floor-plan zone (table category) this table belongs to. Optional FK to
     // TableZone; null means unassigned. Cleared (SetNull) when its zone is deleted.
     public Guid? ZoneId { get; set; }

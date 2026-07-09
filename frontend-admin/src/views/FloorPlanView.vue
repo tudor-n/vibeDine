@@ -4,17 +4,54 @@ import { useFloorStore } from '@/stores/useFloorStore'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useToast } from '@/composables/useToast'
 import type { TableSummary, ZoneSummary } from '@/services/api-client'
+import TableGlyph from '@/components/TableGlyph.vue'
+import {
+  seatSlots,
+  tabletopDims,
+  clampCapacity,
+  normalizeShape,
+  TABLE_SHAPES,
+  DEFAULT_SHAPE,
+  MIN_CAPACITY,
+  MAX_CAPACITY,
+  DEFAULT_CAPACITY,
+  type TableShape,
+} from '@/utils/tableSeats'
 
 const store = useFloorStore()
 const auth = useAuthStore()
 const toast = useToast()
 
 // ── Layout constants ─────────────────────────────────────────────────────────
-const CHIP = 64 // chip diameter in px (> the 56px floor)
 const GAP = 28 // spacing between auto-grid slots
 const PAD = 28 // inset from the canvas edges
 const MOVE_THRESHOLD = 4 // px the pointer must travel before a press counts as a drag
 const PANEL_W = 264 // edit-popover width
+
+// Table icons scale with capacity so a big table reads bigger than a 2-top at a
+// glance, and take the chosen shape. The base size grows within [TABLE_MIN,
+// TABLE_MAX]; tabletopDims() turns that into per-shape width/height; the chip
+// (hit area + room for the chairs) adds a fixed seat margin on every side.
+const TABLE_MIN = 46
+const TABLE_MAX = 74
+const SEAT_MARGIN = 15
+function tableSize(capacity: number): number {
+  const c = clampCapacity(capacity)
+  return Math.round(TABLE_MIN + ((c - 1) / (MAX_CAPACITY - 1)) * (TABLE_MAX - TABLE_MIN))
+}
+function shapeOf(t: TableSummary): TableShape {
+  return normalizeShape(t.shape)
+}
+function chipBox(t: TableSummary): { w: number; h: number } {
+  const d = tabletopDims(tableSize(t.capacity ?? DEFAULT_CAPACITY), shapeOf(t))
+  return { w: d.w + SEAT_MARGIN * 2, h: d.h + SEAT_MARGIN * 2 }
+}
+// Auto-grid slots are spaced by the largest possible footprint (a full-capacity
+// rectangle) so tables never overlap, whatever mix of shapes/sizes a zone holds.
+const CHIP = (() => {
+  const d = tabletopDims(TABLE_MAX, 'rectangle')
+  return Math.max(d.w, d.h) + SEAT_MARGIN * 2
+})()
 
 // Canvas geometry. We track the live width so the auto-grid reflows on resize.
 const canvasEl = ref<HTMLElement | null>(null)
@@ -99,7 +136,35 @@ function posFor(t: TableSummary): { x: number; y: number } {
 
 function chipStyle(t: TableSummary): Record<string, string> {
   const p = posFor(t)
-  return { left: `${p.x}px`, top: `${p.y}px` }
+  const box = chipBox(t)
+  return { left: `${p.x}px`, top: `${p.y}px`, width: `${box.w}px`, height: `${box.h}px` }
+}
+
+// The tabletop takes the table's shape + capacity-driven size; the number scales
+// with it so bigger tables are unmistakable. Chairs are sized as a share of the
+// tabletop (or placed on its circle), so they scale along with it.
+function tableTopStyle(t: TableSummary): Record<string, string> {
+  const base = tableSize(t.capacity ?? DEFAULT_CAPACITY)
+  const d = tabletopDims(base, shapeOf(t))
+  return {
+    width: `${d.w}px`,
+    height: `${d.h}px`,
+    borderRadius: d.radius,
+    fontSize: `${Math.round(base * 0.32)}px`,
+  }
+}
+
+// Chairs drawn around a table's chip — one per seat, placed for the shape.
+function seatsFor(t: TableSummary) {
+  return seatSlots(t.capacity ?? DEFAULT_CAPACITY, shapeOf(t))
+}
+
+// Preview-icon sizes for the dialogs (also grow with capacity for feedback).
+function modalPreviewSize(capacity: number): number {
+  return tableSize(capacity) + 18
+}
+function popoverPreviewSize(capacity: number): number {
+  return Math.round(tableSize(capacity) * 0.82)
 }
 
 // ── Pointer drag ─────────────────────────────────────────────────────────────
@@ -172,8 +237,9 @@ async function onPointerUp(e: PointerEvent, t: TableSummary) {
   let x = drag.x
   let y = drag.y
   if (canvas) {
-    const maxX = Math.max(0, canvas.clientWidth - CHIP)
-    const maxY = Math.max(0, canvas.clientHeight - CHIP)
+    const box = chipBox(t)
+    const maxX = Math.max(0, canvas.clientWidth - box.w)
+    const maxY = Math.max(0, canvas.clientHeight - box.h)
     x = Math.min(Math.max(0, x), maxX)
     y = Math.min(Math.max(0, y), maxY)
   } else {
@@ -266,41 +332,71 @@ async function removeZone(z: ZoneSummary) {
   }
 }
 
-// ── Tables: add ──────────────────────────────────────────────────────────────
-const addingTable = ref(false)
+// ── Tables: add (modal) ──────────────────────────────────────────────────────
+// Adding a table opens a dialog where the manager picks the table number AND how
+// many people it seats; the chosen count drives the icon (chairs = seats).
+const showAddTable = ref(false)
 const newTableNumber = ref('')
+const newTableCapacity = ref(DEFAULT_CAPACITY)
+const newTableShape = ref<TableShape>(DEFAULT_SHAPE)
+
+const SHAPE_LABELS: Record<TableShape, string> = {
+  round: 'Rotundă',
+  square: 'Pătrată',
+  rectangle: 'Dreptunghi',
+  oval: 'Ovală',
+}
+function shapeLabel(s: TableShape): string {
+  return SHAPE_LABELS[s]
+}
+
+function openAddTable() {
+  if (!store.selectedZoneId) return
+  newTableNumber.value = ''
+  newTableCapacity.value = DEFAULT_CAPACITY
+  newTableShape.value = DEFAULT_SHAPE
+  showAddTable.value = true
+}
+
+function setNewCapacity(n: number) {
+  newTableCapacity.value = clampCapacity(n)
+}
 
 async function submitNewTable() {
   if (busy.value) return
   const n = newTableNumber.value.trim()
   const zoneId = store.selectedZoneId
-  if (!n || !zoneId) {
-    cancelAddTable()
-    return
-  }
+  if (!n || !zoneId) return
   busy.value = true
   try {
     const slot = gridSlot(tablesInZone.value.length)
-    await store.createTable({ tableNumber: n, zoneId, positionX: slot.x, positionY: slot.y })
+    await store.createTable({
+      tableNumber: n,
+      zoneId,
+      positionX: slot.x,
+      positionY: slot.y,
+      capacity: newTableCapacity.value,
+      shape: newTableShape.value,
+    })
     toast.success(`Masa ${n} a fost adăugată.`)
+    showAddTable.value = false
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Adăugarea mesei a eșuat.')
   } finally {
     busy.value = false
-    addingTable.value = false
-    newTableNumber.value = ''
   }
 }
 
 function cancelAddTable() {
-  addingTable.value = false
-  newTableNumber.value = ''
+  showAddTable.value = false
 }
 
 // ── Edit popover ─────────────────────────────────────────────────────────────
 const editId = ref<string | null>(null)
 const editNumber = ref('')
 const editMoveZoneId = ref('')
+const editCapacity = ref(DEFAULT_CAPACITY)
+const editShape = ref<TableShape>(DEFAULT_SHAPE)
 
 const editTable = computed<TableSummary | null>(
   () => store.tables.find((t) => t.id === editId.value) ?? null,
@@ -325,6 +421,39 @@ function openEdit(t: TableSummary) {
   editId.value = t.id
   editNumber.value = t.tableNumber ?? ''
   editMoveZoneId.value = t.zoneId ?? ''
+  editCapacity.value = t.capacity ?? DEFAULT_CAPACITY
+  editShape.value = shapeOf(t)
+}
+
+// Shape picker in the edit popover — commit immediately so the icon reshapes live.
+async function commitShape(shape: TableShape) {
+  const t = editTable.value
+  if (!t) return
+  const prev = shapeOf(t)
+  editShape.value = shape
+  if (shape === prev) return
+  try {
+    await store.setTableShape(t.id, shape)
+  } catch (err) {
+    editShape.value = prev
+    toast.error(err instanceof Error ? err.message : 'Actualizarea formei a eșuat.')
+  }
+}
+
+// Persons stepper in the edit popover — commit each change straight away so the
+// icon updates live; roll back the local value if the request fails.
+async function commitCapacity(next: number) {
+  const t = editTable.value
+  if (!t) return
+  const c = clampCapacity(next)
+  editCapacity.value = c
+  if (c === t.capacity) return
+  try {
+    await store.setTableCapacity(t.id, c)
+  } catch (err) {
+    editCapacity.value = t.capacity ?? DEFAULT_CAPACITY
+    toast.error(err instanceof Error ? err.message : 'Actualizarea locurilor a eșuat.')
+  }
 }
 
 function closeEdit() {
@@ -435,7 +564,8 @@ function statusLabel(status: string): string {
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
-  if (orderModalTableId.value) closeOrderModal()
+  if (showAddTable.value) cancelAddTable()
+  else if (orderModalTableId.value) closeOrderModal()
   else if (editId.value) closeEdit()
 }
 
@@ -591,23 +721,11 @@ const vFocus = {
 
       <!-- Toolbar (managers only) -->
       <div v-if="canEditFloor" class="flex items-center gap-3 flex-wrap mb-4">
-        <input
-          v-if="addingTable"
-          v-focus
-          v-model="newTableNumber"
-          placeholder="Număr masă (ex: 12)"
-          class="field-input"
-          style="max-width: 220px"
-          @keyup.enter="submitNewTable"
-          @keyup.esc="cancelAddTable"
-          @blur="submitNewTable"
-        />
         <button
-          v-else
           type="button"
           class="pill-btn"
           :disabled="!store.selectedZoneId"
-          @click="addingTable = true"
+          @click="openAddTable"
         >
           + Masă
         </button>
@@ -633,11 +751,14 @@ const vFocus = {
           @pointermove="onPointerMove($event)"
           @pointerup="onPointerUp($event, t)"
         >
-          <span class="seat seat-top" aria-hidden="true"></span>
-          <span class="seat seat-bottom" aria-hidden="true"></span>
-          <span class="seat seat-left" aria-hidden="true"></span>
-          <span class="seat seat-right" aria-hidden="true"></span>
-          <span class="table-top">
+          <span class="table-top" :style="tableTopStyle(t)">
+            <span
+              v-for="s in seatsFor(t)"
+              :key="s.key"
+              class="seat"
+              :style="s.style"
+              aria-hidden="true"
+            ></span>
             <span class="chip-num">{{ t.tableNumber || '—' }}</span>
             <span
               v-if="store.unclaimedTableIds.has(t.id)"
@@ -660,41 +781,198 @@ const vFocus = {
           </span>
         </button>
 
-        <!-- Edit popover (click-away backdrop + anchored card) -->
-        <div v-if="editId" class="edit-backdrop" @pointerdown="closeEdit"></div>
-        <div
-          v-if="editTable"
-          ref="panelEl"
-          class="edit-panel card-white"
-          :style="editPanelStyle"
-          @pointerdown.stop
-        >
-          <div class="flex items-center justify-between mb-3">
-            <div class="eyebrow">Masa {{ editTable.tableNumber || '—' }}</div>
-            <button type="button" class="icon-btn" aria-label="Închide" @click="closeEdit">✕</button>
-          </div>
-
-          <label class="field-label">Număr masă</label>
-          <div class="flex gap-2 mt-1 mb-4">
-            <input
-              v-model="editNumber"
-              class="field-input"
-              @keyup.enter="commitRenameTable"
-            />
-            <button type="button" class="btn-ghost" @click="commitRenameTable">Salvează</button>
-          </div>
-
-          <label class="field-label">Mută în zonă</label>
-          <select v-model="editMoveZoneId" class="field-input mt-1 mb-4" @change="commitMoveZone">
-            <option v-for="z in store.zones" :key="z.id" :value="z.id">{{ z.name }}</option>
-          </select>
-
-          <button type="button" class="btn-danger w-full" @click="removeTable">Șterge masa</button>
-        </div>
+        <!-- Table edit lives in a teleported modal (below) so it overlays the
+             whole dashboard instead of being clipped inside the canvas. -->
       </div>
     </template>
 
-    <!-- Order modal ("Preia comanda") — opens when a table with orders is tapped -->
+    <!-- Add-table modal: pick the table number + how many people it seats. The
+         preview icon updates live so the count is unmistakable. Teleported to
+         <body> so it overlays the whole dashboard, clear of the shell's stacking
+         context and any transformed/clipping ancestor. -->
+    <Teleport to="body">
+    <div
+      v-if="showAddTable"
+      class="order-modal-backdrop"
+      @pointerdown.self="cancelAddTable"
+    >
+      <div class="order-modal card-white table-modal" role="dialog" aria-modal="true">
+        <div class="order-modal-head">
+          <div>
+            <div class="eyebrow">Masă nouă</div>
+            <div class="display-title text-2xl">Adaugă o masă</div>
+          </div>
+          <button type="button" class="icon-btn" aria-label="Închide" @click="cancelAddTable">✕</button>
+        </div>
+
+        <form @submit.prevent="submitNewTable">
+          <label class="field-label">Număr masă</label>
+          <input
+            v-focus
+            v-model="newTableNumber"
+            placeholder="ex: 12"
+            class="field-input mt-1 mb-4"
+            required
+          />
+
+          <label class="field-label">Formă masă</label>
+          <div class="shape-picker mt-1 mb-4">
+            <button
+              v-for="s in TABLE_SHAPES"
+              :key="s"
+              type="button"
+              class="shape-opt"
+              :class="{ 'shape-opt-active': newTableShape === s }"
+              :aria-pressed="newTableShape === s"
+              @click="newTableShape = s"
+            >
+              <TableGlyph :capacity="4" :shape="s" :size="26" />
+              <span class="shape-lbl">{{ shapeLabel(s) }}</span>
+            </button>
+          </div>
+
+          <label class="field-label">Locuri (persoane)</label>
+          <div class="cap-row mt-1 mb-3">
+            <div class="cap-stepper">
+              <button
+                type="button"
+                class="cap-step"
+                :disabled="newTableCapacity <= MIN_CAPACITY"
+                aria-label="Mai puține locuri"
+                @click="setNewCapacity(newTableCapacity - 1)"
+              >−</button>
+              <div class="cap-value">
+                <span class="cap-num">{{ newTableCapacity }}</span>
+                <span class="cap-unit">{{ newTableCapacity === 1 ? 'persoană' : 'persoane' }}</span>
+              </div>
+              <button
+                type="button"
+                class="cap-step"
+                :disabled="newTableCapacity >= MAX_CAPACITY"
+                aria-label="Mai multe locuri"
+                @click="setNewCapacity(newTableCapacity + 1)"
+              >+</button>
+            </div>
+            <TableGlyph
+              :capacity="newTableCapacity"
+              :shape="newTableShape"
+              :size="modalPreviewSize(newTableCapacity)"
+            />
+          </div>
+          <div class="cap-presets mb-5">
+            <button
+              v-for="p in [2, 4, 6, 8]"
+              :key="p"
+              type="button"
+              class="cap-preset"
+              :class="{ 'cap-preset-active': newTableCapacity === p }"
+              @click="setNewCapacity(p)"
+            >{{ p }}</button>
+          </div>
+
+          <div class="table-modal-actions">
+            <button type="button" class="btn-ghost" @click="cancelAddTable">Anulează</button>
+            <button type="submit" class="pill-btn" :disabled="busy || !newTableNumber.trim()">
+              {{ busy ? 'Se adaugă…' : 'Adaugă masa' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    </Teleport>
+
+    <!-- Edit-table modal — teleported over the dashboard. Was an anchored popover
+         that got clipped once the shape picker made it tall; now a centered modal
+         like the add-table one, so it always overlays the whole dashboard. -->
+    <Teleport to="body">
+    <div
+      v-if="editTable"
+      class="order-modal-backdrop"
+      @pointerdown.self="closeEdit"
+    >
+      <div class="order-modal card-white table-modal" role="dialog" aria-modal="true">
+        <div class="order-modal-head">
+          <div>
+            <div class="eyebrow">Editează masa</div>
+            <div class="display-title text-2xl">Masa {{ editTable.tableNumber || '—' }}</div>
+          </div>
+          <button type="button" class="icon-btn" aria-label="Închide" @click="closeEdit">✕</button>
+        </div>
+
+        <label class="field-label">Număr masă</label>
+        <div class="flex gap-2 mt-1 mb-4">
+          <input v-model="editNumber" class="field-input" @keyup.enter="commitRenameTable" />
+          <button type="button" class="btn-ghost" @click="commitRenameTable">Salvează</button>
+        </div>
+
+        <label class="field-label">Formă masă</label>
+        <div class="shape-picker mt-1 mb-4">
+          <button
+            v-for="s in TABLE_SHAPES"
+            :key="s"
+            type="button"
+            class="shape-opt"
+            :class="{ 'shape-opt-active': editShape === s }"
+            :aria-pressed="editShape === s"
+            @click="commitShape(s)"
+          >
+            <TableGlyph :capacity="4" :shape="s" :size="26" />
+            <span class="shape-lbl">{{ shapeLabel(s) }}</span>
+          </button>
+        </div>
+
+        <label class="field-label">Locuri (persoane)</label>
+        <div class="cap-row mt-1 mb-3">
+          <div class="cap-stepper">
+            <button
+              type="button"
+              class="cap-step"
+              :disabled="editCapacity <= MIN_CAPACITY"
+              aria-label="Mai puține locuri"
+              @click="commitCapacity(editCapacity - 1)"
+            >−</button>
+            <div class="cap-value">
+              <span class="cap-num">{{ editCapacity }}</span>
+              <span class="cap-unit">{{ editCapacity === 1 ? 'persoană' : 'persoane' }}</span>
+            </div>
+            <button
+              type="button"
+              class="cap-step"
+              :disabled="editCapacity >= MAX_CAPACITY"
+              aria-label="Mai multe locuri"
+              @click="commitCapacity(editCapacity + 1)"
+            >+</button>
+          </div>
+          <TableGlyph
+            :capacity="editCapacity"
+            :shape="editShape"
+            :size="modalPreviewSize(editCapacity)"
+          />
+        </div>
+        <div class="cap-presets mb-4">
+          <button
+            v-for="p in [2, 4, 6, 8]"
+            :key="p"
+            type="button"
+            class="cap-preset"
+            :class="{ 'cap-preset-active': editCapacity === p }"
+            @click="commitCapacity(p)"
+          >{{ p }}</button>
+        </div>
+
+        <label class="field-label">Mută în zonă</label>
+        <select v-model="editMoveZoneId" class="field-input mt-1 mb-4" @change="commitMoveZone">
+          <option v-for="z in store.zones" :key="z.id" :value="z.id">{{ z.name }}</option>
+        </select>
+
+        <button type="button" class="btn-danger w-full" @click="removeTable">Șterge masa</button>
+      </div>
+    </div>
+    </Teleport>
+
+    <!-- Order modal ("Preia comanda") — opens when a table with orders is tapped.
+         Teleported to <body> for the same reason as the add-table modal. -->
+    <Teleport to="body">
     <div
       v-if="orderModalTable"
       class="order-modal-backdrop"
@@ -792,6 +1070,7 @@ const vFocus = {
         </button>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -916,8 +1195,6 @@ const vFocus = {
    tabletop with four chairs around it. */
 .chip {
   position: absolute;
-  width: 64px;
-  height: 64px;
   border: none;
   background: transparent;
   box-shadow: none;
@@ -945,9 +1222,7 @@ const vFocus = {
 /* Tabletop — the surface that carries the number and the live badges. */
 .table-top {
   position: relative;
-  width: 42px;
-  height: 42px;
-  border-radius: 13px;
+  border-radius: 30%;
   background: var(--card);
   border: 1.5px solid var(--ink12);
   box-shadow: var(--shadow-soft);
@@ -968,38 +1243,13 @@ const vFocus = {
   box-shadow: 0 0 0 3px var(--accentSoft);
 }
 
-/* Chairs — one seat on each side of the table. */
+/* Chairs — one seat per person, positioned around the tabletop by the seat
+   layout util (utils/tableSeats). Dimensions/placement come from inline styles. */
 .seat {
   position: absolute;
   background: var(--ink40);
-  border-radius: 4px;
+  border-radius: 3px;
   transition: background 0.15s ease;
-}
-.seat-top,
-.seat-bottom {
-  width: 22px;
-  height: 7px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-.seat-left,
-.seat-right {
-  width: 7px;
-  height: 22px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-.seat-top {
-  top: 1px;
-}
-.seat-bottom {
-  bottom: 1px;
-}
-.seat-left {
-  left: 1px;
-}
-.seat-right {
-  right: 1px;
 }
 .chip:hover .seat,
 .chip-dragging .seat {
@@ -1009,7 +1259,7 @@ const vFocus = {
 .chip-num {
   font-family: 'Inter Tight', sans-serif;
   font-weight: 700;
-  font-size: 16px;
+  font-size: inherit; /* scales with the tabletop (set inline per capacity) */
   line-height: 1;
   pointer-events: none;
 }
@@ -1081,6 +1331,8 @@ const vFocus = {
   z-index: 6;
   padding: 16px;
   box-shadow: var(--shadow-pop);
+  max-height: min(78vh, 560px);
+  overflow-y: auto;
 }
 
 /* Mobile: the anchored popover would be clipped by the canvas's overflow:hidden,
@@ -1272,6 +1524,143 @@ const vFocus = {
 .order-edit-link {
   width: 100%;
   margin-top: 2px;
+}
+
+/* ── Persons stepper (add + edit) ───────────────────────────────────────────── */
+.cap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cap-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ink12);
+  background: var(--card);
+}
+.cap-step {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ink06);
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.cap-step:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--paperHi);
+}
+.cap-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cap-value {
+  min-width: 70px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.cap-num {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  color: var(--ink);
+}
+.cap-unit {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink40);
+}
+.cap-presets {
+  display: flex;
+  gap: 8px;
+}
+.cap-preset {
+  flex: 1;
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--ink12);
+  background: transparent;
+  color: var(--ink70);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.cap-preset:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.cap-preset-active {
+  background: var(--ink);
+  color: var(--paperHi);
+  border-color: var(--ink);
+}
+
+/* ── Shape picker (add + edit) ──────────────────────────────────────────────── */
+.shape-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.shape-picker-compact {
+  grid-template-columns: repeat(2, 1fr);
+}
+.shape-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--ink12);
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.shape-opt:hover {
+  border-color: var(--ink);
+}
+.shape-opt-active {
+  border-color: var(--ink);
+  background: var(--ink06);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.shape-lbl {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink70);
+}
+
+/* ── Add-table modal ────────────────────────────────────────────────────────── */
+.table-modal {
+  width: min(92vw, 420px);
+}
+.table-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.table-modal-actions > .pill-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (prefers-reduced-motion: reduce) {

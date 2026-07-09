@@ -56,7 +56,9 @@ function variantIcon(t: Toast): string {
   position: fixed;
   top: 76px;
   right: 18px;
-  z-index: 80;
+  /* Above the floor-plan modals (z-index 80), which now teleport to <body>, so
+     error toasts fired from inside a modal stay visible. */
+  z-index: 100;
   pointer-events: none;
   max-width: calc(100vw - 36px);
   width: 380px;

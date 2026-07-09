@@ -136,6 +136,8 @@ export const useFloorStore = defineStore('floor', () => {
     zoneId?: string | null
     positionX?: number
     positionY?: number
+    capacity?: number
+    shape?: string
   }): Promise<TableSummary> {
     const created = await tablesApi.create(payload)
     tables.value = [...tables.value, created]
@@ -154,6 +156,16 @@ export const useFloorStore = defineStore('floor', () => {
 
   async function renameTable(id: string, tableNumber: string) {
     const updated = await tablesApi.update(id, { tableNumber })
+    replaceTable(id, updated)
+  }
+
+  async function setTableCapacity(id: string, capacity: number) {
+    const updated = await tablesApi.update(id, { capacity })
+    replaceTable(id, updated)
+  }
+
+  async function setTableShape(id: string, shape: string) {
+    const updated = await tablesApi.update(id, { shape })
     replaceTable(id, updated)
   }
 
@@ -315,6 +327,8 @@ export const useFloorStore = defineStore('floor', () => {
     updateTablePosition,
     moveTableToZone,
     renameTable,
+    setTableCapacity,
+    setTableShape,
     deleteTable,
     // orders
     refreshActiveOrders,
