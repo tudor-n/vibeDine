@@ -1,6 +1,6 @@
 import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
-import type { ActiveHappyHour } from '@shared/types/models';
+import type { ActiveHappyHour, RestaurantBranding } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
@@ -14,6 +14,7 @@ export interface TableSession {
   tableId: string;
   tableNumber: string;
   activeOrder: { id: string };
+  branding: RestaurantBranding | null;
 }
 
 // ── Multi-person ordering (party) ──────────────────────────────────────────
@@ -45,6 +46,7 @@ export interface JoinTableResponse {
   tableNumber: string;
   activeOrder: { id: string; status: string; totalAmount: number; items: PartyOrderItem[] };
   partyMembers: PartyMember[];
+  branding: RestaurantBranding | null;
 }
 
 export interface MergePartyResponse {
