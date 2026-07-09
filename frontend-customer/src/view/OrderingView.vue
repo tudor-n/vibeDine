@@ -182,6 +182,14 @@ function openCategory(id: string) {
   screen.value = 'menu'
 }
 function backToPebbles() { screen.value = 'pebbles' }
+// Branded-with-photo tables never show the language picker — the welcome
+// screen subsumes it — so back-from-pebbles must return there instead of
+// bouncing a branded diner onto a screen they were never meant to see.
+// Unbranded (or no-photo) tables keep going back to the language picker.
+function backFromPebbles() {
+  screen.value =
+    sessionStore.branding?.enabled && sessionStore.branding?.photoUrl ? 'welcome' : 'language'
+}
 function openCart() {
   // Remember where we came from (menu or pebbles) so close returns there.
   if (screen.value === 'menu' || screen.value === 'pebbles') cartOrigin.value = screen.value
@@ -337,7 +345,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           key="pebbles"
           @open-category="openCategory"
           @open-cart="openCart"
-          @back="screen = 'language'"
+          @back="backFromPebbles"
         />
         <MenuView
           v-else-if="screen === 'menu' && activeCategoryId"
