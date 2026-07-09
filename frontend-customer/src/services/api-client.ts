@@ -1,5 +1,5 @@
-import type { MenuResponse } from '@shared/types/api-responses';
-import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
+import type { MenuResponse, VibeyRecommendationResponse } from '@shared/types/api-responses';
+import type { UpdateOrderItemsRequest, VibeyRecommendationRequest } from '@shared/types/api-requests';
 import type { ActiveHappyHour } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
 
@@ -138,6 +138,15 @@ export const apiClient = {
   claimFlashDeal: (orderId: string, dealId: string) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/claim-deal/${dealId}`, {
       method: 'POST',
+    }),
+
+  // The ONE Vibey model call — invoked only from useVibeyStore.openSheet() on
+  // the first "Da, arată-mi" tap. Never call this eagerly (cart load, qty
+  // change, sheet re-open) — see docs/superpowers/specs/2026-07-09-vibey-recommendations-design.md.
+  getVibeyRecommendations: (payload: VibeyRecommendationRequest) =>
+    fetcher<VibeyRecommendationResponse>(`/api/restaurants/${rid()}/recommendations`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   // Dedicated helper: the generic fetcher throws a plain Error and would lose
