@@ -31,7 +31,7 @@ const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
 const happyHourStore = useHappyHourStore()
 const orderStatusStore = useOrderStatusStore()
-const { theme, tokens: T, toggle: toggleTheme } = useTheme()
+const { theme, tokens: T, toggle: toggleTheme, isBranded } = useTheme()
 const { t } = useLocale()
 
 useWebSocket()
@@ -401,7 +401,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       />
 
       <CallWaiterButton
-        v-if="screen !== 'language' && !showSessionError && !flashOverlayActive"
+        v-if="screen !== 'language' && screen !== 'welcome' && !showSessionError && !flashOverlayActive"
       />
 
       <!-- Re-open the live order's progress timeline. Appears once an order has
@@ -429,6 +429,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       </button>
 
       <button
+        v-if="!isBranded"
         class="theme-toggle"
         :style="{
           background: T.card,
