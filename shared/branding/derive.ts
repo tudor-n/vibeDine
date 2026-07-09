@@ -30,6 +30,8 @@ export interface BrandPalette {
 const LIGHT_INK = '#15140F'
 const DARK_INK = '#F5F0E8'
 const WHITE = '#FFFFFF'
+const PURE_BLACK = '#000000'
+const CONTRAST_AA = 4.5 // WCAG AA for normal text
 const DARK_MODE_LUMINANCE = 0.35 // background below this is treated as a dark theme
 
 export function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -119,16 +121,32 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-/** White or the given ink — whichever has the higher contrast on `bg`. */
+/**
+ * The most readable text colour on `surface`. Returns whichever of the two soft
+ * candidates has the higher contrast; if even that is below WCAG AA, upgrades to
+ * pure black/white (guaranteed >= 4.58:1 on any colour), staying on the same
+ * light/dark side as the winning soft candidate.
+ */
+export function readableText(surface: string, darkCandidate: string, lightCandidate: string): string {
+  const dark = contrastRatio(surface, darkCandidate)
+  const light = contrastRatio(surface, lightCandidate)
+  const softWins = dark >= light ? darkCandidate : lightCandidate
+  if (contrastRatio(surface, softWins) >= CONTRAST_AA) return softWins
+  return dark >= light ? PURE_BLACK : WHITE
+}
+
+/** Most readable of white / the given ink on `bg`, AA-guaranteed. */
 export function bestOnColor(bg: string, ink: string): string {
-  return contrastRatio(bg, WHITE) >= contrastRatio(bg, ink) ? WHITE : ink
+  return readableText(bg, ink, WHITE)
 }
 
 export function deriveBrandPalette(input: BrandInput): BrandPalette {
   const { primary, secondary, background } = input
   const isDark = relativeLuminance(background) < DARK_MODE_LUMINANCE
   const mode: 'light' | 'dark' = isDark ? 'dark' : 'light'
-  const ink = isDark ? DARK_INK : LIGHT_INK
+  // Text colour is chosen by measured contrast against the actual background,
+  // not by the mode threshold — so a mid-tone background still gets legible ink.
+  const ink = readableText(background, LIGHT_INK, DARK_INK)
 
   return {
     mode,
