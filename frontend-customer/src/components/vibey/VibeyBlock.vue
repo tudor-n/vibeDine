@@ -29,7 +29,7 @@ function toggleSheet() {
 <template>
   <div class="vibey-block" :style="{ background: T.paperHi, border: `1px solid ${T.ink12}` }">
     <div class="vibey-header">
-      <VibeyAvatar :size="44" :tokens="T" :celebrating="store.celebrating" />
+      <VibeyAvatar :size="44" :tokens="T" :celebrating="store.celebrating" :happy="store.allAdded" />
       <div class="vibey-header-text">
         <div class="vibey-name-row">
           <span class="vibey-name">Vibey</span>

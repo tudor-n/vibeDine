@@ -252,6 +252,10 @@ describe('useVibeyStore — celebration (cosmetic, no fetch)', () => {
       vi.advanceTimersByTime(1200)
       expect(store.celebrating).toBe(false)
 
+      // Every rec was added -> Vibey stays lastingly happy after the transient
+      // hop ends (the avatar keeps smiling; `allAdded` is what drives it).
+      expect(store.allAdded).toBe(true)
+
       // Still exactly the one fetch — the celebration is purely cosmetic.
       expect(vibeyRecsSpy).toHaveBeenCalledTimes(1)
     } finally {

@@ -5,9 +5,12 @@
 // `size` prop relative to the 44px baseline, so the same markup reproduces both
 // the cart-block avatar (44) and the sheet-header avatar (40).
 //
-// `celebrating` flips Vibey into a happy state — the eyes curve into smiles and
-// the whole avatar hops side to side — used briefly when a recommendation is
-// added to the cart.
+// Two happy states, independent so they can compose:
+//  - `celebrating`: a brief burst when a recommendation is added — the avatar
+//    hops side to side (and smiles).
+//  - `happy`: a lasting content state (e.g. once every recommendation is in the
+//    cart) — the eyes stay curved in a smile while the gentle idle bob resumes,
+//    with no hopping.
 import { computed } from 'vue'
 import type { ThemeTokens } from '@/design/tokens'
 
@@ -16,9 +19,13 @@ const props = withDefaults(
     size?: number
     tokens: ThemeTokens
     celebrating?: boolean
+    happy?: boolean
   }>(),
-  { size: 44, celebrating: false },
+  { size: 44, celebrating: false, happy: false },
 )
+
+// Vibey shows the smile whenever it's mid-hop OR lastingly happy.
+const smiling = computed(() => props.celebrating || props.happy)
 
 const scale = computed(() => props.size / 44)
 const px = (n: number) => `${Math.round(n * scale.value)}px`
@@ -52,7 +59,7 @@ const bodyStyle = computed(() => {
 // the theme ink so they read dark on a light-theme body and light on a dark one.
 const eyeStyle = computed(() => {
   const ink = props.tokens.ink
-  if (props.celebrating) {
+  if (smiling.value) {
     const stroke = Math.max(2, Math.round(2.4 * scale.value))
     return {
       width: px(12),
@@ -73,7 +80,7 @@ const eyeStyle = computed(() => {
 </script>
 
 <template>
-  <div class="vibey-avatar" :class="{ 'is-celebrating': celebrating }" :style="{ width: `${size}px`, height: `${size}px` }">
+  <div class="vibey-avatar" :class="{ 'is-celebrating': celebrating, 'is-smiling': smiling }" :style="{ width: `${size}px`, height: `${size}px` }">
     <div
       class="vibey-antenna-stem"
       :style="{ height: `${stemHeight}px`, top: `${stemTop}px`, background: tokens.ink40 }"
@@ -126,8 +133,8 @@ const eyeStyle = computed(() => {
 .vibey-eye {
   animation: vibey-blink 4s ease-in-out infinite;
 }
-/* A smiling Vibey doesn't blink — the arcs stay put while it hops. */
-.vibey-avatar.is-celebrating .vibey-eye {
+/* A smiling Vibey doesn't blink — the arcs stay put (mid-hop or lastingly happy). */
+.vibey-avatar.is-smiling .vibey-eye {
   animation: none;
 }
 
