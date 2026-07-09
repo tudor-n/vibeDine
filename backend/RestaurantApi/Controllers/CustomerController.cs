@@ -16,6 +16,7 @@ public class CustomerController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IFlashDealService _flashDealService;
+    private readonly IHappyHourService _happyHourService;
     private readonly RecommendationService _recommendationService;
     private readonly IHubContext<StaffHub> _staffHub;
     private readonly IHubContext<CustomerHub> _customerHub;
@@ -23,12 +24,14 @@ public class CustomerController : ControllerBase
     public CustomerController(
         AppDbContext context,
         IFlashDealService flashDealService,
+        IHappyHourService happyHourService,
         RecommendationService recommendationService,
         IHubContext<StaffHub> staffHub,
         IHubContext<CustomerHub> customerHub)
     {
         _context = context;
         _flashDealService = flashDealService;
+        _happyHourService = happyHourService;
         _recommendationService = recommendationService;
         _staffHub = staffHub;
         _customerHub = customerHub;
@@ -123,11 +126,15 @@ public class CustomerController : ControllerBase
     }
 
     [HttpPost("restaurants/{restaurantId:guid}/orders")]
-    public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
+    public async Task<IActionResult> CreateOrder(Guid restaurantId, [FromBody] CreateOrderRequest request)
     {
         var table = await _context.Tables.FindAsync(request.TableId);
         if (table is null)
             return NotFound(new { message = "Table not found." });
+
+        // Happy hour: if the configured product is inside its daily window now, it
+        // sells at the discounted price. The server is authoritative for the bill.
+        var happyHour = await _happyHourService.GetActiveDealAsync(restaurantId);
 
         var order = new Order
         {
@@ -152,7 +159,7 @@ public class CustomerController : ControllerBase
                 OrderId = order.Id,
                 ProductId = item.ProductId,
                 Quantity = item.Quantity,
-                UnitPriceAtPurchase = product.Price,
+                UnitPriceAtPurchase = _happyHourService.EffectiveUnitPrice(product, happyHour),
                 IsFlashDealItem = false
             });
         }
@@ -196,6 +203,9 @@ public class CustomerController : ControllerBase
         var producIds = request.Items.Select(i => i.ProductId).ToList();
         var products = await _context.Products.Where(p => producIds.Contains(p.Id)).ToListAsync();
 
+        // Happy-hour pricing for this restaurant right now (null outside the window).
+        var happyHour = await _happyHourService.GetActiveDealAsync(order.RestaurantId);
+
         var incomingProductIds = request.Items.Where(i => i.Quantity > 0).Select(i => i.ProductId).ToList();
 
         var itemsToRemove = order.Items
@@ -217,6 +227,9 @@ public class CustomerController : ControllerBase
             if (existingItem != null)
             {
                 existingItem.Quantity = reqItem.Quantity;
+                // Re-price to the current effective price so a happy-hour discount
+                // (and its expiry when the window closes) tracks on every cart sync.
+                existingItem.UnitPriceAtPurchase = _happyHourService.EffectiveUnitPrice(product, happyHour);
                 // Don't overwrite WasAiRecommended — it's set on first add
             }
             else
@@ -227,7 +240,7 @@ public class CustomerController : ControllerBase
                     OrderId = order.Id,
                     ProductId = product.Id,
                     Quantity = reqItem.Quantity,
-                    UnitPriceAtPurchase = product.Price,
+                    UnitPriceAtPurchase = _happyHourService.EffectiveUnitPrice(product, happyHour),
                     IsFlashDealItem = false,
                     WasAiRecommended = reqItem.WasAiRecommended
                 };
@@ -274,6 +287,27 @@ public class CustomerController : ControllerBase
         });
     }
     
+    // The restaurant's happy hour IF it's live right now (inside its daily window),
+    // else null. The customer app polls this to show the menu banner and the
+    // discounted price; the discount is applied authoritatively at order time.
+    [HttpGet("restaurants/{restaurantId:guid}/happy-hour")]
+    public async Task<IActionResult> GetActiveHappyHour(Guid restaurantId)
+    {
+        var deal = await _happyHourService.GetActiveDealAsync(restaurantId);
+        if (deal?.Product == null) return NoContent();
+
+        return Ok(new
+        {
+            productId = deal.ProductId,
+            productName = deal.Product.Name,
+            discountPercent = deal.DiscountPercent,
+            originalPrice = deal.Product.Price,
+            discountedPrice = HappyHourService.DiscountedPrice(deal.Product.Price, deal.DiscountPercent),
+            startTime = deal.StartTime.ToString("HH:mm"),
+            endTime = deal.EndTime.ToString("HH:mm"),
+        });
+    }
+
     [HttpGet("tables/{qrToken:guid}/session")]
     public async Task<IActionResult> GetTableSession(Guid qrToken)
     {
@@ -354,7 +388,7 @@ public class CustomerController : ControllerBase
     }
    
     [HttpGet("restaurants/{restaurantId:guid}/orders/{id:guid}/recommendations")]
-    public async Task<IActionResult> GetRecommendation(Guid id)
+    public async Task<IActionResult> GetRecommendation(Guid id, [FromQuery] string? language)
     {
         var order = await _context.Orders.FindAsync(id);
 
@@ -363,7 +397,7 @@ public class CustomerController : ControllerBase
             return NotFound(new { message = "Order not found." });
         }
 
-        var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id);
+        var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id, language ?? "ro");
 
         if (rawRecommendations == null || !rawRecommendations.Any())
         {

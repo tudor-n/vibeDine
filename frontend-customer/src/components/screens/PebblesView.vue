@@ -7,6 +7,7 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useCartStore } from '@/stores/useCartStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import Pebble from '@/components/ui/Pebble.vue'
+import HappyHourBanner from '@/components/HappyHourBanner.vue'
 
 const emit = defineEmits<{
   (e: 'open-category', id: string): void
@@ -160,6 +161,12 @@ onBeforeUnmount(() => {
       </p>
     </div>
 
+    <!-- Happy hour bar — surfaced on the categories page too (mirrors the menu),
+         with its own add-to-cart button and live the whole session. -->
+    <div class="hh-slot">
+      <HappyHourBanner />
+    </div>
+
     <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">
       {{ t('pebbles.loading') }}
     </div>
@@ -273,6 +280,24 @@ onBeforeUnmount(() => {
 .lede {
   font-size: clamp(14px, 4.1vw, 16px);
   margin: 8px 0 0;
+}
+/* Holds the happy hour bar between the heading and the scrolling category grid
+   so it stays pinned and visible while the diner browses. */
+.hh-slot {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  padding: 12px clamp(14px, 5vw, 20px) 0;
+}
+/* No active happy hour → the banner's v-if leaves only a comment, so drop the
+   slot entirely instead of showing an empty padded gap above the categories. */
+.hh-slot:empty {
+  display: none;
+}
+/* The banner carries its own bottom margin; drop it here so spacing to the grid
+   matches the heading's rhythm. */
+.hh-slot :deep(.hh-banner) {
+  margin-bottom: 0;
 }
 .state {
   padding: 32px 24px;

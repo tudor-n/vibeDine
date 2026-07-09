@@ -38,7 +38,8 @@ describe('StepReviewItems', () => {
     const wrapper = mount(StepReviewItems)
     const nameInput = wrapper.find<HTMLInputElement>('[data-testid="row-name"]')
     await nameInput.setValue('')
-    expect(wrapper.find('[data-testid="row-name-error"]').exists()).toBe(true)
+    // Invalid rows are flagged with an `is-error` class on the name input (no separate error node).
+    expect(wrapper.find('[data-testid="row-name"]').classes()).toContain('is-error')
     expect(wrapper.find<HTMLButtonElement>('[data-testid="import-btn"]').element.disabled).toBe(true)
   })
 

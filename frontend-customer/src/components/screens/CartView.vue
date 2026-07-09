@@ -141,7 +141,11 @@ async function submit() {
           >{{ t('cart.aiSuggested') }}</div>
           <div class="item-row">
             <div class="item-price">
-              {{ formatMoney(it.price * it.quantity) }}
+              <span
+                v-if="cartStore.effectivePrice(it) !== it.price"
+                :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.8em', marginRight: '5px', fontWeight: 500 }"
+              >{{ formatMoney(it.price * it.quantity) }}</span>
+              {{ formatMoney(cartStore.effectivePrice(it) * it.quantity) }}
               <span class="item-price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </div>
             <div

@@ -53,6 +53,33 @@ services:
       - ./backend/RestaurantApi:/src
       - menu_imports:/menu-imports
 
+  # vibeDine HQ — platform/super-admin control plane. Shares the Postgres DB with
+  # backend-api but owns its own auth (platform_admins) and registration-link tables.
+  platform-api:
+    build: ./backend/PlatformApi
+    ports:
+      - "5006:5000"
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
+      ASPNETCORE_ENVIRONMENT: "Development"
+      Jwt__Key: "dev-only-platform-signing-key-change-me-32+chars"
+      Jwt__Issuer: "vibedine-platform"
+      Jwt__Audience: "vibedine-platform"
+      Jwt__AccessTokenMinutes: "720"
+      # Default platform operator seeded on first start — change in production.
+      PlatformSeed__Email: "admin@vibedine.local"
+      PlatformSeed__Password: "ChangeMe123!"
+      # Base URL one-time registration links point at (redeemed in the restaurant app).
+      RegistrationLink__BaseUrl: "http://localhost:3001/register"
+      AllowedOrigins__0: "http://localhost:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-api:
+        condition: service_started
+    volumes:
+      - ./backend/PlatformApi:/src
+
   mailpit:
     image: axllent/mailpit:latest
     ports:
@@ -94,6 +121,17 @@ services:
       VITE_CUSTOMER_URL: "http://localhost:3000"
     volumes:
       - ./frontend-admin:/app
+      - ./shared:/shared:ro
+      - /app/node_modules
+
+  frontend-platform:
+    build: ./frontend-platform
+    ports:
+      - "3002:3002"
+    environment:
+      VITE_API_URL: "http://localhost:5006/"
+    volumes:
+      - ./frontend-platform:/app
       - ./shared:/shared:ro
       - /app/node_modules
 

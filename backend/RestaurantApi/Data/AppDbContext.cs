@@ -22,8 +22,10 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<RestaurantTable> Tables => Set<RestaurantTable>();
+    public DbSet<TableZone> TableZones => Set<TableZone>();
     public DbSet<FlashDealOffer> FlashDealOffers => Set<FlashDealOffer>();
-    public DbSet<AIDirective> AIDirectives => Set<AIDirective>();
+    public DbSet<HappyHourDeal> HappyHourDeals => Set<HappyHourDeal>();
+    public DbSet<FlashDealRule> FlashDealRules => Set<FlashDealRule>();
     public DbSet<RecommendationDirective> RecommendationDirectives => Set<RecommendationDirective>();
     public DbSet<SimilarityRule> SimilarityRules => Set<SimilarityRule>();
     public DbSet<HelpRequest> HelpRequests => Set<HelpRequest>();
@@ -109,11 +111,34 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(t => t.RestaurantId).HasColumnName("restaurant_id");
             e.Property(t => t.TableNumber).HasColumnName("table_number");
             e.Property(t => t.QrToken).HasColumnName("qr_token");
+            e.Property(t => t.Capacity).HasColumnName("capacity").HasDefaultValue(4);
+            e.Property(t => t.Shape).HasColumnName("shape").HasMaxLength(20).HasDefaultValue("square");
+            e.Property(t => t.ZoneId).HasColumnName("zone_id");
+            e.Property(t => t.PositionX).HasColumnName("position_x");
+            e.Property(t => t.PositionY).HasColumnName("position_y");
             e.Property(t => t.DeletedAt).HasColumnName("deleted_at");
             // qr_token is the customer's globally-unique entry point; it must resolve a
             // single table across the whole platform.
             e.HasIndex(t => t.QrToken).IsUnique();
             e.HasIndex(t => t.RestaurantId);
+
+            // Optional FK to a floor-plan zone. Deleting a zone unassigns its
+            // tables rather than removing them.
+            e.HasOne<TableZone>()
+             .WithMany()
+             .HasForeignKey(t => t.ZoneId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<TableZone>(e =>
+        {
+            e.ToTable("table_zones");
+            e.Property(z => z.Id).HasColumnName("id");
+            e.Property(z => z.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(z => z.Name).HasColumnName("name");
+            e.Property(z => z.SortOrder).HasColumnName("sort_order");
+            e.Property(z => z.DeletedAt).HasColumnName("deleted_at");
+            e.HasIndex(z => new { z.RestaurantId, z.SortOrder });
         });
 
         modelBuilder.Entity<Order>(e =>
@@ -132,14 +157,23 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.GuestId).HasColumnName("guest_id");
             e.Property(o => o.MergedIntoOrderId).HasColumnName("merged_into_order_id");
             e.Property(o => o.StockDecremented).HasColumnName("stock_decremented").HasDefaultValue(false);
+            e.Property(o => o.ClaimedByWaiterId).HasColumnName("claimed_by_waiter_id");
+            e.Property(o => o.ClaimedAt).HasColumnName("claimed_at");
             e.HasIndex(o => o.RestaurantId);
             e.HasIndex(o => new { o.RestaurantId, o.OrderNumber });
             // Fast "is there a draft for this guest at this table" lookup.
             e.HasIndex(o => new { o.TableId, o.GuestId, o.Status });
+            e.HasIndex(o => o.ClaimedByWaiterId);
 
             e.HasOne(o => o.Table)
              .WithMany(t => t.Orders)
              .HasForeignKey(o => o.TableId);
+
+            // The claiming staff member. SetNull so removing a user keeps the order.
+            e.HasOne(o => o.ClaimedByWaiter)
+             .WithMany()
+             .HasForeignKey(o => o.ClaimedByWaiterId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<OrderItem>(e =>
@@ -237,16 +271,41 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
              .IsRequired(false);
         });
 
-        modelBuilder.Entity<AIDirective>(e =>
+        modelBuilder.Entity<HappyHourDeal>(e =>
         {
-            e.ToTable("ai_directives");
-            e.Property(a => a.Id).HasColumnName("id");
-            e.Property(a => a.RestaurantId).HasColumnName("restaurant_id");
-            e.Property(a => a.RawPrompt).HasColumnName("raw_prompt");
-            e.Property(a => a.ParsedRules).HasColumnName("parsed_rules");
-            e.Property(a => a.CreatedAt).HasColumnName("created_at");
-            e.Property(a => a.IsActive).HasColumnName("is_active");
-            e.HasIndex(a => a.RestaurantId);
+            e.ToTable("happy_hour_deals");
+            e.Property(h => h.Id).HasColumnName("id");
+            e.Property(h => h.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(h => h.ProductId).HasColumnName("product_id");
+            e.Property(h => h.DiscountPercent).HasColumnName("discount_percent");
+            e.Property(h => h.StartTime).HasColumnName("start_time");
+            e.Property(h => h.EndTime).HasColumnName("end_time");
+            e.Property(h => h.IsEnabled).HasColumnName("is_enabled");
+            e.Property(h => h.UpdatedAt).HasColumnName("updated_at");
+            e.HasIndex(h => h.RestaurantId);
+
+            e.HasOne(h => h.Product)
+             .WithMany()
+             .HasForeignKey(h => h.ProductId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FlashDealRule>(e =>
+        {
+            e.ToTable("flash_deal_rules");
+            e.Property(f => f.Id).HasColumnName("id");
+            e.Property(f => f.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(f => f.ProductId).HasColumnName("product_id");
+            e.Property(f => f.DiscountPercent).HasColumnName("discount_percent");
+            e.Property(f => f.MinOrderTotal).HasColumnName("min_order_total");
+            e.Property(f => f.IsEnabled).HasColumnName("is_enabled");
+            e.Property(f => f.UpdatedAt).HasColumnName("updated_at");
+            e.HasIndex(f => f.RestaurantId);
+
+            e.HasOne(f => f.Product)
+             .WithMany()
+             .HasForeignKey(f => f.ProductId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RecommendationDirective>(e =>
@@ -489,10 +548,12 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<Subcategory>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Product>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<RestaurantTable>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<TableZone>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Order>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<OrderItem>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<FlashDealOffer>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
-        modelBuilder.Entity<AIDirective>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<HappyHourDeal>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<FlashDealRule>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<RecommendationDirective>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<SimilarityRule>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<HelpRequest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);

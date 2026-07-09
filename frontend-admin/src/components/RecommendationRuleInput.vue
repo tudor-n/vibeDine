@@ -26,12 +26,12 @@ const onSubmit = () => {
         />
 
         <div class="relative z-10">
-            <div class="flex items-center justify-between mb-5">
-                <div>
+            <div class="flex items-start justify-between flex-wrap gap-3 mb-5">
+                <div class="min-w-0">
                     <div class="prompt-eyebrow mb-2">Regulă scrisă manual</div>
                     <h2 class="prompt-title">Spune AI-ului ce să recomande</h2>
                 </div>
-                <span class="prompt-tag prompt-tag-lime" aria-label="AI activ"><span aria-hidden="true">✦</span> AI activ</span>
+                <span class="prompt-tag prompt-tag-lime shrink-0" aria-label="AI activ"><span aria-hidden="true">✦</span> AI activ</span>
             </div>
             <p class="prompt-lede mb-6 leading-relaxed max-w-xl">
                 Scrie o frază care leagă un produs de o recomandare. AI-ul găsește numele
@@ -83,6 +83,10 @@ const onSubmit = () => {
     padding: 32px;
     box-shadow: var(--shadow-pop);
     border: 1px solid var(--ink12);
+}
+@media (max-width: 640px) {
+    .prompt-card { padding: 20px; border-radius: 22px; }
+    .prompt-title { font-size: 24px; }
 }
 .prompt-title {
     font-family: 'Inter Tight', sans-serif;

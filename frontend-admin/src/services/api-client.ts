@@ -1,5 +1,6 @@
 import type {
-    AIDirective,
+    HappyHourDeal,
+    FlashDealRule,
     RecommendationDirective,
     SimilarityRule,
     DailyMetrics,
@@ -414,15 +415,43 @@ export interface TableSummary {
     id: string;
     tableNumber: string | null;
     qrToken: string;
+    zoneId: string | null;
+    positionX: number;
+    positionY: number;
+    capacity: number;
+    shape: string;
 }
 
 export const tablesApi = {
     list: () => authedFetcher<TableSummary[]>(scoped('/admin/tables')),
 
-    create: (tableNumber: string) =>
+    create: (payload: {
+        tableNumber: string;
+        zoneId?: string | null;
+        positionX?: number;
+        positionY?: number;
+        capacity?: number;
+        shape?: string;
+    }) =>
         authedFetcher<TableSummary>(scoped('/admin/tables'), {
             method: 'POST',
-            body: JSON.stringify({ tableNumber }),
+            body: JSON.stringify(payload),
+        }),
+
+    update: (
+        id: string,
+        patch: {
+            tableNumber?: string;
+            zoneId?: string | null;
+            positionX?: number;
+            positionY?: number;
+            capacity?: number;
+            shape?: string;
+        },
+    ) =>
+        authedFetcher<TableSummary>(scoped(`/admin/tables/${id}`), {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
         }),
 
     regenerate: (id: string) =>
@@ -436,11 +465,74 @@ export const tablesApi = {
         }),
 };
 
+// ── Zones (floor-plan areas, per active location) ────────────────────────────
+export interface ZoneSummary {
+    id: string;
+    name: string;
+    sortOrder: number;
+}
+
+export const zonesApi = {
+    list: () => authedFetcher<ZoneSummary[]>(scoped('/admin/zones')),
+
+    create: (name: string) =>
+        authedFetcher<ZoneSummary>(scoped('/admin/zones'), {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+        }),
+
+    update: (id: string, patch: { name?: string; sortOrder?: number }) =>
+        authedFetcher<ZoneSummary>(scoped(`/admin/zones/${id}`), {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
+        }),
+
+    remove: (id: string) =>
+        authedFetcher<void>(scoped(`/admin/zones/${id}`), {
+            method: 'DELETE',
+        }),
+};
+
 export interface WaiterCall {
     requestId: string;
     tableId: string;
     tableNumber: string | null;
     createdAt: string;
+}
+
+export type ActiveOrderStatus = 'submitted' | 'preparing' | 'ready';
+
+export interface ActiveOrderItem {
+    id: string;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    subtotal: number;
+    wasAiRecommended?: boolean;
+    isFlashDealItem?: boolean;
+}
+
+export interface ActiveOrder {
+    id: string;
+    orderNumber: number | null;
+    status: ActiveOrderStatus;
+    totalAmount: number;
+    createdAt: string;
+    readyAt: string | null;
+    tableId: string;
+    tableNumber: string | null;
+    // Claim ("Preia comanda") state — null while the order is unclaimed.
+    claimedByWaiterId: string | null;
+    claimedByName: string | null;
+    claimedAt: string | null;
+    items: ActiveOrderItem[];
+}
+
+export interface OrderClaimResult {
+    id: string;
+    claimedByWaiterId: string | null;
+    claimedByName?: string | null;
+    claimedAt?: string | null;
 }
 
 // ── Restaurant-scoped dashboard API ──────────────────────────────────────────
@@ -452,9 +544,9 @@ export const apiClient = {
         authedFetcher<any[]>(scoped(`/admin/orders?limit=${limit}`)),
 
     getActiveOrders: () =>
-        authedFetcher<any[]>(scoped('/admin/orders/active')),
+        authedFetcher<ActiveOrder[]>(scoped('/admin/orders/active')),
 
-    updateOrderStatus: (orderId: string, status: 'submitted' | 'preparing' | 'ready') =>
+    updateOrderStatus: (orderId: string, status: ActiveOrderStatus) =>
         authedFetcher<any>(scoped(`/admin/orders/${orderId}/status`), {
             method: 'PATCH',
             body: JSON.stringify({ status }),
@@ -462,6 +554,18 @@ export const apiClient = {
 
     cancelOrder: (orderId: string) =>
         authedFetcher<{ id: string; status: string }>(scoped(`/admin/orders/${orderId}/cancel`), {
+            method: 'POST',
+        }),
+
+    // "Preia comanda" — take ownership of an order from the floor plan.
+    claimOrder: (orderId: string) =>
+        authedFetcher<OrderClaimResult>(scoped(`/admin/orders/${orderId}/claim`), {
+            method: 'POST',
+        }),
+
+    // Hand a claimed order back to the pool.
+    releaseOrder: (orderId: string) =>
+        authedFetcher<OrderClaimResult>(scoped(`/admin/orders/${orderId}/release`), {
             method: 'POST',
         }),
 
@@ -475,19 +579,43 @@ export const apiClient = {
             { method: 'POST' },
         ),
 
-    getDirectives: () =>
-        authedFetcher<AIDirective[]>(scoped('/admin/directives')),
+    getHappyHour: () =>
+        authedFetcher<HappyHourDeal | null>(scoped('/admin/happy-hour')),
 
-    postDirective: (prompt: string) =>
-        authedFetcher<AIDirective>(scoped('/admin/directives'), {
-            method: 'POST',
-            body: JSON.stringify({ rawPrompt: prompt }),
+    saveHappyHour: (payload: {
+        productId: string;
+        discountPercent: number;
+        startTime: string;
+        endTime: string;
+        isEnabled: boolean;
+    }) =>
+        authedFetcher<HappyHourDeal>(scoped('/admin/happy-hour'), {
+            method: 'PUT',
+            body: JSON.stringify(payload),
         }),
 
-    toggleActiveDirective: (id: string, isActive: boolean) =>
-        authedFetcher<void>(scoped(`/admin/directives/${id}`), {
-            method: 'PATCH',
-            body: JSON.stringify(isActive),
+    clearHappyHour: () =>
+        authedFetcher<void>(scoped('/admin/happy-hour'), {
+            method: 'DELETE',
+        }),
+
+    getFlashDeal: () =>
+        authedFetcher<FlashDealRule | null>(scoped('/admin/flash-deal')),
+
+    saveFlashDeal: (payload: {
+        productId: string;
+        discountPercent: number;
+        minOrderTotal: number | null;
+        isEnabled: boolean;
+    }) =>
+        authedFetcher<FlashDealRule>(scoped('/admin/flash-deal'), {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        }),
+
+    clearFlashDeal: () =>
+        authedFetcher<void>(scoped('/admin/flash-deal'), {
+            method: 'DELETE',
         }),
 
     getRecommendationDirectives: () =>

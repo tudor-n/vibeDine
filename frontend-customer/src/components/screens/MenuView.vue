@@ -5,10 +5,12 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useCartStore } from '@/stores/useCartStore'
+import { useHappyHourStore } from '@/stores/useHappyHourStore'
 import { useRecommendations } from '@/composables/useRecommendations'
 import type { Product, Recommendation } from '@shared/types/models'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
+import HappyHourBanner from '@/components/HappyHourBanner.vue'
 
 const props = defineProps<{ categoryId: string }>()
 const emit = defineEmits<{
@@ -18,6 +20,7 @@ const emit = defineEmits<{
 
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const cartStore = useCartStore()
+const happyHour = useHappyHourStore()
 const { pairings, upsells } = useRecommendations()
 const { tokens: T, theme } = useTheme()
 const { t } = useLocale()
@@ -55,6 +58,7 @@ const FILTER_PATTERNS: Record<Exclude<FilterKey, 'all'>, RegExp> = {
 
 onMounted(() => {
   load().catch(() => undefined)
+  happyHour.startPolling()
 })
 
 const category = computed(() =>
@@ -161,6 +165,7 @@ function addRecommendation(rec: Recommendation) {
     </div>
 
     <div class="scroll">
+    <HappyHourBanner />
     <div class="chips">
       <button
         v-for="f in FILTERS"
@@ -211,7 +216,11 @@ function addRecommendation(rec: Recommendation) {
         </div>
         <div class="dish-foot" :style="{ borderTop: `1px solid ${T.ink06}` }">
           <div class="price">
-            {{ m.price }}
+            <template v-if="happyHour.discountedPriceFor(m.id) != null">
+              {{ happyHour.discountedPriceFor(m.id) }}
+              <span :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.78em', marginLeft: '5px', fontWeight: 500 }">{{ m.price }}</span>
+            </template>
+            <template v-else>{{ m.price }}</template>
             <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
           </div>
           <button

@@ -504,6 +504,24 @@ function onDragEnd() {
     dragOverProductId.value = null
 }
 
+// Touch-friendly reorder: HTML5 drag-and-drop never fires on touchscreens, so
+// the up/down buttons drive the same reorder endpoint. Only offered while the
+// list is unfiltered, where the displayed order matches the stored order.
+async function moveProduct(categoryId: string, productId: string, dir: -1 | 1) {
+    const cat = store.categories.find((c) => c.id === categoryId)
+    if (!cat) return
+    const ids = cat.products.map((p) => p.id)
+    const idx = ids.indexOf(productId)
+    const target = idx + dir
+    if (idx === -1 || target < 0 || target >= ids.length) return
+    ;[ids[idx], ids[target]] = [ids[target], ids[idx]]
+    try {
+        await store.reorderProducts(categoryId, ids)
+    } catch (e: any) {
+        toast.error(e?.message ?? 'Eroare la reordonarea produselor.')
+    }
+}
+
 const priceFormatter = computed(
     () => new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' })
 )
@@ -777,14 +795,32 @@ function formatPrice(n: number) {
                                 @dragleave="onDragLeave(p.id)"
                                 @drop="onDrop($event, entry.cat.id, p.id)"
                             >
-                                <div
-                                    class="drag-handle shrink-0"
-                                    draggable="true"
-                                    title="Trage pentru a reordona"
-                                    @dragstart="onDragStart($event, entry.cat.id, p.id)"
-                                    @dragend="onDragEnd"
-                                >
-                                    <span aria-hidden="true">⋮⋮</span>
+                                <div v-if="!isFiltering" class="prod-reorder shrink-0">
+                                    <button
+                                        type="button"
+                                        class="reorder-btn"
+                                        :disabled="pIdx === 0"
+                                        title="Mută mai sus"
+                                        aria-label="Mută mai sus"
+                                        @click="moveProduct(entry.cat.id, p.id, -1)"
+                                    >▲</button>
+                                    <div
+                                        class="drag-handle"
+                                        draggable="true"
+                                        title="Trage pentru a reordona"
+                                        @dragstart="onDragStart($event, entry.cat.id, p.id)"
+                                        @dragend="onDragEnd"
+                                    >
+                                        <span aria-hidden="true">⋮⋮</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="reorder-btn"
+                                        :disabled="pIdx === entry.products.length - 1"
+                                        title="Mută mai jos"
+                                        aria-label="Mută mai jos"
+                                        @click="moveProduct(entry.cat.id, p.id, 1)"
+                                    >▼</button>
                                 </div>
 
                                 <div
@@ -820,7 +856,7 @@ function formatPrice(n: number) {
                                     </p>
                                 </div>
 
-                                <div class="flex flex-col items-end gap-2 shrink-0">
+                                <div class="prod-actions flex flex-col items-end gap-2 shrink-0">
                                     <div class="font-mono text-base font-bold text-ink">
                                         {{ formatPrice(p.price) }}
                                     </div>
@@ -967,7 +1003,7 @@ function formatPrice(n: number) {
                             </span>
                         </label>
 
-                        <div class="grid grid-cols-2 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <label class="field">
                                 <span class="field-label">Preț (RON)</span>
                                 <input
@@ -1333,9 +1369,40 @@ textarea.field-input {
     transform: translateY(-1px);
 }
 
+/* Reorder control: drag handle (mouse) flanked by up/down buttons (touch). */
+.prod-reorder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    width: 30px;
+}
+.reorder-btn {
+    width: 30px;
+    height: 26px;
+    border: 1px solid var(--ink12);
+    border-radius: 8px;
+    background: var(--paper);
+    color: var(--ink70);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    line-height: 1;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+.reorder-btn:hover:not(:disabled) {
+    background: var(--ink06);
+    color: var(--ink);
+}
+.reorder-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
 .drag-handle {
-    width: 26px;
-    align-self: stretch;
+    width: 30px;
+    flex: 1;
+    min-height: 30px;
     border-radius: 8px;
     background: var(--ink06);
     color: var(--ink40);
@@ -1355,6 +1422,11 @@ textarea.field-input {
 }
 .drag-handle:active {
     cursor: grabbing;
+}
+/* Touch devices can't drag the handle — hide it and lean on the buttons. */
+@media (hover: none) {
+    .drag-handle { display: none; }
+    .reorder-btn { height: 36px; }
 }
 
 /* ── Inline header stats (replaces chip strip) ─────────────────────── */
@@ -1702,5 +1774,30 @@ textarea.field-input {
 
 .scroll-mt-24 {
     scroll-margin-top: 96px;
+}
+
+/* ── Mobile: let product rows breathe ──────────────────────────────────
+   The reorder column + thumb + name stay on the first line; the price and
+   edit/hide actions wrap to a full-width second line instead of squeezing
+   the name to a few characters. */
+@media (max-width: 640px) {
+    .prod-row { flex-wrap: wrap; }
+    .prod-thumb { width: 52px; height: 52px; }
+    .prod-actions {
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between;
+        width: 100%;
+        margin-top: 2px;
+    }
+}
+
+/* ── Touch: meet the 44px tap-target floor for the dense icon controls ── */
+@media (hover: none) {
+    .icon-btn { width: 44px; height: 44px; }
+    .cat-toggle { width: 44px; height: 44px; font-size: 14px; }
+    .btn-add-product { min-height: var(--tap-min); }
+    .filter-chip { padding: 11px 16px; }
+    .toolbar-search-clear { width: 32px; height: 32px; }
 }
 </style>

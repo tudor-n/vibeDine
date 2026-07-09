@@ -144,13 +144,13 @@ async function reject(e: EmployeeRow) {
                     </div>
                   </div>
                 </td>
-                <td>{{ roleLabel(e.role) }}</td>
-                <td>
+                <td data-label="Rol">{{ roleLabel(e.role) }}</td>
+                <td data-label="Status">
                   <span :class="['status-pill', `status-${e.status}`]">{{ statusLabel(e.status) }}</span>
                 </td>
-                <td class="text-right">
+                <td class="text-right actions-cell">
                   <template v-if="e.role === 'Waiter' && e.status === 'pending_approval'">
-                    <button type="button" class="btn btn-primary mr-2" :disabled="busy" @click="approve(e)">
+                    <button type="button" class="btn btn-primary" :disabled="busy" @click="approve(e)">
                       Aprobă
                     </button>
                     <button type="button" class="btn btn-danger" :disabled="busy" @click="reject(e)">
@@ -206,6 +206,14 @@ async function reject(e: EmployeeRow) {
   border-bottom: none;
 }
 .text-right { text-align: right; }
+/* Action buttons sit in a right-aligned, wrap-friendly row on desktop. */
+.actions-cell {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.actions-cell:empty { display: none; }
 .avatar-mini {
   width: 36px;
   height: 36px;
@@ -241,8 +249,10 @@ async function reject(e: EmployeeRow) {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 14px;
+  min-height: var(--tap-min);
   border-radius: 999px;
   border: 1px solid var(--ink12);
   background: transparent;
@@ -263,4 +273,50 @@ async function reject(e: EmployeeRow) {
   color: #b91c1c;
 }
 .btn-danger:hover { background: rgba(185, 28, 28, 0.08); }
+
+/* ── Mobile: collapse the 4-column table into stacked cards ──────────────
+   Below md the fixed table layout overflows, so each row becomes a card and
+   each cell stacks with its column header rendered via data-label. */
+@media (max-width: 767.98px) {
+  .emp-table,
+  .emp-table tbody,
+  .emp-table tr,
+  .emp-table td {
+    display: block;
+    width: 100%;
+  }
+  .emp-table thead {
+    /* visually hidden but kept for assistive tech */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+  .emp-table tr {
+    border: 1px solid var(--ink12);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .emp-table tr:last-child { margin-bottom: 0; }
+  .emp-table td {
+    padding: 5px 0;
+    border-bottom: none;
+    text-align: left;
+  }
+  .emp-table td[data-label]::before {
+    content: attr(data-label) " · ";
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink70, var(--ink));
+  }
+  .actions-cell {
+    justify-content: flex-start;
+    margin-top: 8px;
+  }
+  .actions-cell .btn { flex: 1; }
+}
 </style>

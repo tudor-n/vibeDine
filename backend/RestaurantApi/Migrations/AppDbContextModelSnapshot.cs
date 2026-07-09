@@ -152,40 +152,6 @@ namespace RestaurantApi.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("RestaurantApi.Models.AIDirective", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<bool?>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("ParsedRules")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("parsed_rules");
-
-                    b.Property<string>("RawPrompt")
-                        .HasColumnType("text")
-                        .HasColumnName("raw_prompt");
-
-                    b.Property<Guid>("RestaurantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("restaurant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RestaurantId");
-
-                    b.ToTable("ai_directives", (string)null);
-                });
-
             modelBuilder.Entity("RestaurantApi.Models.AppUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -331,6 +297,90 @@ namespace RestaurantApi.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("flash_deal_offers", (string)null);
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.FlashDealRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("DiscountPercent")
+                        .HasColumnType("integer")
+                        .HasColumnName("discount_percent");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<decimal?>("MinOrderTotal")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("min_order_total");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.ToTable("flash_deal_rules", (string)null);
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.HappyHourDeal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("DiscountPercent")
+                        .HasColumnType("integer")
+                        .HasColumnName("discount_percent");
+
+                    b.Property<TimeOnly>("EndTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("end_time");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<TimeOnly>("StartTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("start_time");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.ToTable("happy_hour_deals", (string)null);
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.HelpRequest", b =>
@@ -642,6 +692,14 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("claimed_at");
+
+                    b.Property<Guid?>("ClaimedByWaiterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("claimed_by_waiter_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -694,6 +752,8 @@ namespace RestaurantApi.Migrations
                         .HasColumnName("total_amount");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ClaimedByWaiterId");
 
                     b.HasIndex("RestaurantId");
 
@@ -1014,9 +1074,23 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("Capacity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(4)
+                        .HasColumnName("capacity");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
+
+                    b.Property<double>("PositionX")
+                        .HasColumnType("double precision")
+                        .HasColumnName("position_x");
+
+                    b.Property<double>("PositionY")
+                        .HasColumnType("double precision")
+                        .HasColumnName("position_y");
 
                     b.Property<Guid?>("QrToken")
                         .HasColumnType("uuid")
@@ -1026,9 +1100,21 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("restaurant_id");
 
+                    b.Property<string>("Shape")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("square")
+                        .HasColumnName("shape");
+
                     b.Property<string>("TableNumber")
                         .HasColumnType("text")
                         .HasColumnName("table_number");
+
+                    b.Property<Guid?>("ZoneId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("zone_id");
 
                     b.HasKey("Id");
 
@@ -1036,6 +1122,8 @@ namespace RestaurantApi.Migrations
                         .IsUnique();
 
                     b.HasIndex("RestaurantId");
+
+                    b.HasIndex("ZoneId");
 
                     b.ToTable("tables", (string)null);
                 });
@@ -1158,6 +1246,37 @@ namespace RestaurantApi.Migrations
                     b.ToTable("table_guests", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.TableZone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "SortOrder");
+
+                    b.ToTable("table_zones", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.WaiterSignupLink", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1267,6 +1386,28 @@ namespace RestaurantApi.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.FlashDealRule", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.HappyHourDeal", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.HelpRequest", b =>
                 {
                     b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
@@ -1333,11 +1474,18 @@ namespace RestaurantApi.Migrations
 
             modelBuilder.Entity("RestaurantApi.Models.Order", b =>
                 {
+                    b.HasOne("RestaurantApi.Models.AppUser", "ClaimedByWaiter")
+                        .WithMany()
+                        .HasForeignKey("ClaimedByWaiterId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
                         .WithMany("Orders")
                         .HasForeignKey("TableId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ClaimedByWaiter");
 
                     b.Navigation("Table");
                 });
@@ -1418,6 +1566,14 @@ namespace RestaurantApi.Migrations
                         .IsRequired();
 
                     b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.RestaurantTable", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.TableZone", null)
+                        .WithMany()
+                        .HasForeignKey("ZoneId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.SimilarityRule", b =>

@@ -5,6 +5,7 @@ import type { UpdateOrderItemsRequest } from '@shared/types/api-requests'
 import { apiClient, type PartyOrderItem } from '@/services/api-client'
 import { roundMoney } from '@/utils/money'
 import { useSessionStore } from './useSessionStore'
+import { useHappyHourStore } from './useHappyHourStore'
 
 export interface CartItem extends Product {
   quantity: number
@@ -41,6 +42,7 @@ export const useCartStore = defineStore('cart', () => {
   const items = ref<CartItem[]>(persisted.items)
   const recommendedItemIds = ref<Set<string>>(new Set(persisted.recommendedItemIds))
   const sessionStore = useSessionStore()
+  const happyHour = useHappyHourStore()
 
   // Mirror every cart change back to sessionStorage. clearCart()/abandonForMerge()
   // empty `items`, so a submitted or merged-away cart is persisted as empty too.
@@ -68,8 +70,17 @@ export const useCartStore = defineStore('cart', () => {
 
   // Round to the cent: a raw float sum (e.g. 73.9 * 2 + 36.95) would surface
   // IEEE-754 noise like 226.85000000000002 in every total readout.
+  // The price a line actually charges right now: the live happy-hour price when
+  // this item is the happy-hour product, otherwise its stored (full) price. The
+  // bill is applied authoritatively server-side; this keeps the display in step,
+  // and tracks the window edges because it reads the happy-hour store reactively.
+  function effectivePrice(item: CartItem): number {
+    const discounted = happyHour.discountedPriceFor(item.id)
+    return discounted != null ? discounted : item.price
+  }
+
   const total = computed(() => {
-    return roundMoney(items.value.reduce((sum, item) => sum + item.price * item.quantity, 0))
+    return roundMoney(items.value.reduce((sum, item) => sum + effectivePrice(item) * item.quantity, 0))
   })
 
   let syncTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -154,7 +165,11 @@ export const useCartStore = defineStore('cart', () => {
       categoryId: '',
       name: i.productName,
       description: '',
-      price: i.unitPrice,
+      // Store the FULL price so the reactive happy-hour discount isn't applied on
+      // top of an already-discounted server price. For the happy-hour product the
+      // server's unitPrice may be discounted, so recover the original; every other
+      // product's unitPrice is already its full price.
+      price: happyHour.active?.productId === i.productId ? happyHour.active.originalPrice : i.unitPrice,
       imageUrl: i.imageUrl,
       isAvailable: true,
       quantity: i.quantity,
@@ -212,6 +227,7 @@ export const useCartStore = defineStore('cart', () => {
   return {
     items,
     total,
+    effectivePrice,
     frozen,
     lastSyncPromise,
     addItem,

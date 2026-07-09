@@ -210,6 +210,7 @@ builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
 builder.Services.AddScoped<IStockService, StockService>();
 builder.Services.AddScoped<IFlashDealService, FlashDealService>();
+builder.Services.AddScoped<IHappyHourService, HappyHourService>();
 builder.Services.AddHostedService<OrderFinalizationService>();
 
 builder.Services.AddControllers()

@@ -65,9 +65,14 @@ const router = createRouter({
             component: () => import('@/views/InventoryView.vue')
         },
         {
-            path: '/ai-config',
-            name: 'ai-config',
-            component: () => import('@/views/AIConfigView.vue')
+            path: '/happy-hour',
+            name: 'happy-hour',
+            component: () => import('@/views/HappyHourView.vue')
+        },
+        {
+            path: '/flash-deal',
+            name: 'flash-deal',
+            component: () => import('@/views/FlashDealView.vue')
         },
         {
             path: '/rules',
@@ -92,6 +97,11 @@ const router = createRouter({
             path: '/waiter-calls',
             name: 'waiter-calls',
             component: () => import('@/views/WaiterCallsView.vue')
+        },
+        {
+            path: '/floor',
+            name: 'floor',
+            component: () => import('@/views/FloorPlanView.vue')
         },
         {
             path: '/tables',
@@ -190,13 +200,15 @@ router.beforeEach(async (to) => {
         return to.name === 'org-picker' ? true : { name: 'org-picker' }
     }
 
-    // Waiters only have access to active orders, the orders log, the picker, and the
-    // settings profile tab. Anything else (menu, AI config, rules, tables, organization,
-    // waiter management, dashboard) is rerouted to the active orders board.
+    // Waiters have access to active orders, the orders log, waiter calls, the floor
+    // plan (claim-only — to take orders via "Preia comanda"), the picker, and the
+    // settings profile tab. Anything else (menu, AI config, rules, tables,
+    // organization, waiter management, dashboard) is rerouted to the active orders board.
     const WAITER_ALLOWED = new Set([
         'orders-active',
         'orders',
         'waiter-calls',
+        'floor',
         'org-picker',
         'settings-profile',
     ])

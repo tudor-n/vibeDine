@@ -21,13 +21,25 @@ public class TenantResolutionMiddleware
 {
     private readonly RequestDelegate _next;
 
-    // Path suffixes (after /api/restaurants/{rid}) that a Waiter is allowed to hit.
-    // Anything outside this set returns 403 even though they pass the membership check.
-    private static readonly Regex[] WaiterAllowedPaths =
+    // (HTTP method, path-suffix) pairs a Waiter is allowed to hit. The suffix is
+    // the part after /api/restaurants/{rid}. Anything outside this set returns 403
+    // even though they pass the membership check. Waiters get: the orders board and
+    // log (read + advance status), the floor plan (read-only zones/tables layout +
+    // claim/release their own orders), and the waiter-call queue. Write endpoints
+    // for menu, zones, tables, AI config, etc. stay manager-only — both the verb
+    // and the path must match, so e.g. POST /admin/zones (create zone) is rejected
+    // while GET /admin/zones (read layout) is allowed.
+    private static readonly (string Method, Regex Path)[] WaiterAllowedPaths =
     [
-        new(@"^/admin/orders/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled),
-        new(@"^/admin/orders/active/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled),
-        new(@"^/admin/orders/[0-9a-fA-F-]{36}/status/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        ("GET",   new(@"^/admin/orders/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/admin/orders/active/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("PATCH", new(@"^/admin/orders/[0-9a-fA-F-]{36}/status/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/admin/orders/[0-9a-fA-F-]{36}/claim/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/admin/orders/[0-9a-fA-F-]{36}/release/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/admin/zones/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/admin/tables/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/help-requests/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/help-requests/[0-9a-fA-F-]{36}/acknowledge/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
     ];
 
     public TenantResolutionMiddleware(RequestDelegate next) => _next = next;
@@ -81,10 +93,14 @@ public class TenantResolutionMiddleware
                 if (!canManage && await access.IsActiveWaiterAsync(userId.Value, restaurantId))
                 {
                     var suffix = SuffixAfterRestaurantSegment(ctx.Request.Path);
-                    if (!WaiterAllowedPaths.Any(rx => rx.IsMatch(suffix)))
+                    var method = ctx.Request.Method;
+                    var allowed = WaiterAllowedPaths.Any(rule =>
+                        string.Equals(rule.Method, method, StringComparison.OrdinalIgnoreCase) &&
+                        rule.Path.IsMatch(suffix));
+                    if (!allowed)
                     {
                         ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-                        await ctx.Response.WriteAsJsonAsync(new { message = "Waiters can only access orders for this restaurant." });
+                        await ctx.Response.WriteAsJsonAsync(new { message = "Waiters do not have access to this resource." });
                         return;
                     }
                 }

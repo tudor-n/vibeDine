@@ -63,6 +63,11 @@ const ro: Dict = {
   'menu.cartCountMany': '{count} preparate',
   'menu.cartGo': 'Coș →',
 
+  'hh.badge': 'HAPPY HOUR',
+  'hh.add': 'Adaugă',
+  'hh.added': 'Adăugat ✓',
+  'hh.addAria': 'Adaugă oferta happy hour în coș',
+
   'cart.title': 'Comanda mea',
   'cart.selectedOne': '{count} preparat selectat',
   'cart.selectedMany': '{count} preparate selectate',
@@ -198,6 +203,11 @@ const en: Dict = {
   'menu.cartCountOne': '{count} dish',
   'menu.cartCountMany': '{count} dishes',
   'menu.cartGo': 'Cart →',
+
+  'hh.badge': 'HAPPY HOUR',
+  'hh.add': 'Add',
+  'hh.added': 'Added ✓',
+  'hh.addAria': 'Add the happy hour deal to cart',
 
   'cart.title': 'My order',
   'cart.selectedOne': '{count} item selected',
