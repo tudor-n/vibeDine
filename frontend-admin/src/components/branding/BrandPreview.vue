@@ -141,10 +141,7 @@ const phoneScreenStyle = computed<CSSProperties>(() => ({
   min-height: 64px;
 }
 .preview-phone-plate.is-bare {
-  padding: 0;
   backdrop-filter: none;
-  min-width: 0;
-  min-height: 0;
 }
 .preview-phone-logo {
   height: 56px;

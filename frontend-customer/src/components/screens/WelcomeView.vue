@@ -115,11 +115,11 @@ const options = computed<Array<{ key: Locale; flag: string; label: string }>>(()
   max-width: 260px;
 }
 
-/* Auto picked "transparent" for a light/knockout logo — drop the plate chrome
-   so the logo sits directly on the photo scrim. */
+/* Auto/Transparent for a light/knockout logo — drop only the visible plate
+   chrome (fill, shadow, blur). Keep the padding + sizing so the logo sits in
+   the exact same spot and at the same scale as the plated version. */
 .logo-plate--bare {
   background: transparent;
-  padding: 0;
   box-shadow: none;
   backdrop-filter: none;
 }
