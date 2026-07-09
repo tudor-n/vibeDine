@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using RestaurantApi.Data;
 using RestaurantApi.Models;
+using RestaurantApi.Services;
 
 namespace RestaurantApi.Controllers;
 
@@ -17,8 +18,6 @@ namespace RestaurantApi.Controllers;
 public class ProfileController : ControllerBase
 {
     private const long MaxAvatarBytes = 2 * 1024 * 1024; // 2 MB
-    private static readonly HashSet<string> AllowedAvatarMimes =
-        new(StringComparer.OrdinalIgnoreCase) { "image/png", "image/jpeg", "image/webp" };
 
     private readonly UserManager<AppUser> _users;
     private readonly AppDbContext _db;
@@ -73,7 +72,7 @@ public class ProfileController : ControllerBase
             return BadRequest(new { message = "Fișier lipsă." });
         if (file.Length > MaxAvatarBytes)
             return BadRequest(new { message = "Fișierul depășește 2 MB." });
-        if (!AllowedAvatarMimes.Contains(file.ContentType))
+        if (!ImageValidation.AllowedImageMimes.Contains(file.ContentType))
             return BadRequest(new { message = "Format nepermis. Folosește PNG, JPG sau WebP." });
 
         // Sniff the first bytes to confirm the declared MIME isn't a renamed extension.
@@ -81,17 +80,11 @@ public class ProfileController : ControllerBase
         var probe = new byte[12];
         var read = await stream.ReadAsync(probe.AsMemory(0, probe.Length));
         stream.Position = 0;
-        var detected = SniffImage(probe.AsSpan(0, read));
-        if (detected is null || !AllowedAvatarMimes.Contains(detected))
+        var detected = ImageValidation.SniffImage(probe.AsSpan(0, read));
+        if (detected is null || !ImageValidation.AllowedImageMimes.Contains(detected))
             return BadRequest(new { message = "Conținutul fișierului nu este o imagine validă." });
 
-        var ext = detected switch
-        {
-            "image/png" => ".png",
-            "image/jpeg" => ".jpg",
-            "image/webp" => ".webp",
-            _ => ".bin",
-        };
+        var ext = ImageValidation.ExtensionFor(detected);
 
         var user = await _users.GetUserAsync(User);
         if (user == null) return Unauthorized();
@@ -142,21 +135,5 @@ public class ProfileController : ControllerBase
             await _users.UpdateAsync(user);
         }
         return NoContent();
-    }
-
-    private static string? SniffImage(ReadOnlySpan<byte> probe)
-    {
-        // PNG: 89 50 4E 47 0D 0A 1A 0A
-        if (probe.Length >= 8 && probe[0] == 0x89 && probe[1] == 0x50 && probe[2] == 0x4E && probe[3] == 0x47)
-            return "image/png";
-        // JPEG: FF D8 FF
-        if (probe.Length >= 3 && probe[0] == 0xFF && probe[1] == 0xD8 && probe[2] == 0xFF)
-            return "image/jpeg";
-        // WebP: 'RIFF' .... 'WEBP'
-        if (probe.Length >= 12 &&
-            probe[0] == (byte)'R' && probe[1] == (byte)'I' && probe[2] == (byte)'F' && probe[3] == (byte)'F' &&
-            probe[8] == (byte)'W' && probe[9] == (byte)'E' && probe[10] == (byte)'B' && probe[11] == (byte)'P')
-            return "image/webp";
-        return null;
     }
 }

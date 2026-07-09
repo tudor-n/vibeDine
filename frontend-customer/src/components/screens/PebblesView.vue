@@ -18,7 +18,7 @@ const emit = defineEmits<{
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const sessionStore = useSessionStore()
 const cartStore = useCartStore()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
 // "Coșul meu" bar mirrors the one on the menu screen: surfaced here too so the
@@ -98,14 +98,14 @@ const pebbleGroups = computed<PebbleVm[][]>(() => {
 })
 
 const panelStyle = computed(() => {
-  // Slightly translucent accent wash matching the handoff: rgba(accent, 0.13/0.16) bg,
-  // rgba(accent, 0.22/0.28) border. Tinted per theme.
-  const rgb = theme.value === 'dark' ? '232,37,90' : '255,74,28'
-  const bgAlpha = theme.value === 'dark' ? 0.16 : 0.13
-  const borderAlpha = theme.value === 'dark' ? 0.28 : 0.22
+  // Translucent wash of the *branded* accent (8-digit hex alpha), slightly
+  // stronger in dark mode. Was hardcoded to vibeDine orange, so it ignored the
+  // tenant palette entirely.
+  const accent = T.value.accent
+  const dark = mode.value === 'dark'
   return {
-    background: `rgba(${rgb},${bgAlpha})`,
-    border: `1px solid rgba(${rgb},${borderAlpha})`,
+    background: `${accent}${dark ? '29' : '21'}`,
+    border: `1px solid ${accent}${dark ? '47' : '38'}`,
   }
 })
 
@@ -140,7 +140,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PhoneScreen :theme="theme">
+  <PhoneScreen :theme="mode">
     <!-- Return-to-happy-hour banner — pinned at the very top of the screen once
          the diner has dismissed the offer sheet; tapping it reopens the offer. -->
     <HappyHourBanner />
@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
               :path-index="pb.pathIndex"
               :image="pb.image"
               :active="pb.id === active"
-              :theme="theme"
+              :theme="mode"
               @click="(ev) => handlePebbleClick(pb.id, ev)"
             />
           </div>
@@ -212,7 +212,7 @@ onBeforeUnmount(() => {
       <div>
         <div
           class="cart-eyebrow"
-          :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
+          :style="{ color: mode === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
         >{{ t('menu.cartLabel') }}</div>
         <div class="cart-summary">
           {{ cartStore.total }} {{ t('common.ron') }} ·

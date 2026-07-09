@@ -126,6 +126,17 @@ public class PartyController : ControllerBase
             organizationName = restaurant?.Organization?.Name ?? string.Empty,
             tableId = table.Id,
             tableNumber = table.TableNumber ?? "Unknown Table",
+            branding = new
+            {
+                enabled = restaurant?.BrandingEnabled ?? false,
+                primary = restaurant?.BrandPrimary,
+                secondary = restaurant?.BrandSecondary,
+                background = restaurant?.BrandBackground,
+                logoUrl = restaurant?.LogoUrl,
+                photoUrl = restaurant?.PhotoUrl,
+                logoBackground = restaurant?.LogoBackground,
+                logoIsDark = restaurant?.LogoIsDark,
+            },
             activeOrder = MapOrder(draft),
             partyMembers = await BuildPartyAsync(table.Id),
         });

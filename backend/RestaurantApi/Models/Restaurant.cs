@@ -26,5 +26,18 @@ public class Restaurant
 
     public bool IsActive { get; set; } = true;
 
+    // --- White-label branding (all optional; disabled by default) ---
+    public bool BrandingEnabled { get; set; } = false;
+    public string? BrandPrimary { get; set; }
+    public string? BrandSecondary { get; set; }
+    public string? BrandBackground { get; set; }
+    public string? LogoUrl { get; set; }
+    public string? PhotoUrl { get; set; }
+    public string? BrandPresetKey { get; set; }
+    // Logo plate: null = Auto, "transparent", or a #RRGGBB hex. LogoIsDark is a
+    // client-computed hint (null = unknown) used to make Auto pick a legible plate.
+    public string? LogoBackground { get; set; }
+    public bool? LogoIsDark { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

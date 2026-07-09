@@ -348,6 +348,17 @@ public class CustomerController : ControllerBase
             OrganizationName = restaurant?.Organization?.Name ?? string.Empty,
             TableId = table.Id,
             TableNumber = table.TableNumber ?? "Unknown Table",
+            Branding = new BrandingInfo
+            {
+                Enabled = restaurant?.BrandingEnabled ?? false,
+                Primary = restaurant?.BrandPrimary,
+                Secondary = restaurant?.BrandSecondary,
+                Background = restaurant?.BrandBackground,
+                LogoUrl = restaurant?.LogoUrl,
+                PhotoUrl = restaurant?.PhotoUrl,
+                LogoBackground = restaurant?.LogoBackground,
+                LogoIsDark = restaurant?.LogoIsDark,
+            },
             ActiveOrder = new OrderResponse
             {
                 Id = draftOrder.Id,

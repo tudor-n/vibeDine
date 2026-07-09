@@ -20,6 +20,7 @@ export type ThemeTokens = {
   mono: string
   statusClear: number
   onAccent: string
+  onLime: string
 }
 
 export const T: ThemeTokens = {
@@ -40,6 +41,7 @@ export const T: ThemeTokens = {
   mono:     '"JetBrains Mono", ui-monospace, Menlo, monospace',
   statusClear: 58,
   onAccent: '#FFF4EC',
+  onLime:   '#15140F',
 }
 
 export const TD: ThemeTokens = {
@@ -60,6 +62,7 @@ export const TD: ThemeTokens = {
   mono:     '"JetBrains Mono", ui-monospace, Menlo, monospace',
   statusClear: 58,
   onAccent: '#1B1814',
+  onLime:   '#1B1814',
 }
 
 export const A = {

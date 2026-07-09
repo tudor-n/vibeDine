@@ -9,19 +9,19 @@ import { useLocale } from '@/composables/useLocale'
 // dismissed the offer sheet. Tapping it reopens the sheet. Colours come from the
 // app's own light/dark tokens so it matches the surrounding menu in both themes.
 const hh = useHappyHourStore()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
-// A warm, theme-tinted surface so the banner reads as a distinct highlight above
-// the neutral menu background instead of blending into it. Mirrors the accent
-// wash used by the category panels (orange in light, pink in dark).
+// A warm wash of the *branded* accent (8-digit hex alpha) so the banner reads as
+// a distinct highlight above the neutral menu, matching the category panels.
+// Uses the branded accent + mode, not hardcoded vibeDine colours / the raw
+// toggle, so it re-skins per tenant.
 const surface = computed(() => {
-  const rgb = theme.value === 'dark' ? '232, 37, 90' : '255, 74, 28'
-  const bgAlpha = theme.value === 'dark' ? 0.18 : 0.12
-  const borderAlpha = theme.value === 'dark' ? 0.34 : 0.24
+  const accent = T.value.accent
+  const dark = mode.value === 'dark'
   return {
-    background: `rgba(${rgb}, ${bgAlpha})`,
-    border: `1px solid rgba(${rgb}, ${borderAlpha})`,
+    background: `${accent}${dark ? '2E' : '1F'}`,
+    border: `1px solid ${accent}${dark ? '57' : '3D'}`,
   }
 })
 </script>
@@ -35,7 +35,7 @@ const surface = computed(() => {
     :aria-label="t('hh.reopenAria')"
     @click="hh.reopen()"
   >
-    <span class="hh-tile" :style="{ background: T.lime, color: T.ink }" aria-hidden="true">
+    <span class="hh-tile" :style="{ background: T.lime, color: T.onLime }" aria-hidden="true">
       <svg
         viewBox="0 0 24 24" width="18" height="18" fill="none"
         stroke="currentColor" stroke-width="2"

@@ -1144,7 +1144,7 @@ const vFocus = {
   background: rgba(255, 255, 255, 0.14);
 }
 .zone-mini-danger:hover {
-  color: #fff;
+  color: var(--onAccent);
   background: var(--accent);
 }
 .zone-edit-input {

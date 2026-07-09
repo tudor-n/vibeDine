@@ -11,6 +11,7 @@ import type {
     ProductStock,
     StockTrackingMode,
     StockUnitCode,
+    RestaurantBranding,
 } from '@shared/types/models';
 import { useAuthStore, type UserProfile } from '@/stores/useAuthStore';
 
@@ -756,3 +757,59 @@ export const apiClient = {
             body: JSON.stringify(payload),
         }),
 }
+
+// ── White-label branding ──────────────────────────────────────────────────────
+export interface BrandingUpdatePayload {
+    enabled: boolean;
+    primary: string | null;
+    secondary: string | null;
+    background: string | null;
+    presetKey: string | null;
+    logoBackground: string | null;
+    logoIsDark: boolean | null;
+}
+
+export interface BrandingAssetResponse {
+    logoUrl?: string;
+    photoUrl?: string;
+}
+
+// NOTE: deliberately bypasses authedFetcher for the upload calls. authedFetcher
+// unconditionally sets `Content-Type: application/json` (see line ~184), which
+// would stomp the multipart boundary the browser needs to set on a FormData body
+// (the same reason profileApi.uploadAvatar above does its own raw fetch instead
+// of going through authedFetcher). Mirrors that exact pattern, scoped to the
+// active restaurant.
+async function uploadBrandingAsset(kind: 'logo' | 'photo', file: File): Promise<BrandingAssetResponse> {
+    const auth = useAuthStore();
+    const form = new FormData();
+    form.append('file', file);
+
+    const doFetch = () =>
+        fetch(`${BASE_URL}${scoped(`/admin/branding/${kind}`)}`, {
+            method: 'POST',
+            body: form,
+            headers: {
+                ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {}),
+            },
+        });
+
+    let response = await doFetch();
+    if (response.status === 401 && (await auth.tryRefresh())) {
+        response = await doFetch();
+    }
+    return parseOrThrow<BrandingAssetResponse>(response);
+}
+
+export const brandingApi = {
+    get: () => authedFetcher<RestaurantBranding>(scoped('/admin/branding')),
+
+    update: (payload: BrandingUpdatePayload) =>
+        authedFetcher<RestaurantBranding>(scoped('/admin/branding'), {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        }),
+
+    uploadLogo: (file: File) => uploadBrandingAsset('logo', file),
+    uploadPhoto: (file: File) => uploadBrandingAsset('photo', file),
+};
