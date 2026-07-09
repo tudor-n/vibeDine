@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { T, TD, BLOB_PATHS, type ThemeTokens } from '@/design/tokens'
+import { BLOB_PATHS } from '@/design/tokens'
+import { useTheme } from '@/composables/useTheme'
 
 const props = withDefaults(
   defineProps<{
@@ -24,7 +25,10 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'click', ev: MouseEvent): void }>()
 
-const t = computed<ThemeTokens>(() => (props.theme === 'dark' ? TD : T))
+// Branded tokens (fall back to the light/dark defaults when unbranded) so the
+// category label/sublabel and active chip re-skin with the tenant palette
+// instead of the hardcoded vibeDine colours.
+const { tokens: t } = useTheme()
 const path = computed(() => BLOB_PATHS[props.pathIndex % BLOB_PATHS.length])
 
 // Stable per-instance suffix so SVG <defs> ids never collide between pebbles.
@@ -129,7 +133,7 @@ const fallbackBg = computed(() => (props.theme === 'dark' ? '#3a2418' : '#e8d5b9
       <div
         v-if="active"
         class="label-chip"
-        :style="{ background: t.lime, border: '2px solid #D9A520' }"
+        :style="{ background: t.lime, color: t.onLime, border: '2px solid #D9A520' }"
       >{{ label }}</div>
       <div
         v-else
