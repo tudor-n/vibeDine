@@ -5,6 +5,7 @@ import { BRAND_PRESETS, type BrandDraft } from '@/components/branding/presets'
 import { useBrandingStore } from '@/stores/useBrandingStore'
 import { useBrandTheme } from '@/composables/useBrandTheme'
 import { useToast } from '@/composables/useToast'
+import { computeLogoIsDark } from '@/utils/logoLuminance'
 
 const store = useBrandingStore()
 const brandTheme = useBrandTheme()
@@ -21,6 +22,8 @@ function defaultDraft(): BrandDraft {
     presetKey: classicPreset.key,
     logoUrl: null,
     photoUrl: null,
+    logoBackground: null,
+    logoIsDark: null,
   }
 }
 
@@ -41,6 +44,8 @@ onMounted(async () => {
         presetKey: b.presetKey ?? null,
         logoUrl: b.logoUrl,
         photoUrl: b.photoUrl,
+        logoBackground: b.logoBackground ?? null,
+        logoIsDark: b.logoIsDark ?? null,
       }
     }
   } catch (e) {
@@ -53,7 +58,9 @@ onMounted(async () => {
 async function onLogo(file: File) {
   try {
     const url = await store.uploadLogo(file)
-    draft.value = { ...draft.value, logoUrl: url }
+    // Detect the logo's own lightness so Auto can pick a legible plate.
+    const isDark = await computeLogoIsDark(file)
+    draft.value = { ...draft.value, logoUrl: url, logoIsDark: isDark }
     toast.success('Logo încărcat.')
   } catch (e) {
     toast.error(e instanceof Error ? e.message : 'Eroare la încărcarea logo-ului.')
@@ -92,6 +99,8 @@ async function onSave() {
       secondary: draft.value.secondary,
       background: draft.value.background,
       presetKey: draft.value.presetKey,
+      logoBackground: draft.value.logoBackground,
+      logoIsDark: draft.value.logoIsDark,
     })
     if (draft.value.enabled) {
       brandTheme.applyBrand({

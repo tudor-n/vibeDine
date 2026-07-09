@@ -40,8 +40,8 @@ const toastText = computed(() =>
 const isErrorToast = computed(() => store.feedback === 'error')
 const toastStyle = computed(() =>
   isErrorToast.value
-    ? { background: T.value.accent, color: '#fff' }
-    : { background: T.value.lime, color: T.value.ink },
+    ? { background: T.value.accent, color: T.value.onAccent }
+    : { background: T.value.lime, color: T.value.onLime },
 )
 </script>
 
@@ -54,7 +54,7 @@ const toastStyle = computed(() =>
     :aria-label="label"
     :aria-disabled="store.isCoolingDown || store.isPending"
     :disabled="store.isCoolingDown || store.isPending"
-    :style="{ background: T.accent, color: '#fff' }"
+    :style="{ background: T.accent, color: T.onAccent }"
     @mousedown="preventFocus"
     @focus="dropFocus"
     @click="handleClick"

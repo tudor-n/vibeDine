@@ -3,15 +3,19 @@ import { computed } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useBrandTheme } from '@/composables/useBrandTheme'
 import { resolveMediaUrl } from '@/services/mediaUrl'
-import type { BrandInput } from '@shared/branding/derive'
+import { resolveLogoBackground, type BrandInput } from '@shared/branding/derive'
 
 const props = defineProps<{
   colors: BrandInput
   logoUrl?: string | null
   photoUrl?: string | null
+  logoBackground?: string | null
+  logoIsDark?: boolean | null
 }>()
 
 const { brandVarMap } = useBrandTheme()
+
+const plate = computed(() => resolveLogoBackground(props.logoBackground ?? null, props.logoIsDark ?? null))
 
 // Scoped to this wrapper only — never touches document.documentElement, so
 // the mini mock re-tints live from the DRAFT colours without affecting the
@@ -40,7 +44,11 @@ const phoneScreenStyle = computed<CSSProperties>(() => ({
     <div class="preview-phone">
       <div class="preview-phone-screen" :style="phoneScreenStyle">
         <span class="preview-phone-eyebrow">Bine ai venit la</span>
-        <div class="preview-phone-plate">
+        <div
+          class="preview-phone-plate"
+          :class="{ 'is-bare': !plate.plate }"
+          :style="{ background: plate.plate ? plate.background : 'transparent' }"
+        >
           <img v-if="logoSrc" :src="logoSrc" alt="" class="preview-phone-logo" />
           <span v-else class="preview-phone-logo-placeholder">LOGO</span>
         </div>
@@ -124,7 +132,6 @@ const phoneScreenStyle = computed<CSSProperties>(() => ({
   margin-bottom: 14px;
 }
 .preview-phone-plate {
-  background: rgba(255, 255, 255, 0.94);
   border-radius: 16px;
   padding: 14px 16px;
   backdrop-filter: blur(6px);
@@ -132,6 +139,9 @@ const phoneScreenStyle = computed<CSSProperties>(() => ({
   place-items: center;
   min-width: 64px;
   min-height: 64px;
+}
+.preview-phone-plate.is-bare {
+  backdrop-filter: none;
 }
 .preview-phone-logo {
   height: 56px;

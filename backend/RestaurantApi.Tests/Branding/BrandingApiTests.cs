@@ -96,6 +96,41 @@ public class BrandingApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Put_roundtrips_logo_background_and_is_dark()
+    {
+        var payload = new
+        {
+            enabled = true,
+            primary = "#FF4A1C", secondary = "#D9F54A", background = "#F4EEE2",
+            presetKey = (string?)null,
+            logoBackground = "transparent",
+            logoIsDark = true,
+        };
+
+        var put = await _clientA.PutAsJsonAsync(BrandingUrl(_restaurantIdA), payload);
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var get = await _clientA.GetFromJsonAsync<BrandingDtoShape>(BrandingUrl(_restaurantIdA));
+        get!.logoBackground.Should().Be("transparent");
+        get.logoIsDark.Should().Be(true);
+    }
+
+    [Theory]
+    [InlineData("red")]
+    [InlineData("#FFF")]
+    [InlineData("#12345")]
+    public async Task Put_rejects_invalid_logo_background(string bad)
+    {
+        var payload = new
+        {
+            enabled = true, primary = "#FF4A1C", secondary = "#D9F54A", background = "#F4EEE2",
+            presetKey = (string?)null, logoBackground = bad, logoIsDark = (bool?)null,
+        };
+        var put = await _clientA.PutAsJsonAsync(BrandingUrl(_restaurantIdA), payload);
+        put.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Cannot_read_another_restaurants_branding()
     {
         // _clientA's user only has membership on restaurant A; hitting restaurant B's
@@ -106,5 +141,6 @@ public class BrandingApiTests : IAsyncLifetime
     }
 
     private record BrandingDtoShape(bool enabled, string? primary, string? secondary,
-        string? background, string? logoUrl, string? photoUrl, string? presetKey);
+        string? background, string? logoUrl, string? photoUrl, string? presetKey,
+        string? logoBackground = null, bool? logoIsDark = null);
 }

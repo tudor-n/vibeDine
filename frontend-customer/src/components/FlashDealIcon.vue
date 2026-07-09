@@ -76,7 +76,7 @@ const label = computed(() => t('flash.iconLabel'))
     tabindex="-1"
     class="flash-pill"
     :aria-label="label"
-    :style="{ background: T.lime, color: '#000' }"
+    :style="{ background: T.lime, color: T.onLime }"
     @mousedown="preventFocus"
     @focus="dropFocus"
     @click="handleClick"
@@ -100,10 +100,12 @@ const label = computed(() => t('flash.iconLabel'))
    the screen header row so it sits between the back button on the left and the
    table name on the right (rather than up in the top status strip). The 74px
    top lines up the 40px pill with the 48px back button, which starts just below
-   the PhoneScreen status-clear (58px) + header padding. */
+   the PhoneScreen status-clear (58px) + header padding. When the return-to-
+   happy-hour banner is shown it sits above the header and pushes the row down,
+   so --hh-banner-offset (set on .phone-frame) shifts the pill down to match. */
 .flash-pill {
   position: absolute;
-  top: 74px;
+  top: calc(74px + var(--hh-banner-offset, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;

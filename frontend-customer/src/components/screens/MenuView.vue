@@ -20,7 +20,7 @@ const emit = defineEmits<{
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const cartStore = useCartStore()
 const happyHour = useHappyHourStore()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
 type FilterKey = 'all' | 'meat' | 'fish' | 'veggie' | 'chef'
@@ -95,7 +95,7 @@ const cartCount = computed(() =>
 </script>
 
 <template>
-  <PhoneScreen :theme="theme">
+  <PhoneScreen :theme="mode">
     <div
       class="bloom bloom-accent"
       :style="{ background: `radial-gradient(circle, ${T.accent} 0%, transparent 70%)` }"
@@ -104,6 +104,10 @@ const cartCount = computed(() =>
       class="bloom bloom-lime"
       :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
     />
+
+    <!-- Return-to-happy-hour banner — pinned at the very top of the screen once
+         the diner has dismissed the offer sheet; tapping it reopens the offer. -->
+    <HappyHourBanner />
 
     <div class="header">
       <button
@@ -154,7 +158,6 @@ const cartCount = computed(() =>
     </div>
 
     <div class="scroll">
-    <HappyHourBanner />
     <div class="chips">
       <button
         v-for="f in FILTERS"
@@ -234,7 +237,7 @@ const cartCount = computed(() =>
       <div>
         <div
           class="cart-eyebrow"
-          :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
+          :style="{ color: mode === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
         >{{ t('menu.cartLabel') }}</div>
         <div class="cart-summary">
           {{ cartStore.total }} {{ t('common.ron') }} ·

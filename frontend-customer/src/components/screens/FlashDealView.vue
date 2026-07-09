@@ -10,7 +10,7 @@ import BigButton from '@/components/ui/BigButton.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
 
 const store = useFlashDealStore()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
 const emit = defineEmits<{
@@ -124,7 +124,7 @@ function dismiss() {
 </script>
 
 <template>
-  <PhoneScreen v-if="store.activeDeal" :theme="theme">
+  <PhoneScreen v-if="store.activeDeal" :theme="mode">
     <!-- Lime-dominant blooms per the design (the deal screen is the only
          lime-led surface in the app). -->
     <div
@@ -139,9 +139,9 @@ function dismiss() {
     <div class="header">
       <div
         class="badge"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
       >
-        <span class="dot" :style="{ background: '#000' }" />
+        <span class="dot" :style="{ background: T.onLime }" />
         {{ t('flash.badge') }}
       </div>
       <button
@@ -158,7 +158,7 @@ function dismiss() {
       <h1 class="title">
         {{ t('flash.title1') }}<br /><span
           class="hero-mark"
-          :style="{ background: T.lime, color: '#000' }"
+          :style="{ background: T.lime, color: T.onLime }"
         >{{ t('flash.titleMark') }}</span><br />{{ t('flash.title3') }}
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
@@ -179,7 +179,7 @@ function dismiss() {
           <div
             v-if="discountPercent"
             class="discount"
-            :style="{ background: T.lime, color: T.ink }"
+            :style="{ background: T.lime, color: T.onLime }"
           >{{ t('flash.discount', { percent: discountPercent }) }}</div>
           <div class="deal-name">
             {{ store.activeDeal.menuItem.name }}
@@ -198,7 +198,7 @@ function dismiss() {
                  (unit × guests); for a solo order that's just the unit price. -->
             <span
               class="price-now"
-              :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }"
+              :style="{ color: mode === 'dark' ? T.lime : '#3E7B10' }"
             >
               {{ totalNow }}
               <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
@@ -221,7 +221,7 @@ function dismiss() {
         <div class="countdown-label" :style="{ color: T.ink70 }">{{ t('flash.timeLeft') }}</div>
         <div class="countdown-row">
           <span class="num">{{ minutes }}</span>
-          <span class="colon" :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }">:</span>
+          <span class="colon" :style="{ color: mode === 'dark' ? T.lime : '#3E7B10' }">:</span>
           <span class="num">{{ seconds }}</span>
           <span class="unit" :style="{ color: T.ink70 }">{{ t('flash.minutes') }}</span>
         </div>
@@ -241,10 +241,10 @@ function dismiss() {
     <div class="cta">
       <!-- Lime CTA with an ink arrow circle filled lime, per the handoff. -->
       <BigButton
-        :theme="theme"
+        :theme="mode"
         :bg="T.lime"
-        :color="T.ink"
-        :arrow-bg="T.ink"
+        :color="T.onLime"
+        :arrow-bg="T.onLime"
         :arrow-color="T.lime"
         :disabled="isClaiming || claimSuccess"
         @click="claim"

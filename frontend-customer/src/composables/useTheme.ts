@@ -57,6 +57,7 @@ function applyBrand(colors: BrandInput | null) {
     accentDk: p.accentDk,
     lime: p.lime,
     onAccent: p.onAccent,
+    onLime: p.onLime,
   }
   brandMode.value = p.mode
 }
