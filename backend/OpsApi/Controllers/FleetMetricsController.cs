@@ -20,11 +20,13 @@ public sealed class FleetMetricsController : ControllerBase
 {
     private readonly OpsDbContext _db;
     private readonly ConnectionService _connections;
+    private readonly ILogger<FleetMetricsController> _logger;
 
-    public FleetMetricsController(OpsDbContext db, ConnectionService connections)
+    public FleetMetricsController(OpsDbContext db, ConnectionService connections, ILogger<FleetMetricsController> logger)
     {
         _db = db;
         _connections = connections;
+        _logger = logger;
     }
 
     [HttpGet("metrics")]
@@ -54,7 +56,11 @@ public sealed class FleetMetricsController : ControllerBase
             }
             catch (Exception ex)
             {
-                error = ex.Message;
+                // Log full detail server-side; return a generic per-server message so internal
+                // hostnames / driver error text aren't disclosed to the caller.
+                _logger.LogWarning(ex, "Fleet metrics failed for connection {ConnectionId} ({Name}). CorrelationId={CorrelationId}",
+                    c.Id, c.Name, HttpContext.TraceIdentifier);
+                error = $"Unable to retrieve metrics for this server (ref {HttpContext.TraceIdentifier}).";
             }
 
             servers.Add(new ServerMetricSummary(c.Id, c.Name, c.Provider, c.Role, supported, error, points));

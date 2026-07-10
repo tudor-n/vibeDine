@@ -61,6 +61,25 @@ builder.Services
                     context.Token = accessToken;
                 return Task.CompletedTask;
             },
+            // Access tokens are stateless with a long lifetime, so re-check on every authenticated request
+            // that the admin still exists and is active. This gives immediate cutoff when an ops admin is
+            // deactivated/deleted (no revocation list needed) and covers both controllers and the hub.
+            OnTokenValidated = async context =>
+            {
+                var adminId = context.Principal?.OpsAdminId();
+                if (adminId is null)
+                {
+                    context.Fail("Token is missing a valid subject.");
+                    return;
+                }
+
+                var db = context.HttpContext.RequestServices.GetRequiredService<OpsDbContext>();
+                var isActive = await db.Admins
+                    .Where(a => a.Id == adminId.Value && a.IsActive)
+                    .AnyAsync(context.HttpContext.RequestAborted);
+                if (!isActive)
+                    context.Fail("Ops admin is no longer active.");
+            },
         };
     });
 builder.Services.AddAuthorization();
@@ -100,11 +119,21 @@ if (!app.Environment.IsDevelopment())
 {
     RequireSecret(app.Configuration["Jwt:Key"], "Jwt:Key");
     RequireSecret(app.Configuration["Ops:Encryption:Key"], "Ops:Encryption:Key");
+    // The seed password bootstraps a full super-admin over all infra; never let a prod deploy ship the
+    // committed default (or an unset value) which would seed a login-able admin with public credentials.
+    RequireSeedPassword(app.Configuration["OpsSeed:Password"]);
 
     static void RequireSecret(string? value, string name)
     {
         if (string.IsNullOrWhiteSpace(value) || value.StartsWith("dev-only", StringComparison.Ordinal))
             throw new InvalidOperationException($"{name} must be set to a non-default secret outside Development.");
+    }
+
+    static void RequireSeedPassword(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value == "ChangeMe123!")
+            throw new InvalidOperationException(
+                "OpsSeed:Password must be set to a non-default secret outside Development.");
     }
 }
 

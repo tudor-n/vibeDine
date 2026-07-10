@@ -5,6 +5,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { apiClient } from '@/services/api-client'
+import { roundMoney, formatMoney } from '@/utils/money'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
@@ -90,10 +91,9 @@ const unitNow = computed(() => store.activeDeal?.discountedPrice ?? 0)
 const unitWas = computed(() => store.activeDeal?.menuItem.price ?? 0)
 // The discount is baked into the unit price, so the headline total is simply
 // unit × guests — e.g. a 20-lei item at 20% off, for 3 guests, shows 3 × 16 = 48
-// (equivalently, 20% off the 60-lei full total). round2 guards float drift.
-const round2 = (n: number) => Math.round(n * 100) / 100
-const totalNow = computed(() => round2(unitNow.value * quantity.value))
-const totalWas = computed(() => round2(unitWas.value * quantity.value))
+// (equivalently, 20% off the 60-lei full total). roundMoney guards float drift.
+const totalNow = computed(() => roundMoney(unitNow.value * quantity.value))
+const totalWas = computed(() => roundMoney(unitWas.value * quantity.value))
 
 async function claim() {
   const deal = store.activeDeal
@@ -200,20 +200,20 @@ function dismiss() {
               class="price-now"
               :style="{ color: mode === 'dark' ? T.lime : '#3E7B10' }"
             >
-              {{ totalNow }}
+              {{ formatMoney(totalNow) }}
               <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </span>
             <span
               v-if="totalWas !== totalNow"
               class="price-was"
               :style="{ color: T.ink40 }"
-            >{{ totalWas }} {{ t('common.ron') }}</span>
+            >{{ formatMoney(totalWas) }} {{ t('common.ron') }}</span>
           </div>
           <div
             v-if="isMulti"
             class="unit-note"
             :style="{ color: T.ink70 }"
-          >{{ quantity }} × {{ unitNow }} {{ t('common.ron') }}</div>
+          >{{ quantity }} × {{ formatMoney(unitNow) }} {{ t('common.ron') }}</div>
         </div>
       </div>
 

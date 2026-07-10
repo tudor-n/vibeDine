@@ -50,7 +50,11 @@ public sealed class RailwayGraphQLClient
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                if (attempt >= maxAttempts) throw new ProviderException($"Railway unreachable: {ex.Message}");
+                if (attempt >= maxAttempts)
+                {
+                    _logger.LogWarning(ex, "Railway request failed after {Attempts} attempts.", attempt);
+                    throw new ProviderException("Railway is currently unreachable.", 502);
+                }
                 await Task.Delay(Backoff(attempt), ct);
                 continue;
             }
@@ -75,7 +79,11 @@ public sealed class RailwayGraphQLClient
 
             var body = await resp.Content.ReadAsStringAsync(ct);
             if (!resp.IsSuccessStatusCode)
-                throw new ProviderException($"Railway API error ({(int)resp.StatusCode}): {Truncate(body)}");
+            {
+                // Log the upstream body server-side only — don't surface it to the client.
+                _logger.LogWarning("Railway API error ({Status}): {Body}", (int)resp.StatusCode, Truncate(body));
+                throw new ProviderException($"Railway API error ({(int)resp.StatusCode}).");
+            }
 
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
@@ -84,7 +92,9 @@ public sealed class RailwayGraphQLClient
                 errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0)
             {
                 var msg = errors[0].TryGetProperty("message", out var m) ? m.GetString() : "unknown GraphQL error";
-                throw new ProviderException($"Railway GraphQL error: {msg}");
+                // The upstream GraphQL error text can carry internal detail — log it, return generic.
+                _logger.LogWarning("Railway GraphQL error: {Message}", msg);
+                throw new ProviderException("Railway rejected the request.");
             }
 
             if (!root.TryGetProperty("data", out var data) || data.ValueKind == JsonValueKind.Null)

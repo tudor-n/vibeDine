@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { useToast } from '@/composables/useToast'
 import type { TableSummary, ZoneSummary } from '@/services/api-client'
 import TableGlyph from '@/components/TableGlyph.vue'
+import { formatMoney } from '@/utils/money'
 import {
   seatSlots,
   tabletopDims,
@@ -1004,12 +1005,12 @@ const vFocus = {
             <li v-for="it in o.items" :key="it.id">
               <span class="oi-qty">×{{ it.quantity }}</span>
               <span class="oi-name">{{ it.productName }}</span>
-              <span class="oi-price">{{ it.subtotal.toFixed(2) }} RON</span>
+              <span class="oi-price">{{ formatMoney(it.subtotal) }} RON</span>
             </li>
           </ul>
 
           <div class="order-card-bot">
-            <span class="order-total">Total · {{ o.totalAmount.toFixed(2) }} RON</span>
+            <span class="order-total">Total · {{ formatMoney(o.totalAmount) }} RON</span>
           </div>
 
           <!-- Claim controls -->

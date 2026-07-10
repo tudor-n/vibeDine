@@ -84,6 +84,9 @@ const prepEstimate = computed(() => {
 })
 
 async function submit() {
+  // Guard against a double-submit while the pre-submit flush is in flight: the
+  // button is disabled via isSubmitting, but block re-entry defensively too.
+  if (isSubmitting.value) return
   if (!sessionStore.orderId) {
     submitError.value = t('cart.errorInvalidSession')
     return
@@ -95,6 +98,9 @@ async function submit() {
   try {
     isSubmitting.value = true
     submitError.value = null
+    // Force the pending debounced cart sync to land before dispatching, so the
+    // kitchen order reflects the last edit and not the backend's stale draft.
+    await cartStore.flush()
     await apiClient.submitOrder(sessionStore.orderId)
     emit('submitted')
   } catch (e) {

@@ -58,10 +58,6 @@ async function submit() {
           {{ loading ? 'Signing in…' : 'Sign in' }}
         </button>
       </form>
-
-      <p class="text-faint text-xs mt-6 text-center">
-        Default dev account: ops@vibedine.local / ChangeMe123!
-      </p>
     </div>
   </div>
 </template>

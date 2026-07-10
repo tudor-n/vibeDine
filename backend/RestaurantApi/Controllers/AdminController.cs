@@ -225,6 +225,14 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> CreateRecommendationDirective(
         [FromBody] CreateRecommendationDirectiveRequest request)
     {
+        // Cap the prompt before it reaches the paid model / DB (cost + bloat guard).
+        const int MaxRawPromptLength = 2000;
+        var rawPrompt = (request.RawPrompt ?? string.Empty).Trim();
+        if (rawPrompt.Length == 0)
+            return BadRequest(new { message = "Textul directivei este obligatoriu." });
+        if (rawPrompt.Length > MaxRawPromptLength)
+            return BadRequest(new { message = $"Textul directivei poate avea cel mult {MaxRawPromptLength} de caractere." });
+
         var menuItems = await _dbContext.Products
             .Include(p => p.Category)
             .Where(p => p.IsAvailable == true)
@@ -243,7 +251,7 @@ public class AdminController : ControllerBase
         {
             var aiResponse = await client.PostAsJsonAsync(
                 "/recommendation-directives/parse",
-                new { raw_prompt = request.RawPrompt, menu_items = menuItems });
+                new { raw_prompt = rawPrompt, menu_items = menuItems });
 
             if (aiResponse.IsSuccessStatusCode)
             {
@@ -262,10 +270,19 @@ public class AdminController : ControllerBase
             _logger.LogWarning(ex, "AI service failed to parse recommendation directive");
         }
 
+        // Never persist a silently-inert directive: GetRuleDrivenRecommendationsAsync
+        // filters on ParsedRules != null, so a null-rules row would look saved to the
+        // admin yet never fire. Surface the AI outage instead of a false 200.
+        if (parsedRules is null)
+            return StatusCode(503, new
+            {
+                message = "Serviciul AI nu este disponibil momentan. Directiva nu a fost salvată. Încearcă din nou."
+            });
+
         var directive = new RecommendationDirective
         {
             Id = Guid.NewGuid(),
-            RawPrompt = request.RawPrompt,
+            RawPrompt = rawPrompt,
             ParsedRules = parsedRules,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
@@ -327,8 +344,15 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> AutoGenerateRules()
     {
         var client = _httpClientFactory.CreateClient("AiService");
-        
-        var orders = await _dbContext.Orders.Include(o => o.Items).ToListAsync();
+
+        // Bound the history fed to the model: load only the most recent orders rather
+        // than the tenant's entire order table (memory spike + cost amplification).
+        const int MaxOrderHistory = 500;
+        var orders = await _dbContext.Orders
+            .Include(o => o.Items)
+            .OrderByDescending(o => o.CreatedAt)
+            .Take(MaxOrderHistory)
+            .ToListAsync();
         var history = orders.Select(o => o.Items.Select(i => i.ProductId.ToString()).ToList()).ToList();
 
         try 

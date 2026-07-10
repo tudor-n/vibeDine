@@ -28,6 +28,11 @@ from services.vision_extractor import VisionExtractionError, VisionExtractor
 
 logger = logging.getLogger(__name__)
 
+# Default ceiling on how many photo pages call the vision provider at once, so a
+# single multi-photo request cannot burst into unbounded concurrent paid calls
+# (AI-03). Mirrors the PDF pipeline's provider-concurrency default.
+DEFAULT_PHOTO_CONCURRENCY = 4
+
 
 class MenuExtractionService:
     """Coordinates per-page vision-LLM calls and merges the results into one response."""
@@ -37,10 +42,14 @@ class MenuExtractionService:
         extractor_factory: Callable[[], VisionExtractor],
         organizer_factory: Callable[[], "MenuOrganizer | None"] | None = None,
         photo_extractor_factory: Callable[[], "ItemPhotoExtractor | None"] | None = None,
+        concurrency: int = DEFAULT_PHOTO_CONCURRENCY,
     ):
         # Factory rather than instance so each page can be retried in isolation
         # and so tests can produce different fakes per page.
         self._extractor_factory = extractor_factory
+        if concurrency < 1:
+            raise ValueError("concurrency must be >= 1")
+        self._concurrency = concurrency
         # Default to resolve_organizer (env-driven) so production stays wired
         # without explicit injection; tests pass their own factory.
         self._organizer_factory = organizer_factory or resolve_organizer
@@ -58,8 +67,16 @@ class MenuExtractionService:
         # that with the flag off the factory is never even consulted.
         photo_extractor = self._photo_extractor_factory() if extract_item_photos else None
 
+        # Bound the fan-out so N uploaded photos never trigger N simultaneous
+        # paid vision calls (matches the PDF pipeline's provider semaphore).
+        semaphore = asyncio.Semaphore(self._concurrency)
+
+        async def _bounded_extract_one(idx: int, image_bytes: bytes):
+            async with semaphore:
+                return await self._extract_one(idx, image_bytes, photo_extractor)
+
         tasks = [
-            self._extract_one(idx, b, photo_extractor)
+            _bounded_extract_one(idx, b)
             for idx, b in enumerate(image_bytes_list)
         ]
         per_page = await asyncio.gather(*tasks)

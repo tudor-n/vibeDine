@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -24,6 +25,13 @@ public class AuthController : ControllerBase
     private readonly IEmailSender _email;
     private readonly AppUrlOptions _appUrls;
     private readonly ILogger<AuthController> _logger;
+
+    // A precomputed hash used to run a dummy password verification when an account does not
+    // exist, so the not-found path costs the same PBKDF2 work as a wrong password and does
+    // not leak account existence via timing (AUTH-07).
+    private static readonly PasswordHasher<AppUser> _dummyHasher = new();
+    private static readonly string _dummyPasswordHash =
+        _dummyHasher.HashPassword(new AppUser(), "timing-attack-mitigation-dummy");
 
     public AuthController(
         UserManager<AppUser> users,
@@ -88,6 +96,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("confirm-email")]
     public async Task<IActionResult> ConfirmEmail([FromBody] ConfirmEmailRequest request)
     {
@@ -97,8 +106,10 @@ public class AuthController : ControllerBase
 
         if (user.EmailConfirmed)
         {
-            // Idempotent: allow the user to log in via the same flow.
-            return Ok(await BuildAuthResponseAsync(user));
+            // Already confirmed: this branch never validates request.Token, so it must NOT
+            // mint a session — doing so would let anyone holding a target's user GUID obtain
+            // tokens unauthenticated (AUTH-02). The user must log in normally.
+            return Ok(new { status = "already_confirmed" });
         }
 
         string decoded;
@@ -119,6 +130,7 @@ public class AuthController : ControllerBase
         return Ok(await BuildAuthResponseAsync(user));
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("resend-confirmation")]
     public async Task<IActionResult> ResendConfirmation([FromBody] ResendConfirmationRequest request)
     {
@@ -134,11 +146,20 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Dacă există un cont neconfirmat cu acest email, am trimis un nou link." });
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var user = await _users.FindByEmailAsync(request.Email);
-        if (user == null || !await _users.CheckPasswordAsync(user, request.Password))
+        if (user == null)
+        {
+            // Flatten the timing side-channel (AUTH-07): run an equivalent PBKDF2 verify
+            // against a dummy hash so a non-existent account costs the same as a wrong
+            // password. Result is discarded; the response stays generic.
+            _dummyHasher.VerifyHashedPassword(new AppUser(), _dummyPasswordHash, request.Password);
+            return Unauthorized(new { message = "Invalid email or password." });
+        }
+        if (!await _users.CheckPasswordAsync(user, request.Password))
             return Unauthorized(new { message = "Invalid email or password." });
 
         if (!user.EmailConfirmed)
@@ -171,11 +192,14 @@ public class AuthController : ControllerBase
         return Ok(await BuildAuthResponseAsync(user));
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
+        // Only the hash is stored, so hash the presented value and look up by hash (AUTH-03).
+        var tokenHash = JwtTokenService.HashRefreshToken(request.RefreshToken ?? string.Empty);
         var stored = await _db.RefreshTokens
-            .FirstOrDefaultAsync(t => t.Token == request.RefreshToken);
+            .FirstOrDefaultAsync(t => t.Token == tokenHash);
 
         if (stored == null || !stored.IsActive)
             return Unauthorized(new { message = "Invalid or expired refresh token." });
@@ -294,7 +318,7 @@ public class AuthController : ControllerBase
     private async Task<AuthResponse> BuildAuthResponseAsync(AppUser user)
     {
         var (token, expiresAt) = _tokens.CreateAccessToken(user);
-        var refresh = _tokens.CreateRefreshToken(user.Id);
+        var (refresh, refreshPlainText) = _tokens.CreateRefreshToken(user.Id);
         _db.RefreshTokens.Add(refresh);
         await _db.SaveChangesAsync();
 
@@ -302,7 +326,8 @@ public class AuthController : ControllerBase
         {
             AccessToken = token,
             ExpiresAt = expiresAt,
-            RefreshToken = refresh.Token,
+            // Return the one-time plaintext to the client; only its hash is persisted.
+            RefreshToken = refreshPlainText,
             User = await BuildProfileAsync(user),
         };
     }

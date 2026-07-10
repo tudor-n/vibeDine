@@ -103,7 +103,15 @@ export interface TableSession {
 }
 
 
-export type OrderStatus = 'draft' | 'submitted' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+export type OrderStatus =
+  | 'draft'
+  | 'pending_dispatch'
+  | 'submitted'
+  | 'preparing'
+  | 'ready'
+  | 'completed'
+  | 'cancelled'
+  | 'merged';
 export type PaymentStatus = 'unpaid' | 'paid' | 'refunded';
 
 export interface OrderItem {

@@ -97,6 +97,7 @@ async function submit() {
 
     const created = await opsApi.createConnection(payload)
     toast.success(`Connected ${created.accountLabel || created.name}`)
+    form.token = '' // don't retain the SSH key / password / API token in client memory
     showWizard.value = false
     await load()
     router.push(`/connections/${created.id}`)
@@ -273,13 +274,25 @@ onMounted(load)
             </div>
             <div>
               <label class="field-label">{{ form.tokenKind === 'password' ? 'Password' : 'SSH private key' }}</label>
+              <input
+                v-if="form.tokenKind === 'password'"
+                v-model="form.token"
+                type="password"
+                class="field-input font-mono text-xs"
+                placeholder="password"
+                autocomplete="off"
+              />
               <textarea
+                v-else
                 v-model="form.token"
                 class="field-input font-mono text-xs"
                 rows="4"
-                :placeholder="form.tokenKind === 'password' ? 'password' : '-----BEGIN OPENSSH PRIVATE KEY-----'"
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                autocomplete="off"
               />
-              <p class="text-faint text-xs mt-1">We test reachability now; full SSH control ships next.</p>
+              <p class="text-faint text-xs mt-1">
+                We test reachability now; full SSH control ships next. Stored encrypted; cleared from the browser after connect.
+              </p>
             </div>
           </template>
 

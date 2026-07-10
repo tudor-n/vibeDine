@@ -52,6 +52,11 @@ public class FlashDealService : IFlashDealService
 
         if (deal == null || order == null) return false;
 
+        // The deal must belong to this order. Both are loaded independently under the
+        // tenant filter, so without this check a guest could claim a still-pending
+        // deal generated for a *different* order in the same restaurant onto their bill.
+        if (deal.OrderId != order.Id) return false;
+
         if (deal.Status != "pending") return false;
 
         if (DateTime.UtcNow > deal.ExpiresAt) return false;

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useGuestStore } from '@/stores/useGuestStore'
+import { formatMoney } from '@/utils/money'
 import type { PartyMember } from '@/services/api-client'
 
 const emit = defineEmits<{ (e: 'merge'): void }>()
@@ -23,7 +24,7 @@ function summary(m: PartyMember): string {
   if (m.status !== 'draft') return t('party.statusSubmitted')
   if (m.itemCount <= 0) return t('party.empty')
   const label = m.itemCount === 1 ? t('party.itemOne') : t('party.items', { count: m.itemCount })
-  return `${label} · ${m.total} ${t('common.ron')}`
+  return `${label} · ${formatMoney(m.total)} ${t('common.ron')}`
 }
 </script>
 

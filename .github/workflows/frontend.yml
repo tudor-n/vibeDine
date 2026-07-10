@@ -6,12 +6,20 @@ on:
     paths:
       - 'frontend-customer/**'
       - 'frontend-admin/**'
-      - 'shared/types/**'
+      - 'frontend-ops/**'
+      - 'frontend-platform/**'
+      - 'shared/**'
   pull_request:
     paths:
       - 'frontend-customer/**'
       - 'frontend-admin/**'
-      - 'shared/types/**'
+      - 'frontend-ops/**'
+      - 'frontend-platform/**'
+      - 'shared/**'
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
 
 jobs:
   build-customer:
@@ -30,7 +38,10 @@ jobs:
       - run: npm ci
       - run: npm run type-check
       - run: npm run build
-      - run: npm run test
+      # frontend-customer has no test files yet (the `test` script is a vitest
+      # stub). `--passWithNoTests` makes the "no tests" state explicit instead of
+      # silently green; real tests will run automatically once they are added.
+      - run: npm run test -- --passWithNoTests
 
   build-admin:
     name: Admin App
@@ -49,10 +60,48 @@ jobs:
       - run: npm run type-check
       - run: npm run build
       - run: npm run test
-  deploy:
-    needs: [build-customer, build-admin]
+
+  build-ops:
+    name: Ops App
     runs-on: ubuntu-latest
-    environment: production   
+    defaults:
+      run:
+        working-directory: frontend-ops
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend-ops/package-lock.json
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run build
+
+  build-platform:
+    name: Platform App
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend-platform/package-lock.json
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run build
+
+  deploy:
+    needs: [build-customer, build-admin, build-ops, build-platform]
+    runs-on: ubuntu-latest
+    environment: production
+    # Never attempt a deploy from a pull_request event — only on pushes to a
+    # protected branch. (Placeholder step; replace with the real deploy command.)
+    if: github.event_name == 'push'
     steps:
       - name: Deploy
         run: echo "Deploy step — replace with your actual deploy command"

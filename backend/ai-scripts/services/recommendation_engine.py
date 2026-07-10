@@ -1,8 +1,12 @@
 from google import genai
 from google.genai import types
+import logging
 import os
 import json
+from fastapi import HTTPException
 from models.schemas import RecommendationRequest
+
+logger = logging.getLogger(__name__)
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
 
@@ -62,9 +66,27 @@ Every product_id in your response MUST appear verbatim in the available products
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
+    except Exception as exc:
+        # Genuine provider outage — surface it as 5xx so the .NET caller can
+        # retry/alert rather than recording a fake "no recommendations" success.
+        logger.error("Recommendation provider call failed", exc_info=True)
+        raise HTTPException(
+            status_code=502, detail="recommendation_provider_unavailable"
+        ) from exc
+
+    try:
         result = json.loads(response.text)
-        recs = result.get("recommendations", [])
-        validated = [r for r in recs if r.get("product_id") in valid_ids]
-        return {"recommendations": validated, "summary": result.get("summary", "")}
-    except Exception:
+        if not isinstance(result, dict):
+            raise ValueError("recommendation response was not a JSON object")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        # The provider responded but with unparseable content — degrade to an
+        # empty result (documented graceful path) rather than 5xx.
+        logger.warning(
+            "Recommendation response was not valid JSON; returning no recommendations",
+            exc_info=True,
+        )
         return {"recommendations": [], "summary": ""}
+
+    recs = result.get("recommendations", [])
+    validated = [r for r in recs if r.get("product_id") in valid_ids]
+    return {"recommendations": validated, "summary": result.get("summary", "")}

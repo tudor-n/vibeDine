@@ -322,7 +322,7 @@ onUnmounted(() => {
         <div class="account-avatar">
           <img
             v-if="auth.user?.avatarUrl"
-            :src="auth.user.avatarUrl"
+            :src="resolveMediaUrl(auth.user.avatarUrl)"
             alt=""
           />
           <template v-else>{{ (auth.user?.fullName || 'A').charAt(0).toUpperCase() }}</template>

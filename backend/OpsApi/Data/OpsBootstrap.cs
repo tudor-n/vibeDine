@@ -15,6 +15,8 @@ public static class OpsBootstrap
         var db = services.GetRequiredService<OpsDbContext>();
         var config = services.GetRequiredService<IConfiguration>();
         var hasher = services.GetRequiredService<IPasswordHasher>();
+        var env = services.GetRequiredService<IHostEnvironment>();
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(OpsBootstrap));
 
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS ops_admins (
@@ -83,14 +85,28 @@ public static class OpsBootstrap
         if (!await db.Admins.AnyAsync())
         {
             var email = config["OpsSeed:Email"] ?? "ops@vibedine.local";
-            var password = config["OpsSeed:Password"] ?? "ChangeMe123!";
-            db.Admins.Add(new OpsAdmin
+            var password = config["OpsSeed:Password"];
+
+            // Never seed a login-able super-admin with a missing/empty or the committed default password.
+            // (Program.cs already fail-fasts on this outside Development; this is defense-in-depth and also
+            // guards the Development path where the fail-fast does not run.)
+            if (string.IsNullOrWhiteSpace(password) || (!env.IsDevelopment() && password == "ChangeMe123!"))
             {
-                Email = email,
-                FullName = "Ops Admin",
-                PasswordHash = hasher.Hash(password),
-            });
-            await db.SaveChangesAsync();
+                logger.LogWarning(
+                    "No ops admin seeded: OpsSeed:Password is not configured with a real secret. " +
+                    "Set OpsSeed__Password to bootstrap the first admin.");
+            }
+            else
+            {
+                db.Admins.Add(new OpsAdmin
+                {
+                    Email = email,
+                    FullName = "Ops Admin",
+                    PasswordHash = hasher.Hash(password),
+                });
+                await db.SaveChangesAsync();
+                logger.LogInformation("Seeded initial ops admin {Email}.", email);
+            }
         }
     }
 }

@@ -145,16 +145,29 @@ export const useAuthStore = defineStore('auth', () => {
     await authApi.resendConfirmation(email)
   }
 
+  // Single-flight guard: while a refresh is in progress, every caller awaits the
+  // same promise instead of firing its own POST /api/auth/refresh. This prevents
+  // the reload logout-storm where N concurrent 401s trigger N refreshes and the
+  // losers (rotated refresh token) wipe the session the winner just renewed.
+  let refreshInFlight: Promise<boolean> | null = null
+
   /** Returns true if the session was renewed. Used by the api-client on 401. */
   async function tryRefresh(): Promise<boolean> {
     if (!refreshToken.value) return false
-    try {
-      setSession(await authApi.refresh(refreshToken.value))
-      return true
-    } catch {
-      logout()
-      return false
-    }
+    if (refreshInFlight) return refreshInFlight
+    refreshInFlight = (async () => {
+      try {
+        setSession(await authApi.refresh(refreshToken.value!))
+        return true
+      } catch {
+        // Only the shared refresh may log out, and only when it actually fails.
+        logout()
+        return false
+      } finally {
+        refreshInFlight = null
+      }
+    })()
+    return refreshInFlight
   }
 
   async function fetchMe() {
