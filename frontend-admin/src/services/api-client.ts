@@ -14,6 +14,7 @@ import type {
     RestaurantBranding,
 } from '@shared/types/models';
 import { useAuthStore, type UserProfile } from '@/stores/useAuthStore';
+import { assertBrandingAssetSize } from '@/services/brandingUpload';
 
 export interface CreateCategoryPayload {
     name: string;
@@ -781,6 +782,10 @@ export interface BrandingAssetResponse {
 // of going through authedFetcher). Mirrors that exact pattern, scoped to the
 // active restaurant.
 async function uploadBrandingAsset(kind: 'logo' | 'photo', file: File): Promise<BrandingAssetResponse> {
+    // Reject oversize files before the request so the user gets a clear message
+    // instead of the server's cross-origin "Failed to fetch" on RequestSizeLimit.
+    assertBrandingAssetSize(kind, file);
+
     const auth = useAuthStore();
     const form = new FormData();
     form.append('file', file);

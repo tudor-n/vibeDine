@@ -23,8 +23,9 @@ public class BrandingController : ControllerBase
 {
     private static readonly Regex HexColor = new("^#[0-9A-Fa-f]{6}$", RegexOptions.Compiled);
 
-    private const long MaxLogoBytes = 2 * 1024 * 1024;   // 2 MB
-    private const long MaxPhotoBytes = 5 * 1024 * 1024;  // 5 MB
+    // HAND-SYNCED with shared/branding/limits.ts (client-side guard). Change both together.
+    private const long MaxLogoBytes = 5 * 1024 * 1024;    // 5 MB
+    private const long MaxPhotoBytes = 10 * 1024 * 1024;  // 10 MB
 
     private readonly AppDbContext _db;
     private readonly ICurrentTenant _tenant;
