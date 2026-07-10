@@ -204,12 +204,18 @@ function addToCart() {
     </div>
   </Transition>
 
-  <!-- State C: confirmation toast (fixed success colour in both themes) -->
+  <!-- State C: confirmation toast — on the tenant's secondary colour (the `lime`
+       token), with its AA-legible on-colour, so it adapts to branding + theme. -->
   <Transition name="hh-toast-t">
-    <div v-if="showToast && hh.active" class="hh-toast" role="status">
+    <div
+      v-if="showToast && hh.active"
+      class="hh-toast"
+      role="status"
+      :style="{ background: T.lime, color: T.onLime }"
+    >
       <svg
         viewBox="0 0 24 24" width="18" height="18" fill="none"
-        stroke="#8ff0b4" stroke-width="2.4"
+        :stroke="T.onLime" stroke-width="2.4"
         stroke-linecap="round" stroke-linejoin="round"
       >
         <path d="M20 6L9 17l-5-5" />
@@ -407,8 +413,6 @@ function addToCart() {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #1f6b3a;
-  color: #eafff1;
   border-radius: 16px;
   padding: 15px 18px;
   font-size: 15px;
