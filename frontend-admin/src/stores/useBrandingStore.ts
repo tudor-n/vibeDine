@@ -3,6 +3,18 @@ import { ref, computed } from 'vue'
 import { brandingApi } from '@/services/api-client'
 import type { RestaurantBranding } from '@shared/types/models'
 
+// Uploads always overwrite a stable filename (logo.png / photo.jpg), so the
+// backend returns the SAME path when an image is replaced. An unchanged <img src>
+// never re-fetches, leaving the old image on screen until a manual refresh. Append
+// a per-upload token so the URL changes and the browser reloads the new bytes.
+// This token is display-only: it's stripped for the filename label and is never
+// sent back on save(), so the DB keeps the clean path.
+let uploadSeq = 0
+function cacheBust(url: string): string {
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}v=${Date.now()}-${++uploadSeq}`
+}
+
 export const useBrandingStore = defineStore('branding', () => {
   const branding = ref<RestaurantBranding | null>(null)
   const isEnabled = computed(() => !!branding.value?.enabled)
@@ -26,14 +38,16 @@ export const useBrandingStore = defineStore('branding', () => {
 
   async function uploadLogo(file: File) {
     const res = await brandingApi.uploadLogo(file)
-    if (branding.value && res.logoUrl) branding.value.logoUrl = res.logoUrl
-    return res.logoUrl ?? null
+    const url = res.logoUrl ? cacheBust(res.logoUrl) : null
+    if (branding.value && url) branding.value.logoUrl = url
+    return url
   }
 
   async function uploadPhoto(file: File) {
     const res = await brandingApi.uploadPhoto(file)
-    if (branding.value && res.photoUrl) branding.value.photoUrl = res.photoUrl
-    return res.photoUrl ?? null
+    const url = res.photoUrl ? cacheBust(res.photoUrl) : null
+    if (branding.value && url) branding.value.photoUrl = url
+    return url
   }
 
   async function disable() {
