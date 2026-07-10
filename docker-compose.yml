@@ -52,6 +52,12 @@ services:
     volumes:
       - ./backend/RestaurantApi:/src
       - menu_imports:/menu-imports
+      # Uploaded blobs (branding logo/photo, avatars, menu-item images) are written
+      # to /app/wwwroot/uploads at runtime. Without this, they live only in the
+      # container's ephemeral layer and vanish on every image rebuild/recreate.
+      # Bind to the host's own wwwroot/uploads (gitignored) so docker and host-run
+      # (`dotnet run`) dev share the same files and they survive rebuilds.
+      - ./backend/RestaurantApi/wwwroot/uploads:/app/wwwroot/uploads
 
   # vibeDine HQ — platform/super-admin control plane. Shares the Postgres DB with
   # backend-api but owns its own auth (platform_admins) and registration-link tables.
