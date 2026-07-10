@@ -3,9 +3,17 @@ PDF page rasterizer using pypdfium2.
 Renders a single page to JPEG bytes at the requested scale.
 """
 import io
+import math
+import os
 from typing import Optional
 
 import pypdfium2
+
+# Ceiling on the rasterized output size (width_px * height_px) of a single page.
+# A page declaring an enormous MediaBox would otherwise rasterize into a giant
+# bitmap ("render bomb"); we clamp the effective scale to stay within this cap
+# (AI-04). Env-overridable; 0 disables the clamp.
+DEFAULT_MAX_RENDER_PIXELS = int(os.getenv("PDF_MAX_RENDER_PIXELS", "40000000"))
 
 
 class PdfPageRenderer:
@@ -18,11 +26,13 @@ class PdfPageRenderer:
         scale: float = 1.5,
         quality: int = 85,
         optimize: bool = False,
+        max_pixels: int = DEFAULT_MAX_RENDER_PIXELS,
     ):
         self._path = path
         self._scale = scale
         self._quality = quality
         self._optimize = optimize
+        self._max_pixels = max_pixels
         self._pdf: Optional[pypdfium2.PdfDocument] = None
 
     def __enter__(self) -> "PdfPageRenderer":
@@ -53,7 +63,8 @@ class PdfPageRenderer:
             )
 
         page = self._pdf[page_index]
-        bitmap = page.render(scale=self._scale)
+        scale = self._effective_scale(page)
+        bitmap = page.render(scale=scale)
         pil_image = bitmap.to_pil()
 
         buf = io.BytesIO()
@@ -64,6 +75,27 @@ class PdfPageRenderer:
             optimize=self._optimize,
         )
         return buf.getvalue()
+
+    def _effective_scale(self, page) -> float:
+        """Clamp the render scale so the output bitmap stays within max_pixels.
+
+        Points are 1/72 inch; at scale s a page renders to
+        (width_pts * s) x (height_pts * s) pixels. If that exceeds the cap we
+        shrink s to the largest value that still fits, so an oversized MediaBox
+        cannot allocate a giant bitmap.
+        """
+        if self._max_pixels <= 0:
+            return self._scale
+        try:
+            width_pts, height_pts = page.get_size()
+        except Exception:
+            return self._scale
+        if width_pts <= 0 or height_pts <= 0:
+            return self._scale
+        projected = (width_pts * self._scale) * (height_pts * self._scale)
+        if projected <= self._max_pixels:
+            return self._scale
+        return math.sqrt(self._max_pixels / (width_pts * height_pts))
 
 
 def render_page(

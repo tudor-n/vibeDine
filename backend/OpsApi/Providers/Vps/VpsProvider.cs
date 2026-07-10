@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Sockets;
 using OpsApi.Providers.Abstractions;
 
@@ -48,20 +49,82 @@ public sealed class VpsProvider : IInfraProvider
             return new(false, null, "A host is required for a VPS connection.", Capabilities);
 
         var port = int.TryParse(metadata.GetValueOrDefault("port"), out var p) ? p : 22;
+        if (port is < 1 or > 65535)
+            return new(false, null, "Port must be between 1 and 65535.", Capabilities);
+
         var user = metadata.GetValueOrDefault("user") ?? "root";
+        var label = $"{user}@{host}:{port}";
+
+        // The host/port come straight from the client, so this reachability probe is a server-side
+        // request primitive. Resolve every address the host maps to and reject loopback, link-local /
+        // cloud-metadata (169.254.0.0/16), and private ranges so it can't be used to scan internal
+        // networks (SSRF). Resolving ourselves and connecting to the vetted IPs also closes the
+        // DNS-rebinding gap where a re-resolve could land on an internal address.
+        IPAddress[] addresses;
+        try
+        {
+            addresses = IPAddress.TryParse(host, out var literal)
+                ? [literal]
+                : await Dns.GetHostAddressesAsync(host, ct);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return new(false, label, "Host could not be resolved.", Capabilities);
+        }
+
+        if (addresses.Length == 0 || addresses.Any(IsDisallowedAddress))
+            return new(false, label, "Host is not an allowed target.", Capabilities);
 
         try
         {
             using var tcp = new TcpClient();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            await tcp.ConnectAsync(host, port, timeout.Token);
-            return new(true, $"{user}@{host}:{port}", $"SSH port {port} is reachable.", Capabilities);
+            await tcp.ConnectAsync(addresses, port, timeout.Token);
+            return new(true, label, $"SSH port {port} is reachable.", Capabilities);
         }
-        catch (Exception ex)
+        catch (Exception) when (!ct.IsCancellationRequested)
         {
-            return new(false, $"{user}@{host}:{port}", $"Could not reach {host}:{port} — {ex.Message}", Capabilities);
+            // Generic result only — never echo the raw connect/timeout error detail back to the client.
+            return new(false, label, $"Could not reach {host}:{port}.", Capabilities);
         }
+    }
+
+    /// <summary>
+    /// True for addresses that must never be probed from the server: loopback, unspecified, multicast,
+    /// IPv4 link-local/metadata (169.254/16), CGNAT (100.64/10), the RFC1918 private ranges, and their
+    /// IPv6 equivalents (link/site-local, unique-local fc00::/7).
+    /// </summary>
+    private static bool IsDisallowedAddress(IPAddress address)
+    {
+        if (address.IsIPv4MappedToIPv6)
+            address = address.MapToIPv4();
+
+        if (IPAddress.IsLoopback(address) ||
+            address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
+            return true;
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast)
+                return true;
+            // Unique-local addresses fc00::/7.
+            return (address.GetAddressBytes()[0] & 0xFE) == 0xFC;
+        }
+
+        var b = address.GetAddressBytes(); // IPv4 → 4 bytes
+        return b[0] switch
+        {
+            0 => true,                                  // 0.0.0.0/8 "this network"
+            10 => true,                                 // 10.0.0.0/8 private
+            127 => true,                                // 127.0.0.0/8 loopback
+            100 when b[1] is >= 64 and <= 127 => true,  // 100.64.0.0/10 CGNAT
+            169 when b[1] == 254 => true,               // 169.254.0.0/16 link-local + cloud metadata
+            172 when b[1] is >= 16 and <= 31 => true,   // 172.16.0.0/12 private
+            192 when b[1] == 168 => true,               // 192.168.0.0/16 private
+            >= 224 => true,                             // 224.0.0.0/4 multicast + 240/4 reserved
+            _ => false,
+        };
     }
 
     private static Task<T> NotYet<T>(string feature) =>

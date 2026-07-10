@@ -64,7 +64,12 @@ const stream = createLogStream((batch) => {
 })
 
 // ── Variables ──────────────────────────────────────────────────────────────────
-const varRows = ref<Variable[]>([])
+// `reveal` is view-only state: values are secrets (DB strings, JWT_SECRET, API keys)
+// and stay masked until the operator explicitly reveals a row.
+interface VarRow extends Variable {
+  reveal?: boolean
+}
+const varRows = ref<VarRow[]>([])
 const replaceVars = ref(false)
 const loadingVars = ref(false)
 
@@ -269,7 +274,8 @@ async function loadVariables() {
 }
 
 function addVar() {
-  varRows.value.push({ key: '', value: '' })
+  // A new row is operator-entered (not a fetched secret), so show it while typing.
+  varRows.value.push({ key: '', value: '', reveal: true })
 }
 function removeVar(i: number) {
   varRows.value.splice(i, 1)
@@ -352,7 +358,10 @@ async function loadMetrics() {
 }
 
 onMounted(loadConnection)
-onUnmounted(() => stream.stop())
+onUnmounted(() => {
+  stream.stop()
+  varRows.value = [] // don't leave decrypted env-var secrets in memory after leaving
+})
 </script>
 
 <template>
@@ -612,7 +621,22 @@ onUnmounted(() => stream.stop())
           <div v-else class="space-y-2">
             <div v-for="(v, i) in varRows" :key="i" class="flex gap-2">
               <input v-model="v.key" class="field-input font-mono text-xs w-1/3" placeholder="KEY" />
-              <input v-model="v.value" class="field-input font-mono text-xs flex-1" placeholder="value" />
+              <input
+                v-model="v.value"
+                :type="v.reveal ? 'text' : 'password'"
+                class="field-input font-mono text-xs flex-1"
+                placeholder="value"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="btn-ghost !py-1.5"
+                :title="v.reveal ? 'Hide value' : 'Reveal value'"
+                :aria-label="v.reveal ? 'Hide value' : 'Reveal value'"
+                @click="v.reveal = !v.reveal"
+              >
+                {{ v.reveal ? '🙈' : '👁' }}
+              </button>
               <button class="btn-danger !py-1.5" @click="removeVar(i)">✕</button>
             </div>
             <div v-if="varRows.length === 0" class="text-faint text-sm">No variables. Add one to begin.</div>

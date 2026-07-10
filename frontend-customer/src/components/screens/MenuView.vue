@@ -6,6 +6,7 @@ import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useCartStore } from '@/stores/useCartStore'
 import { useHappyHourStore } from '@/stores/useHappyHourStore'
+import { formatMoney } from '@/utils/money'
 import type { Product, RecipeLine } from '@shared/types/models'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
@@ -214,10 +215,10 @@ const cartCount = computed(() =>
         <div class="dish-foot" :style="{ borderTop: `1px solid ${T.ink06}` }">
           <div class="price">
             <template v-if="happyHour.discountedPriceFor(m.id) != null">
-              {{ happyHour.discountedPriceFor(m.id) }}
-              <span :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.78em', marginLeft: '5px', fontWeight: 500 }">{{ m.price }}</span>
+              {{ formatMoney(happyHour.discountedPriceFor(m.id)!) }}
+              <span :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.78em', marginLeft: '5px', fontWeight: 500 }">{{ formatMoney(m.price) }}</span>
             </template>
-            <template v-else>{{ m.price }}</template>
+            <template v-else>{{ formatMoney(m.price) }}</template>
             <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
           </div>
           <button

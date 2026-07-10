@@ -13,6 +13,11 @@ namespace OpsApi.Controllers;
 [Route("api/ops/auth")]
 public sealed class AuthController : ControllerBase
 {
+    // Fixed decoy hash (same PBKDF2 params as real hashes) used to run an equal-cost verify when the
+    // email is unknown, so login timing doesn't reveal whether an account exists. Not a usable credential.
+    private const string DummyPasswordHash =
+        "100000.+dSvX+c/3ONgiHlLdz0DLA==.gaPm4UnyDkHyl3lJmBPb3e3eCFMbYVDRaOneuzebnIY=";
+
     private readonly OpsDbContext _db;
     private readonly IPasswordHasher _hasher;
     private readonly OpsJwtService _jwt;
@@ -30,7 +35,11 @@ public sealed class AuthController : ControllerBase
     {
         var email = req.Email.Trim().ToLowerInvariant();
         var admin = await _db.Admins.FirstOrDefaultAsync(a => a.Email.ToLower() == email);
-        if (admin is null || !admin.IsActive || !_hasher.Verify(req.Password, admin.PasswordHash))
+
+        // Always run a PBKDF2 verify — against the real hash when the account exists, otherwise against a
+        // fixed decoy — so the response time doesn't reveal whether an email is registered.
+        var passwordValid = _hasher.Verify(req.Password, admin?.PasswordHash ?? DummyPasswordHash);
+        if (admin is null || !admin.IsActive || !passwordValid)
             return Unauthorized(new { message = "Invalid email or password." });
 
         admin.LastLoginAt = DateTime.UtcNow;

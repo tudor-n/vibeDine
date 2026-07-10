@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RestaurantApi.DTOs.Responses;
@@ -59,6 +61,10 @@ public class MenuScanController : ControllerBase
             using var ms = new MemoryStream();
             await photo.CopyToAsync(ms, cancellationToken);
             var bytes = ms.ToArray();
+            // Never trust the client-declared ContentType: sniff the leading bytes and
+            // confirm the file is really an image or PDF before forwarding it upstream.
+            if (!IsAllowedScanContent(bytes))
+                return BadRequest(new { message = $"Fișierul '{photo.FileName}' nu este o imagine sau un PDF valid." });
             totalBytes += bytes.Length;
             prepared.Add((photo.FileName ?? "photo", photo.ContentType, bytes));
         }
@@ -72,6 +78,26 @@ public class MenuScanController : ControllerBase
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(ex, "Python /menu/extract unreachable");
+            return StatusCode(StatusCodes.Status502BadGateway,
+                new { message = "Serviciul de scanare nu este disponibil. Încearcă din nou." });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The client aborted the request — propagate as a genuine cancellation.
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // Not the client's token → the upstream vision call timed out (6-min budget).
+            _logger.LogWarning(ex, "Python /menu/extract timed out");
+            return StatusCode(StatusCodes.Status504GatewayTimeout,
+                new { message = "Serviciul de scanare nu a răspuns la timp. Încearcă din nou." });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+        {
+            // Empty/malformed response from the AI service — treat like an outage
+            // rather than letting it surface as an opaque 500.
+            _logger.LogWarning(ex, "Python /menu/extract returned an unusable response");
             return StatusCode(StatusCodes.Status502BadGateway,
                 new { message = "Serviciul de scanare nu este disponibil. Încearcă din nou." });
         }
@@ -122,5 +148,32 @@ public class MenuScanController : ControllerBase
             result.FailedPages.Count);
 
         return Ok(result);
+    }
+
+    // Common HEIF/HEIC brand codes found in the ftyp box of Apple-captured photos.
+    private static readonly HashSet<string> HeifBrands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "heic", "heix", "heim", "heis", "hevc", "hevx", "hevm", "hevs", "mif1", "msf1", "heif",
+    };
+
+    // Content-based check that the bytes are one of the accepted scan formats
+    // (PNG/JPEG/WebP via the shared sniffer, plus PDF and HEIC/HEIF) rather than
+    // trusting the client's declared ContentType.
+    private static bool IsAllowedScanContent(ReadOnlySpan<byte> bytes)
+    {
+        if (ImageValidation.SniffImage(bytes) is not null)
+            return true;
+
+        // PDF: %PDF
+        if (bytes.Length >= 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46)
+            return true;
+
+        // HEIC/HEIF (ISO-BMFF): "ftyp" box at offset 4, followed by a HEIF brand.
+        if (bytes.Length >= 12 &&
+            bytes[4] == (byte)'f' && bytes[5] == (byte)'t' && bytes[6] == (byte)'y' && bytes[7] == (byte)'p' &&
+            HeifBrands.Contains(Encoding.ASCII.GetString(bytes.Slice(8, 4))))
+            return true;
+
+        return false;
     }
 }

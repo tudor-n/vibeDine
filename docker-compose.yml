@@ -6,7 +6,9 @@ services:
       POSTGRES_USER: dev
       POSTGRES_PASSWORD: devpass
     ports:
-      - "5433:5432"
+      # Bound to loopback so the dev DB is never published on 0.0.0.0 if this
+      # compose file is ever run on a non-localhost host.
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +20,7 @@ services:
   backend-api:
     build: ./backend/RestaurantApi
     ports:
-      - "5005:5000"
+      - "127.0.0.1:5005:5000"
     environment:
       ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
       AiService__BaseUrl: "http://ai-service:8000"
@@ -58,7 +60,7 @@ services:
   platform-api:
     build: ./backend/PlatformApi
     ports:
-      - "5006:5000"
+      - "127.0.0.1:5006:5000"
     environment:
       ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
       ASPNETCORE_ENVIRONMENT: "Development"
@@ -67,8 +69,9 @@ services:
       Jwt__Audience: "vibedine-platform"
       Jwt__AccessTokenMinutes: "720"
       # Default platform operator seeded on first start — change in production.
+      # Overridable via env so a real deploy never has to edit this file.
       PlatformSeed__Email: "admin@vibedine.local"
-      PlatformSeed__Password: "ChangeMe123!"
+      PlatformSeed__Password: "${PLATFORM_SEED_PASSWORD:-ChangeMe123!}"
       # Base URL one-time registration links point at (redeemed in the restaurant app).
       RegistrationLink__BaseUrl: "http://localhost:3001/register"
       AllowedOrigins__0: "http://localhost:3002"
@@ -86,7 +89,7 @@ services:
   ops-api:
     build: ./backend/OpsApi
     ports:
-      - "5007:5000"
+      - "127.0.0.1:5007:5000"
     environment:
       ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
       ASPNETCORE_ENVIRONMENT: "Development"
@@ -95,8 +98,9 @@ services:
       Jwt__Audience: "vibedine-ops"
       Jwt__AccessTokenMinutes: "720"
       # Default ops operator seeded on first start — change in production.
+      # Overridable via env so a real deploy never has to edit this file.
       OpsSeed__Email: "ops@vibedine.local"
-      OpsSeed__Password: "ChangeMe123!"
+      OpsSeed__Password: "${OPS_SEED_PASSWORD:-ChangeMe123!}"
       # 32+ char secret that AES-GCM encrypts provider tokens at rest — change in production.
       Ops__Encryption__Key: "dev-only-ops-encryption-key-change-me-32chars"
       Ops__Railway__GraphqlEndpoint: "https://backboard.railway.com/graphql/v2"
@@ -112,13 +116,13 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025"   # SMTP
-      - "8025:8025"   # Web UI — open http://localhost:8025 to inspect emails
+      - "127.0.0.1:1025:1025"   # SMTP
+      - "127.0.0.1:8025:8025"   # Web UI — open http://localhost:8025 to inspect emails
 
   ai-service:
     build: ./backend/ai-scripts
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend/ai-scripts:/app
       - menu_imports:/menu-imports
@@ -128,11 +132,18 @@ services:
     environment:
       MENU_IMPORT_STORAGE_ROOT: "/menu-imports"
       MENU_IMPORT_CALLBACK_HOSTS: "backend-api,localhost,127.0.0.1"
+    healthcheck:
+      # python is already in the image; avoids depending on curl/wget being present.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   frontend-customer:
     build: ./frontend-customer
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       VITE_API_URL: "http://localhost:5005/"
       VITE_WS_URL: "ws://localhost:5005"
@@ -147,7 +158,7 @@ services:
   frontend-admin:
     build: ./frontend-admin
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       VITE_API_URL: "http://localhost:5005/"
       # Base URL the generated table QR codes / links point at (customer app).
@@ -160,7 +171,7 @@ services:
   frontend-platform:
     build: ./frontend-platform
     ports:
-      - "3002:3002"
+      - "127.0.0.1:3002:3002"
     environment:
       VITE_API_URL: "http://localhost:5006/"
     volumes:
@@ -172,7 +183,7 @@ services:
   frontend-ops:
     build: ./frontend-ops
     ports:
-      - "3003:3003"
+      - "127.0.0.1:3003:3003"
     environment:
       VITE_API_URL: "http://localhost:5007/"
     volumes:

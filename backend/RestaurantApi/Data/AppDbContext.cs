@@ -487,6 +487,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.ToTable("refresh_tokens");
             e.Property(t => t.Id).HasColumnName("id");
             e.Property(t => t.UserId).HasColumnName("user_id");
+            // Stores the SHA-256 hash of the token value, not the plaintext (see RefreshToken).
             e.Property(t => t.Token).HasColumnName("token");
             e.Property(t => t.ExpiresAt).HasColumnName("expires_at");
             e.Property(t => t.CreatedAt).HasColumnName("created_at");

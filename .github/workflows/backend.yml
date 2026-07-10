@@ -9,21 +9,37 @@ on:
     paths:
       - 'backend/**'
 
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
 jobs:
   dotnet:
     name: C# ASP.NET Core
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend/RestaurantApi
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - run: dotnet restore
-      - run: dotnet build --no-restore --configuration Release
-      - run: dotnet test --no-build --configuration Release --verbosity normal
+
+      # Build every backend app. The solution (web-restaurant.sln) only references
+      # RestaurantApi, so each project is targeted explicitly. RestaurantApi is
+      # built transitively by its test project below; PlatformApi and OpsApi have
+      # no test project, so build them here to gate on compile errors.
+      - name: Build PlatformApi
+        run: dotnet build backend/PlatformApi/PlatformApi.csproj --configuration Release
+      - name: Build OpsApi
+        run: dotnet build backend/OpsApi/OpsApi.csproj --configuration Release
+
+      # Run the real test suites (the old config ran `dotnet test` from the web
+      # project, which discovers zero tests and always passed). The integration
+      # tests boot a real Postgres via Testcontainers; ubuntu-latest runners ship
+      # a working Docker daemon, which Testcontainers picks up automatically.
+      - name: Test RestaurantApi
+        run: dotnet test backend/RestaurantApi.Tests/RestaurantApi.Tests.csproj --configuration Release --verbosity normal
+      - name: Test OpsApi
+        run: dotnet test backend/OpsApi.Tests/OpsApi.Tests.csproj --configuration Release --verbosity normal
 
   python-ai:
     name: Python AI Service
@@ -39,12 +55,15 @@ jobs:
           cache: 'pip'
           cache-dependency-path: backend/ai-scripts/requirements.txt
       - run: pip install -r requirements.txt
-      - run: pip install pytest
       - run: pytest --tb=short
+
   deploy:
     needs: [dotnet, python-ai]
     runs-on: ubuntu-latest
-    environment: production  
+    environment: production
+    # Never attempt a deploy from a pull_request event — only on pushes to a
+    # protected branch. (Placeholder step; replace with the real deploy command.)
+    if: github.event_name == 'push'
     steps:
       - name: Deploy
         run: echo "Deploy step — replace with your actual deploy command"

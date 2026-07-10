@@ -182,14 +182,35 @@ export function resolvePhotoUrl(url: string | null | undefined): string {
   return resolveMediaUrl(url)
 }
 
-/** Restaurant-scoped admin URL + bearer header from the active session. */
-function scopedAdmin(suffix: string): { url: string; authHeader: Record<string, string> } {
+/**
+ * Authenticated fetch for the restaurant-scoped import endpoints. Attaches the
+ * bearer token and, on a 401, performs the same one-shot refresh-and-retry as
+ * `authedFetcher` in api-client — sharing the single-flight `tryRefresh`, so a
+ * token that expires mid-import is transparently renewed instead of hard-failing.
+ *
+ * Supports FormData bodies: it never sets a JSON `Content-Type`, so the browser
+ * keeps the multipart boundary intact. JSON callers pass their own Content-Type.
+ * Returns the raw Response so each caller keeps its typed `makeError` handling.
+ */
+async function authedImportFetch(suffix: string, init: RequestInit = {}): Promise<Response> {
   const auth = useAuthStore()
   if (!auth.activeRestaurantId) throw makeError('No active restaurant selected.', 400)
-  return {
-    url: `${resolveBaseUrl()}/api/restaurants/${auth.activeRestaurantId}${suffix}`,
-    authHeader: auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {},
+  const url = `${resolveBaseUrl()}/api/restaurants/${auth.activeRestaurantId}${suffix}`
+
+  const doFetch = () =>
+    fetch(url, {
+      ...init,
+      headers: {
+        ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {}),
+        ...init.headers,
+      },
+    })
+
+  let res = await doFetch()
+  if (res.status === 401 && (await auth.tryRefresh())) {
+    res = await doFetch()
   }
+  return res
 }
 
 async function scan(
@@ -202,8 +223,7 @@ async function scan(
   form.append('locale', locale)
   // Only append when opted in — keeps the off-path request byte-identical.
   if (extractItemPhotos) form.append('extractItemPhotos', 'true')
-  const { url, authHeader } = scopedAdmin('/admin/menu/scan')
-  const res = await fetch(url, { method: 'POST', body: form, headers: authHeader })
+  const res = await authedImportFetch('/admin/menu/scan', { method: 'POST', body: form })
   if (!res.ok) {
     const body = await res.json().catch(() => undefined)
     throw makeError(`scan failed: HTTP ${res.status}`, res.status, body)
@@ -220,10 +240,9 @@ async function scan(
 }
 
 async function bulkCreate(payload: BulkCreateProductsRequest): Promise<AdminProduct[]> {
-  const { url, authHeader } = scopedAdmin('/admin/menu/products/bulk')
-  const res = await fetch(url, {
+  const res = await authedImportFetch('/admin/menu/products/bulk', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
@@ -234,10 +253,9 @@ async function bulkCreate(payload: BulkCreateProductsRequest): Promise<AdminProd
 }
 
 async function bulkCreateHierarchy(payload: BulkCreateHierarchyRequest): Promise<BulkCreateHierarchyResponse> {
-  const { url, authHeader } = scopedAdmin('/admin/menu/bulk-create-hierarchy')
-  const res = await fetch(url, {
+  const res = await authedImportFetch('/admin/menu/bulk-create-hierarchy', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
@@ -254,8 +272,7 @@ async function startPdfImport(
   const form = new FormData()
   form.append('pdf', file, file.name)
   if (extractItemPhotos) form.append('extractItemPhotos', 'true')
-  const { url, authHeader } = scopedAdmin('/admin/menu/imports/pdf')
-  const res = await fetch(url, { method: 'POST', body: form, headers: authHeader })
+  const res = await authedImportFetch('/admin/menu/imports/pdf', { method: 'POST', body: form })
   if (!res.ok) {
     const body = await res.json().catch(() => undefined)
     throw makeError(`pdf import upload failed: HTTP ${res.status}`, res.status, body)
@@ -264,8 +281,7 @@ async function startPdfImport(
 }
 
 async function getImportJob(jobId: string): Promise<MenuImportJobResponse> {
-  const { url, authHeader } = scopedAdmin(`/admin/menu/imports/${jobId}`)
-  const res = await fetch(url, { method: 'GET', headers: authHeader })
+  const res = await authedImportFetch(`/admin/menu/imports/${jobId}`, { method: 'GET' })
   if (!res.ok) {
     const body = await res.json().catch(() => undefined)
     throw makeError(`getImportJob failed: HTTP ${res.status}`, res.status, body)
@@ -274,8 +290,7 @@ async function getImportJob(jobId: string): Promise<MenuImportJobResponse> {
 }
 
 async function cancelImportJob(jobId: string): Promise<void> {
-  const { url, authHeader } = scopedAdmin(`/admin/menu/imports/${jobId}`)
-  const res = await fetch(url, { method: 'DELETE', headers: authHeader })
+  const res = await authedImportFetch(`/admin/menu/imports/${jobId}`, { method: 'DELETE' })
   if (!res.ok) {
     const body = await res.json().catch(() => undefined)
     throw makeError(`cancelImportJob failed: HTTP ${res.status}`, res.status, body)

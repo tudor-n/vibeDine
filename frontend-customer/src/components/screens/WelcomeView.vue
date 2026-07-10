@@ -21,10 +21,26 @@ const logoPlate = computed(() =>
   resolveLogoBackground(session.branding?.logoBackground ?? null, session.branding?.logoIsDark ?? null),
 )
 
-const bgStyle = computed(() => ({
-  backgroundImage:
-    `linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.28) 40%, rgba(0,0,0,.86)), url('${photoUrl.value}')`,
-}))
+// Sanitize the branding photo URL before dropping it into a CSS url(): allow
+// only absolute http(s) or same-origin relative ('/…') URLs, then percent-encode
+// so a stray quote/paren/newline can't terminate the quoted url('…') context.
+// The value is the tenant's own branding, so this is defense-in-depth.
+const safePhotoUrl = computed(() => {
+  const raw = photoUrl.value
+  if (!raw) return ''
+  const isHttp = /^https?:\/\//i.test(raw)
+  const isRelative = raw.startsWith('/') && !raw.startsWith('//')
+  if (!isHttp && !isRelative) return ''
+  // encodeURI keeps URL structure intact but escapes spaces/newlines/control
+  // chars; the extra replace covers ' ( ) which encodeURI leaves untouched.
+  return encodeURI(raw).replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16)}`)
+})
+
+const bgStyle = computed(() => {
+  const overlay = 'linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.28) 40%, rgba(0,0,0,.86))'
+  const photo = safePhotoUrl.value ? `, url('${safePhotoUrl.value}')` : ''
+  return { backgroundImage: `${overlay}${photo}` }
+})
 
 const options = computed<Array<{ key: Locale; flag: string; label: string }>>(() => [
   { key: 'ro', flag: '🇷🇴', label: t('lang.ro') },

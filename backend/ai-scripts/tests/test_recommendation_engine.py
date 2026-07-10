@@ -1,6 +1,9 @@
 import json
 from unittest.mock import MagicMock
 
+import pytest
+from fastapi import HTTPException
+
 from models.schemas import CartItem, MenuItem, RecommendationRequest
 from services import recommendation_engine
 
@@ -42,16 +45,19 @@ def test_summary_is_surfaced_alongside_recommendations(monkeypatch):
     assert result["recommendations"] == payload["recommendations"]
 
 
-def test_summary_and_recommendations_empty_on_model_exception(monkeypatch):
+def test_provider_outage_raises_http_error(monkeypatch):
+    # AI-05: a genuine provider failure must surface as 5xx, not a fake empty 200,
+    # so the .NET caller can retry/alert instead of recording a false success.
     monkeypatch.setattr(
         recommendation_engine.client.models,
         "generate_content",
         MagicMock(side_effect=RuntimeError("boom")),
     )
 
-    result = recommendation_engine.get_recommendations(_sample_request())
+    with pytest.raises(HTTPException) as exc_info:
+        recommendation_engine.get_recommendations(_sample_request())
 
-    assert result == {"recommendations": [], "summary": ""}
+    assert exc_info.value.status_code >= 500
 
 
 def test_summary_and_recommendations_empty_on_malformed_json(monkeypatch):
