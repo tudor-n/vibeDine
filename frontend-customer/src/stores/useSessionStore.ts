@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { useTheme } from '@/composables/useTheme'
+import { writeCachedBrand } from '@shared/branding/cache'
 import type { JoinTableResponse } from '@/services/api-client'
 import type { RestaurantBranding } from '@shared/types/models'
 
@@ -37,10 +38,15 @@ export const useSessionStore = defineStore('session' , () => {
       branding.value = response.branding ?? null
       const b = branding.value
       const { applyBrand } = useTheme()
+      // Cache per qrToken so a refresh/re-scan of this table paints the brand on
+      // the first frame instead of flashing the default palette until join lands.
       if (b?.enabled && b.primary && b.secondary && b.background) {
-        applyBrand({ primary: b.primary, secondary: b.secondary, background: b.background })
+        const colors = { primary: b.primary, secondary: b.secondary, background: b.background }
+        applyBrand(colors)
+        writeCachedBrand(token, colors)
       } else {
         applyBrand(null)
+        writeCachedBrand(token, null)
       }
 
       sessionStorage.setItem('tableId', response.tableId)

@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { T, TD, type ThemeTokens } from '@/design/tokens'
 import { deriveBrandPalette, type BrandInput } from '@shared/branding/derive'
+import { readCachedBrand } from '@shared/branding/cache'
 
 export type ThemeMode = 'light' | 'dark'
 
@@ -60,6 +61,18 @@ function applyBrand(colors: BrandInput | null) {
     onLime: p.onLime,
   }
   brandMode.value = p.mode
+}
+
+/**
+ * Paint the last-known palette for `scope` (the table's qrToken) before the app
+ * mounts, so a branded restaurant doesn't flash the default tokens while the join
+ * request is in flight — on a deployed split-origin setup that POST is slow enough
+ * to see. useSessionStore then applies the authoritative colours when join lands.
+ * A cache miss is a no-op, leaving the normal light/dark tokens.
+ */
+export function hydrateBrandFromCache(scope: string | null | undefined): void {
+  const cached = readCachedBrand(scope)
+  if (cached) applyBrand(cached)
 }
 
 export function useTheme() {

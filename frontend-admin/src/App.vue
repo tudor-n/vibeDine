@@ -14,6 +14,7 @@ import { useFloorStore } from '@/stores/useFloorStore'
 import { useBrandingStore } from '@/stores/useBrandingStore'
 import { resolveMediaUrl } from '@/services/mediaUrl'
 import { resolveLogoBackground } from '@shared/branding/derive'
+import { readCachedBrand, writeCachedBrand } from '@shared/branding/cache'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
@@ -34,17 +35,30 @@ const logoPlate = computed(() =>
 // Re-skin the shell for a branded restaurant on bootstrap/switch (Task 9). A
 // fetch failure must never block the shell, so it falls back to the classic
 // palette rather than surfacing an error.
+//
+// The resolved colours are cached per restaurant so the NEXT boot can paint them
+// on the first frame (main.ts) instead of flashing the default palette until this
+// request lands.
 async function refreshBranding() {
+  const scope = auth.activeRestaurantId
   try {
     await branding.load()
     const b = branding.branding
     if (b?.enabled && b.primary && b.secondary && b.background) {
-      brandTheme.applyBrand({ primary: b.primary, secondary: b.secondary, background: b.background })
+      const colors = { primary: b.primary, secondary: b.secondary, background: b.background }
+      brandTheme.applyBrand(colors)
+      writeCachedBrand(scope, colors)
     } else {
       brandTheme.clearBrand()
+      writeCachedBrand(scope, null)
     }
   } catch {
-    brandTheme.clearBrand()
+    // Fall back to this restaurant's cached palette rather than the default one:
+    // clearing here would undo what main.ts painted at boot and produce exactly
+    // the flash this cache exists to prevent. No cache -> default, as before.
+    const cached = readCachedBrand(scope)
+    if (cached) brandTheme.applyBrand(cached)
+    else brandTheme.clearBrand()
   }
 }
 

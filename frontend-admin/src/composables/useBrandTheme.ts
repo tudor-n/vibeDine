@@ -1,4 +1,5 @@
 import { deriveBrandPalette, hexToRgb, type BrandInput, type BrandPalette } from '@shared/branding/derive'
+import { readCachedBrand } from '@shared/branding/cache'
 
 // Order matters only for readability; keys are the authoritative list used by
 // both applyBrand (write) and clearBrand (remove) so they stay symmetric.
@@ -33,6 +34,18 @@ const VAR_KEYS = [
   '--accent', '--accentDk', '--accentSoft', '--accentBorder', '--onAccent',
   '--lime', '--onLime', '--gold',
 ]
+
+/**
+ * Paint the last-known palette for `scope` before Vue mounts, so a branded tenant
+ * never flashes the default palette while `GET .../branding` is in flight. Called
+ * from main.ts; App.vue's refreshBranding() then revalidates and corrects it.
+ * A cache miss is a no-op — the :root defaults in style.css stay as they are.
+ */
+export function hydrateBrandFromCache(scope: string | null | undefined): void {
+  const cached = readCachedBrand(scope)
+  if (!cached) return
+  useBrandTheme().applyBrand(cached)
+}
 
 export function useBrandTheme() {
   function brandVarMap(colors: BrandInput): Record<string, string> {
