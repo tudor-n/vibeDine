@@ -142,35 +142,6 @@ public class PartyController : ControllerBase
         });
     }
 
-    // GET /api/tables/{qrToken}/branding — colours only, for painting the very first
-    // frame. The customer app is a static bundle, so on a first-ever scan it has no
-    // cached palette and would flash the default theme until /join lands. The page
-    // server calls this while rendering index.html and inlines the result; /join
-    // stays the authoritative source for everything else.
-    //
-    // Deliberately returns ONLY the three colours: it is anonymous (like every
-    // customer route) and keyed solely on the unguessable qrToken, so it must not
-    // expose anything a passer-by shouldn't read. Names, addresses, party state and
-    // order data stay behind /join.
-    [HttpGet("tables/{qrToken:guid}/branding")]
-    public async Task<IActionResult> Branding(Guid qrToken)
-    {
-        var table = await _db.Tables.FirstOrDefaultAsync(t => t.QrToken == qrToken && t.DeletedAt == null);
-        if (table is null)
-            return NotFound(new { message = "Table not found." });
-
-        // Scoped via the table the token resolves to — never a client-supplied id.
-        var restaurant = await _db.Restaurants.FirstOrDefaultAsync(r => r.Id == table.RestaurantId);
-
-        return Ok(new
-        {
-            enabled = restaurant?.BrandingEnabled ?? false,
-            primary = restaurant?.BrandPrimary,
-            secondary = restaurant?.BrandSecondary,
-            background = restaurant?.BrandBackground,
-        });
-    }
-
     // GET /api/tables/{qrToken}/party — every phone polls/refetches this to render
     // the party panel (who's at the table + each cart's running total).
     [HttpGet("tables/{qrToken:guid}/party")]

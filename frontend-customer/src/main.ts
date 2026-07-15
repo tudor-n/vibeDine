@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 
 import App from './App.vue'
 import router from './router'
-import { hydrateBrandAtBoot } from './composables/useTheme'
+import { hydrateBrandFromCache } from './composables/useTheme'
 import './style.css'
 
 // The single route is /:qrToken, so the table is known from the URL before the
@@ -13,7 +13,7 @@ function qrTokenFromUrl(): string | null {
   return window.location.pathname.split('/')[1] || null
 }
 
-hydrateBrandAtBoot(qrTokenFromUrl())
+hydrateBrandFromCache(qrTokenFromUrl())
 
 const app = createApp(App)
 

@@ -1,7 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { T, TD, type ThemeTokens } from '@/design/tokens'
 import { deriveBrandPalette, type BrandInput } from '@shared/branding/derive'
-import { readCachedBrand, parseBrandInput } from '@shared/branding/cache'
+import { readCachedBrand } from '@shared/branding/cache'
 
 export type ThemeMode = 'light' | 'dark'
 
@@ -64,29 +64,15 @@ function applyBrand(colors: BrandInput | null) {
 }
 
 /**
- * Colours inlined into index.html by the page server (server/index.js) for the
- * scanned table. Present on a first-ever scan, where there is no cache yet — this
- * is what stops a brand-new diner seeing the default theme. Untrusted like any
- * other DOM-borne value, so it goes through the same hex guard.
+ * Paint the last-known palette for `scope` (the table's qrToken) before the app
+ * mounts, so a branded restaurant doesn't flash the default tokens while the join
+ * request is in flight — on a deployed split-origin setup that POST is slow enough
+ * to see. useSessionStore then applies the authoritative colours when join lands.
+ * A cache miss is a no-op, leaving the normal light/dark tokens.
  */
-function readInjectedBrand(): BrandInput | null {
-  if (typeof window === 'undefined') return null
-  return parseBrandInput((window as { __BRAND__?: unknown }).__BRAND__)
-}
-
-/**
- * Paint the branded palette before the app mounts, so a branded restaurant never
- * flashes the default tokens while the join request is in flight.
- *
- * Order matters: the server injection is per-request and always current, so it
- * wins; the per-qrToken cache covers reloads when the server couldn't inject (API
- * timeout, or a dev server that doesn't template). Neither is authoritative —
- * useSessionStore applies the real colours when /join lands. No source is a no-op,
- * leaving the normal light/dark tokens.
- */
-export function hydrateBrandAtBoot(scope: string | null | undefined): void {
-  const brand = readInjectedBrand() ?? readCachedBrand(scope)
-  if (brand) applyBrand(brand)
+export function hydrateBrandFromCache(scope: string | null | undefined): void {
+  const cached = readCachedBrand(scope)
+  if (cached) applyBrand(cached)
 }
 
 export function useTheme() {

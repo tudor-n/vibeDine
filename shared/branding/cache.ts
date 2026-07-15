@@ -20,22 +20,9 @@ function keyFor(scope: string): string {
 
 // These values are written straight into CSS custom properties, so anything that
 // isn't a plain hex colour is rejected rather than trusted — localStorage is
-// attacker-writable from any script that lands on the origin, and window.__BRAND__
-// arrives as server-injected markup.
+// attacker-writable from any script that lands on the origin.
 function isHex(value: unknown): value is string {
   return typeof value === 'string' && /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(value)
-}
-
-/**
- * Narrow an untrusted value to a BrandInput, or null. Shared by every boot-time
- * brand source (localStorage cache, server-injected `window.__BRAND__`) so they
- * all get the same hex guard before the colours reach the DOM.
- */
-export function parseBrandInput(value: unknown): BrandInput | null {
-  if (!value || typeof value !== 'object') return null
-  const { primary, secondary, background } = value as Partial<BrandInput>
-  if (!isHex(primary) || !isHex(secondary) || !isHex(background)) return null
-  return { primary, secondary, background }
 }
 
 /** Cached colours for `scope`, or null when absent, unparsable, or not 3 valid hexes. */
@@ -44,7 +31,9 @@ export function readCachedBrand(scope: string | null | undefined): BrandInput | 
   try {
     const raw = localStorage.getItem(keyFor(scope))
     if (!raw) return null
-    return parseBrandInput(JSON.parse(raw))
+    const parsed = JSON.parse(raw) as Partial<BrandInput>
+    if (!isHex(parsed.primary) || !isHex(parsed.secondary) || !isHex(parsed.background)) return null
+    return { primary: parsed.primary, secondary: parsed.secondary, background: parsed.background }
   } catch {
     return null
   }
