@@ -17,8 +17,14 @@ RUN npm run build-only
 
 FROM node:20-alpine
 WORKDIR /app
-RUN npm install -g serve@14
+# Not a static file server (`serve`) any more: server/index.js does the SPA
+# fallback AND inlines the scanned table's brand colours into index.html, so a
+# first-ever scan paints the right theme instead of flashing the default one.
+# It needs BRANDING_API_URL at RUNTIME (unlike VITE_* which are baked at build) —
+# point it at the API's internal Railway URL. Unset = pages serve unbranded.
+COPY frontend-customer/server/package.json frontend-customer/server/package-lock.json ./server/
+RUN cd server && npm ci --omit=dev
+COPY frontend-customer/server/index.js ./server/
 COPY --from=build /app/frontend-customer/dist ./dist
 EXPOSE 3000
-# -s = SPA fallback: every path (e.g. /<qrToken>) serves index.html
-CMD ["serve", "-s", "dist", "-l", "tcp://0.0.0.0:3000"]
+CMD ["node", "server/index.js"]

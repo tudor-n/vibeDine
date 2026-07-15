@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { readCachedBrand, writeCachedBrand } from '@shared/branding/cache'
+import { readCachedBrand, writeCachedBrand, parseBrandInput } from '@shared/branding/cache'
 import { hydrateBrandFromCache } from '@/composables/useBrandTheme'
 
 const COLORS = { primary: '#E51F4E', secondary: '#E8A33B', background: '#F5EEE3' }
@@ -52,6 +52,36 @@ describe('brand cache', () => {
   it('rejects a partial entry missing a colour', () => {
     localStorage.setItem('clarifi.brand.rest-1', JSON.stringify({ primary: '#FFFFFF' }))
     expect(readCachedBrand('rest-1')).toBeNull()
+  })
+})
+
+// parseBrandInput is the single guard every boot-time brand source passes through
+// (localStorage cache on both apps, plus the server-injected window.__BRAND__ on
+// the customer app), so it carries the whole "no untrusted value reaches CSS" claim.
+describe('parseBrandInput', () => {
+  it('accepts 3 valid hexes, in long and short form', () => {
+    expect(parseBrandInput(COLORS)).toEqual(COLORS)
+    const short = { primary: '#fff', secondary: '#000', background: '#ABC' }
+    expect(parseBrandInput(short)).toEqual(short)
+  })
+
+  it('ignores extra properties rather than passing them through', () => {
+    expect(parseBrandInput({ ...COLORS, evil: 'x' })).toEqual(COLORS)
+  })
+
+  it.each([
+    ['null', null],
+    ['a string', '#FFFFFF'],
+    ['a number', 42],
+    ['an array', ['#FFFFFF']],
+    ['a css injection', { primary: 'red; background:url(//evil)', secondary: '#FFF', background: '#000' }],
+    ['a script breakout', { primary: '#FFF"></script><script>alert(1)</script>', secondary: '#FFF', background: '#000' }],
+    ['a named colour', { primary: 'red', secondary: '#FFF', background: '#000' }],
+    ['a hex without #', { primary: 'FFFFFF', secondary: '#FFF', background: '#000' }],
+    ['a 4-digit hex', { primary: '#FFFF', secondary: '#FFF', background: '#000' }],
+    ['a missing colour', { primary: '#FFF', secondary: '#FFF' }],
+  ])('rejects %s', (_label, value) => {
+    expect(parseBrandInput(value)).toBeNull()
   })
 })
 

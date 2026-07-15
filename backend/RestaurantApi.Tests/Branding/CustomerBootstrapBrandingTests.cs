@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -143,6 +144,67 @@ public class CustomerBootstrapBrandingTests : IAsyncLifetime
         var json = await ReadJsonAsync(res);
         var branding = json.GetProperty("branding");
         branding.GetProperty("enabled").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Branding_endpoint_returns_colours_for_a_branded_table()
+    {
+        var qrToken = await SeedTableAsync(r =>
+        {
+            r.BrandingEnabled = true;
+            r.BrandPrimary = "#E51F4E";
+            r.BrandSecondary = "#E8A33B";
+            r.BrandBackground = "#F5EEE3";
+        });
+
+        var res = await _client.GetAsync($"/api/tables/{qrToken}/branding");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await ReadJsonAsync(res);
+        json.GetProperty("enabled").GetBoolean().Should().BeTrue();
+        json.GetProperty("primary").GetString().Should().Be("#E51F4E");
+        json.GetProperty("secondary").GetString().Should().Be("#E8A33B");
+        json.GetProperty("background").GetString().Should().Be("#F5EEE3");
+    }
+
+    [Fact]
+    public async Task Branding_endpoint_reports_disabled_for_an_unbranded_table()
+    {
+        var qrToken = await SeedTableAsync();
+
+        var res = await _client.GetAsync($"/api/tables/{qrToken}/branding");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var json = await ReadJsonAsync(res);
+        json.GetProperty("enabled").GetBoolean().Should().BeFalse();
+    }
+
+    // The endpoint is anonymous and guarded only by the unguessable qrToken, so it
+    // must stay a colours-only keyhole: anything else here would be readable by
+    // anyone who ever photographed a table's QR code.
+    [Fact]
+    public async Task Branding_endpoint_exposes_only_colours_and_no_tenant_detail()
+    {
+        var qrToken = await SeedTableAsync(r =>
+        {
+            r.BrandingEnabled = true;
+            r.BrandPrimary = "#E51F4E";
+            r.BrandSecondary = "#E8A33B";
+            r.BrandBackground = "#F5EEE3";
+        });
+
+        var res = await _client.GetAsync($"/api/tables/{qrToken}/branding");
+        var json = await ReadJsonAsync(res);
+
+        json.EnumerateObject().Select(p => p.Name)
+            .Should().BeEquivalentTo(new[] { "enabled", "primary", "secondary", "background" });
+    }
+
+    [Fact]
+    public async Task Branding_endpoint_404s_for_an_unknown_token()
+    {
+        var res = await _client.GetAsync($"/api/tables/{Guid.NewGuid()}/branding");
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

@@ -1,0 +1,15 @@
+{
+  "name": "frontend-customer-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Serves the built customer SPA and inlines per-table brand colours into index.html so a first scan paints the right theme.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "compression": "^1.7.4",
+    "express": "^5.1.0"
+  }
+}
