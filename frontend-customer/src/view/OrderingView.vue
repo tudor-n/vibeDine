@@ -12,6 +12,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 
 import LanguageSelectView from '@/components/screens/LanguageSelectView.vue'
+import WelcomeView from '@/components/screens/WelcomeView.vue'
 import PebblesView from '@/components/screens/PebblesView.vue'
 import MenuView from '@/components/screens/MenuView.vue'
 import CartView from '@/components/screens/CartView.vue'
@@ -20,8 +21,9 @@ import OrderSentView from '@/components/screens/OrderSentView.vue'
 import MergedView from '@/components/screens/MergedView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
 import CallWaiterButton from '@/components/CallWaiterButton.vue'
+import HappyHourPopup from '@/components/HappyHourPopup.vue'
 
-type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
+type Screen = 'language' | 'welcome' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
 
 const route = useRoute()
 const cartStore = useCartStore()
@@ -30,7 +32,7 @@ const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
 const happyHourStore = useHappyHourStore()
 const orderStatusStore = useOrderStatusStore()
-const { theme, tokens: T, toggle: toggleTheme } = useTheme()
+const { theme, tokens: T, toggle: toggleTheme, isBranded } = useTheme()
 const { t } = useLocale()
 
 useWebSocket()
@@ -43,7 +45,7 @@ useWebSocket()
 const SCREEN_KEY = 'screen'
 const CATEGORY_KEY = 'activeCategoryId'
 const CART_ORIGIN_KEY = 'cartOrigin'
-const SCREENS: Screen[] = ['language', 'pebbles', 'menu', 'cart', 'sent', 'merged']
+const SCREENS: Screen[] = ['language', 'welcome', 'pebbles', 'menu', 'cart', 'sent', 'merged']
 
 function readScreen(key: string, fallback: Screen): Screen {
   const stored = sessionStorage.getItem(key)
@@ -52,6 +54,10 @@ function readScreen(key: string, fallback: Screen): Screen {
 
 const restoredCategory = sessionStorage.getItem(CATEGORY_KEY) || null
 const restoredScreen = readScreen(SCREEN_KEY, 'language')
+// A fresh session (no key written yet) is what makes a branded-with-photo
+// table land on the welcome screen; a mid-session refresh (key present, even
+// if its value fell back to the default) resumes wherever it was instead.
+const hadStoredScreen = sessionStorage.getItem(SCREEN_KEY) !== null
 // The menu screen can't render without a category, so fall back to the category
 // list if the restored category is gone.
 const screen = ref<Screen>(
@@ -140,6 +146,13 @@ onMounted(async () => {
     // backend's persisted draft so the diner keeps the order they were building.
     cartStore.restoreFromServerIfEmpty(session.activeOrder.items)
     if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
+    // A fresh session (no restored screen) on a table branded with a welcome
+    // photo starts on the branded welcome screen instead of the language
+    // picker — the welcome screen subsumes language selection. Unbranded (or
+    // no photo) tables, and any mid-session refresh, are unaffected.
+    if (!hadStoredScreen && sessionStore.branding?.enabled && sessionStore.branding?.photoUrl) {
+      screen.value = 'welcome'
+    }
     // Poll the live happy hour app-wide (not just on the menu screen) so the bar
     // shows on the categories page and stays visible after an order is sent.
     happyHourStore.startPolling()
@@ -170,6 +183,14 @@ function openCategory(id: string) {
   screen.value = 'menu'
 }
 function backToPebbles() { screen.value = 'pebbles' }
+// Branded-with-photo tables never show the language picker — the welcome
+// screen subsumes it — so back-from-pebbles must return there instead of
+// bouncing a branded diner onto a screen they were never meant to see.
+// Unbranded (or no-photo) tables keep going back to the language picker.
+function backFromPebbles() {
+  screen.value =
+    sessionStore.branding?.enabled && sessionStore.branding?.photoUrl ? 'welcome' : 'language'
+}
 function openCart() {
   // Remember where we came from (menu or pebbles) so close returns there.
   if (screen.value === 'menu' || screen.value === 'pebbles') cartOrigin.value = screen.value
@@ -238,6 +259,31 @@ const flashOverlayActive = computed(
   () => Boolean(flashDealStore.activeDeal) && showFlashDealModal.value,
 )
 
+// The happy-hour offer popup + reopen banner only make sense while the diner is
+// browsing (categories or a menu), and the flash-deal modal takes precedence so
+// two offers never stack. The popup is an overlay; the reopen banner lives inline
+// on those screens. The session-error case is excluded where the popup is rendered.
+const happyHourEnabled = computed(
+  () =>
+    (screen.value === 'pebbles' || screen.value === 'menu') &&
+    !flashOverlayActive.value,
+)
+// True while the modal offer popup is actually covering the screen — used to hide
+// the floating action buttons underneath it (the theme toggle stays reachable so
+// the diner can switch themes with the popup open).
+const happyHourPopupActive = computed(
+  () => happyHourEnabled.value && happyHourStore.open && Boolean(happyHourStore.active),
+)
+// True while the return-to-happy-hour banner occupies the top of the menu. It
+// sits above the header and pushes it (and the back button the flash-deal pill
+// aligns to) down by its own footprint, so we shift that pill down to match.
+const happyHourReturnVisible = computed(
+  () => happyHourEnabled.value && !happyHourStore.open && Boolean(happyHourStore.active),
+)
+// The return banner's margin-box height (tile 34 + 22 padding + 2 border + 20
+// vertical margin ≈ 78px). Kept in sync with HappyHourBanner's own metrics.
+const happyHourBannerOffset = computed(() => (happyHourReturnVisible.value ? '78px' : '0px'))
+
 function openFlashDeal() {
   showFlashDealModal.value = true
 }
@@ -281,7 +327,8 @@ const showProgressButton = computed(
     screen.value !== 'sent' &&
     screen.value !== 'language' &&
     !showSessionError.value &&
-    !flashOverlayActive.value,
+    !flashOverlayActive.value &&
+    !happyHourPopupActive.value,
 )
 
 // Re-arm the retirement whenever the archive timestamp changes (set on the
@@ -292,7 +339,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 
 <template>
   <div class="stage" :style="{ background: T.paper }">
-    <div class="phone-frame">
+    <div class="phone-frame" :style="{ '--hh-banner-offset': happyHourBannerOffset }">
       <div
         v-if="showSessionError"
         class="session-error"
@@ -315,12 +362,17 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           key="language"
           @select="onLanguageSelected"
         />
+        <WelcomeView
+          v-else-if="screen === 'welcome'"
+          key="welcome"
+          @continue="screen = 'pebbles'"
+        />
         <PebblesView
           v-else-if="screen === 'pebbles'"
           key="pebbles"
           @open-category="openCategory"
           @open-cart="openCart"
-          @back="screen = 'language'"
+          @back="backFromPebbles"
         />
         <MenuView
           v-else-if="screen === 'menu' && activeCategoryId"
@@ -354,6 +406,10 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
         </div>
       </Transition>
 
+      <!-- Happy-hour offer popup (opens once per deal) + "added" toast. The
+           reopen banner it collapses into lives inline on the menu screens. -->
+      <HappyHourPopup v-if="!showSessionError" :enabled="happyHourEnabled" />
+
       <!-- "Someone joined your table" toast — auto-dismissed by the guest store. -->
       <Transition name="toast" mode="out-in">
         <div
@@ -371,12 +427,12 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       </Transition>
 
       <FlashDealIcon
-        v-if="flashIconVisible && !flashOverlayActive"
+        v-if="flashIconVisible && !flashOverlayActive && !happyHourPopupActive"
         @open="openFlashDeal"
       />
 
       <CallWaiterButton
-        v-if="screen !== 'language' && !showSessionError && !flashOverlayActive"
+        v-if="screen !== 'language' && screen !== 'welcome' && !showSessionError && !flashOverlayActive && !happyHourPopupActive"
       />
 
       <!-- Re-open the live order's progress timeline. Appears once an order has
@@ -384,7 +440,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       <button
         v-if="showProgressButton"
         class="progress-toggle"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
         :aria-label="t('sent.viewProgress')"
         @click="viewProgress"
       >
@@ -404,6 +460,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       </button>
 
       <button
+        v-if="!isBranded"
         class="theme-toggle"
         :style="{
           background: T.card,

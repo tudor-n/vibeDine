@@ -48,3 +48,16 @@ export interface TriggerFlashDealRequest {
   discountPercent: number;
   countdownSeconds: number;
 }
+
+
+export interface VibeyCartItem {
+  id: string;
+  name: string;
+  category?: string | null;
+  qty: number;
+}
+
+export interface VibeyRecommendationRequest {
+  items: VibeyCartItem[];
+  locale: string;
+}

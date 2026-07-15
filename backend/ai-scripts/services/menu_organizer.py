@@ -161,8 +161,13 @@ def merge_organizer_results(
             direct_item_refs=entry["direct"],
         ))
 
+    # The merged hierarchy counts as AI-organized only if at least one chunk was
+    # actually organized by the model; if every chunk degraded to hint grouping
+    # (e.g. the organizer raised for all of them), report the honest fallback.
+    merged_source = "ai" if any(res.source == "ai" for res in results) else "hint-fallback"
+
     return OrganizerResult(
-        source="ai",
+        source=merged_source,
         categories=categories,
         uncategorized_item_refs=uncategorized,
         model_notes=None,

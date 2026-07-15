@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiClient, type ActiveOrder, type ActiveOrderStatus } from '@/services/api-client'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { formatMoney } from '@/utils/money'
 
 type ActiveStatus = ActiveOrderStatus
 
@@ -302,7 +303,7 @@ onBeforeUnmount(() => {
 
             <footer class="kc-bot">
               <span class="text-[12px] font-mono uppercase tracking-[0.05em] text-ink-70">
-                {{ order.totalAmount.toFixed(2) }} RON
+                {{ formatMoney(order.totalAmount) }} RON
               </span>
               <div class="kc-foot-right">
                 <span

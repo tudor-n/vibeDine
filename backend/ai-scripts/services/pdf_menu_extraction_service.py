@@ -65,6 +65,11 @@ _THROTTLE_MS = 0.250
 
 _PROVIDER_LIMITERS_ATTR = "_pdf_menu_provider_limiters"
 
+# Hard ceiling on how many PDF pages a single import may fan out into paid
+# provider calls. Guards against cost-amplification / DoS from an oversized
+# upload (AI-02). Overridable per-service via the `max_pages` constructor arg.
+DEFAULT_MAX_PDF_PAGES = 100
+
 
 def _default_provider_concurrency(work_concurrency: int) -> int:
     return max(1, min(4, work_concurrency))
@@ -87,6 +92,10 @@ def _get_provider_semaphore(limit: int) -> asyncio.Semaphore:
 
 class PdfReadError(Exception):
     """Raised when a PDF cannot be opened/read during the parsing phase."""
+
+
+class PdfTooManyPagesError(Exception):
+    """Raised when a PDF exceeds the configured maximum page count (AI-02)."""
 
 
 @dataclass
@@ -183,6 +192,7 @@ class PdfMenuExtractionService:
         organizer_chunk_size: int = 40,
         item_photo_extractor_factory: Callable[[], "ItemPhotoExtractor | None"] | None = None,
         item_photo_max_pages: int = 50,
+        max_pages: int = DEFAULT_MAX_PDF_PAGES,
     ):
         self._text_factory = text_extractor_factory
         self._vision_factory = vision_extractor_factory
@@ -221,6 +231,9 @@ class PdfMenuExtractionService:
         self._max_embedded_image_bytes = max_embedded_image_bytes
         if item_photo_max_pages < 0:
             raise ValueError("item_photo_max_pages must be >= 0")
+        if max_pages < 1:
+            raise ValueError("max_pages must be >= 1")
+        self._max_pages = max_pages
         self._metrics = metrics
         if organizer_chunk_size < 1:
             raise ValueError("organizer_chunk_size must be >= 1")
@@ -272,6 +285,22 @@ class PdfMenuExtractionService:
             raise PdfReadError("Unreadable PDF")
 
         total_pages = len(pages)
+
+        # Reject oversized PDFs before fanning out to per-page provider calls, so
+        # a huge upload cannot amplify into an unbounded, expensive extraction job.
+        if total_pages > self._max_pages:
+            await self._progress.send(ProgressEvent(
+                job_id=job_id,
+                status="failed",
+                phase="parsing",
+                processed_pages=0,
+                total_pages=total_pages,
+                failed_pages=0,
+                error_message=f"PDF has too many pages ({total_pages} > {self._max_pages})",
+            ))
+            raise PdfTooManyPagesError(
+                f"PDF has {total_pages} pages; the maximum allowed is {self._max_pages}."
+            )
 
         # Phase 2: classifying
         await self._progress.send(ProgressEvent(

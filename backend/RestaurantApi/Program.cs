@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -43,13 +44,22 @@ builder.Services
 
 var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 
-// HMAC-SHA256 needs a >= 256-bit (32-byte) key. Fail fast at startup with a clear
-// message instead of a confusing per-request 500 from the auth middleware.
-if (System.Text.Encoding.UTF8.GetByteCount(jwt.Key) < 32)
+// The JWT signing key must be a real secret in Production/Staging. A length-only check
+// is not enough: the committed placeholders are long enough to pass it, so a prod deploy
+// that forgets Jwt__Key would boot on a publicly-known key and every token would be
+// forgeable. Reject empty/short values AND the known dev/test placeholders. Development
+// and Testing run with their committed dev keys by design. (Mirrors OpsApi's RequireSecret.)
+if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
 {
-    throw new InvalidOperationException(
-        "Jwt:Key is missing or shorter than 32 bytes. Set it via the Jwt__Key environment " +
-        "variable (appsettings.Development.json is excluded from the Docker image by .dockerignore).");
+    if (string.IsNullOrWhiteSpace(jwt.Key)
+        || System.Text.Encoding.UTF8.GetByteCount(jwt.Key) < 32
+        || jwt.Key.StartsWith("test-only", StringComparison.Ordinal)
+        || jwt.Key.StartsWith("dev-only", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "Jwt:Key must be set to a non-default secret of at least 32 bytes outside Development. " +
+            "Set it via the Jwt__Key environment variable (never commit it).");
+    }
 }
 
 // MenuImport HMAC secret fail-fast: require at least 32 characters.
@@ -206,6 +216,8 @@ builder.Services.AddSingleton<ItemPhotoStorage>();
 builder.Services.AddScoped<MenuImportPhotoMerger>();
 builder.Services.AddHostedService<MenuImportBackgroundService>();
 
+builder.Services.AddMemoryCache();
+
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
 builder.Services.AddScoped<IStockService, StockService>();
@@ -219,6 +231,26 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy =
             System.Text.Json.JsonNamingPolicy.CamelCase;
     });
+
+// Produce a consistent, detail-free ProblemDetails body for unhandled errors
+// (paired with app.UseExceptionHandler() below in non-Development environments).
+builder.Services.AddProblemDetails();
+
+// Brute-force / abuse protection on the credential-testing auth endpoints:
+// fixed window per client IP. Applied via [EnableRateLimiting("auth")].
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -253,15 +285,24 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    // Production/Staging: turn unhandled exceptions into a detail-free ProblemDetails
+    // response instead of leaking a stack trace or emitting a bare bodyless 500.
+    // Development keeps the framework's developer exception page.
+    app.UseExceptionHandler();
+}
 
 app.UseRouting();
 app.UseCors();
+app.UseRateLimiter();
 
 // Serve uploaded files out of ContentRoot/wwwroot even when the published
 // container starts without a checked-in wwwroot directory.
 var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "avatars"));
 Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "menu-items"));
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "branding"));
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(webRoot),

@@ -403,6 +403,15 @@ public class MenuManagementController : ControllerBase
         if (request.Items.Count == 0)
             return BadRequest(new { message = "At least one item is required." });
 
+        // Bound the payload so an oversized array can't spike memory / hold a long
+        // transaction (authenticated admin, but still a standing input-cap requirement).
+        const int MaxBulkItems = 1000;
+        const int MaxBulkNewCategories = 200;
+        if (request.Items.Count > MaxBulkItems)
+            return BadRequest(new { message = $"At most {MaxBulkItems} items can be created at once." });
+        if ((request.NewCategories?.Count ?? 0) > MaxBulkNewCategories)
+            return BadRequest(new { message = $"At most {MaxBulkNewCategories} new categories can be created at once." });
+
         // Validate every item upfront so a roll-back happens before any DB writes.
         var errors = new List<object>();
         for (var i = 0; i < request.Items.Count; i++)
@@ -545,6 +554,17 @@ public class MenuManagementController : ControllerBase
 
         if (categories.Count == 0 && products.Count == 0)
             return BadRequest(new { message = "At least one category or product is required." });
+
+        // Bound the payload (memory / long-transaction guard on the bulk import path).
+        const int MaxHierarchyCategories = 200;
+        const int MaxHierarchySubcategories = 500;
+        const int MaxHierarchyProducts = 2000;
+        if (categories.Count > MaxHierarchyCategories)
+            return BadRequest(new { message = $"At most {MaxHierarchyCategories} categories can be imported at once." });
+        if (categories.Sum(c => (c.Subcategories ?? new()).Count) > MaxHierarchySubcategories)
+            return BadRequest(new { message = $"At most {MaxHierarchySubcategories} subcategories can be imported at once." });
+        if (products.Count > MaxHierarchyProducts)
+            return BadRequest(new { message = $"At most {MaxHierarchyProducts} products can be imported at once." });
 
         var catTempIds = categories.Select(c => c.TempId).ToList();
         if (catTempIds.Any(string.IsNullOrWhiteSpace))
@@ -692,6 +712,10 @@ public class MenuManagementController : ControllerBase
     {
         if (request.ProductIds == null || request.ProductIds.Count == 0)
             return BadRequest(new { message = "productIds must not be empty." });
+
+        const int MaxReorderProducts = 2000;
+        if (request.ProductIds.Count > MaxReorderProducts)
+            return BadRequest(new { message = $"At most {MaxReorderProducts} products can be reordered at once." });
 
         if (request.ProductIds.Distinct().Count() != request.ProductIds.Count)
             return BadRequest(new { message = "productIds must not contain duplicates." });

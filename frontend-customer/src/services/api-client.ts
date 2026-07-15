@@ -1,6 +1,6 @@
-import type { MenuResponse, RecommendationsResponse } from '@shared/types/api-responses';
-import type { UpdateOrderItemsRequest } from '@shared/types/api-requests';
-import type { ActiveHappyHour } from '@shared/types/models';
+import type { MenuResponse, VibeyRecommendationResponse } from '@shared/types/api-responses';
+import type { UpdateOrderItemsRequest, VibeyRecommendationRequest } from '@shared/types/api-requests';
+import type { ActiveHappyHour, RestaurantBranding } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
@@ -14,6 +14,7 @@ export interface TableSession {
   tableId: string;
   tableNumber: string;
   activeOrder: { id: string };
+  branding: RestaurantBranding | null;
 }
 
 // ── Multi-person ordering (party) ──────────────────────────────────────────
@@ -45,6 +46,7 @@ export interface JoinTableResponse {
   tableNumber: string;
   activeOrder: { id: string; status: string; totalAmount: number; items: PartyOrderItem[] };
   partyMembers: PartyMember[];
+  branding: RestaurantBranding | null;
 }
 
 export interface MergePartyResponse {
@@ -135,19 +137,18 @@ export const apiClient = {
   submitOrder: (orderId: string) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/submit`, { method: 'POST' }),
 
-  getRecommendations: (orderId: string, cartItemIds: string[], language: string) => {
-    const query = new URLSearchParams({
-      current_item_ids: cartItemIds.join(','),
-      language,
-    }).toString();
-    return fetcher<RecommendationsResponse | any[]>(
-      `/api/restaurants/${rid()}/orders/${orderId}/recommendations?${query}`,
-    );
-  },
-
   claimFlashDeal: (orderId: string, dealId: string) =>
     fetcher<void>(`/api/restaurants/${rid()}/orders/${orderId}/claim-deal/${dealId}`, {
       method: 'POST',
+    }),
+
+  // The ONE Vibey model call — invoked only from useVibeyStore.openSheet() on
+  // the first "Da, arată-mi" tap. Never call this eagerly (cart load, qty
+  // change, sheet re-open) — see docs/superpowers/specs/2026-07-09-vibey-recommendations-design.md.
+  getVibeyRecommendations: (payload: VibeyRecommendationRequest) =>
+    fetcher<VibeyRecommendationResponse>(`/api/restaurants/${rid()}/recommendations`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   // Dedicated helper: the generic fetcher throws a plain Error and would lose

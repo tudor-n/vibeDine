@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { toneFromKey } from '@/design/tokens'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useGuestStore } from '@/stores/useGuestStore'
+import { useVibeyStore } from '@/stores/useVibeyStore'
 import { apiClient } from '@/services/api-client'
 import { formatMoney } from '@/utils/money'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
 import PartyPanel from '@/components/PartyPanel.vue'
+import VibeyBlock from '@/components/vibey/VibeyBlock.vue'
+import VibeySheet from '@/components/vibey/VibeySheet.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -21,12 +24,27 @@ const emit = defineEmits<{
 const cartStore = useCartStore()
 const sessionStore = useSessionStore()
 const guestStore = useGuestStore()
+const vibeyStore = useVibeyStore()
 const { tokens: T, theme } = useTheme()
-const { t } = useLocale()
+const { t, locale } = useLocale()
 
 // Refresh the party panel when the cart opens so each phone sees the others'
 // current carts (also kept live via SignalR PartyMemberJoined / PartyMerged).
 onMounted(() => guestStore.refreshParty(sessionStore.qrToken))
+
+// Vibey's teaser is deterministic client-side copy keyed on the draft cart
+// identity (never a network call — see useVibeyStore.ensureTeaser). Falls
+// back to a stable literal when there's no order yet so the block still has
+// something to show. When the order id changes (new round / cart cleared)
+// the old cart's teaser/recs must not leak into the new one.
+onMounted(() => vibeyStore.ensureTeaser(sessionStore.orderId ?? 'cart', locale.value))
+watch(
+  () => sessionStore.orderId,
+  () => {
+    vibeyStore.reset()
+    vibeyStore.ensureTeaser(sessionStore.orderId ?? 'cart', locale.value)
+  },
+)
 
 // Initiator path: after merging, the backend order already holds everyone's
 // items, so mirror the consolidated order back into this cart to review/submit.
@@ -66,6 +84,9 @@ const prepEstimate = computed(() => {
 })
 
 async function submit() {
+  // Guard against a double-submit while the pre-submit flush is in flight: the
+  // button is disabled via isSubmitting, but block re-entry defensively too.
+  if (isSubmitting.value) return
   if (!sessionStore.orderId) {
     submitError.value = t('cart.errorInvalidSession')
     return
@@ -77,6 +98,9 @@ async function submit() {
   try {
     isSubmitting.value = true
     submitError.value = null
+    // Force the pending debounced cart sync to land before dispatching, so the
+    // kitchen order reflects the last edit and not the backend's stale draft.
+    await cartStore.flush()
     await apiClient.submitOrder(sessionStore.orderId)
     emit('submitted')
   } catch (e) {
@@ -137,7 +161,7 @@ async function submit() {
           <div
             v-if="isRecommended(it.id)"
             class="ai-pill"
-            :style="{ background: T.lime, color: T.ink }"
+            :style="{ background: T.lime, color: T.onLime }"
           >{{ t('cart.aiSuggested') }}</div>
           <div class="item-row">
             <div class="item-price">
@@ -171,6 +195,8 @@ async function submit() {
       </div>
     </div>
 
+    <VibeyBlock v-if="cartStore.items.length > 0" />
+
     <div v-if="cartStore.items.length > 0" class="summary-wrap">
       <div class="summary" :style="{ background: T.card, border: `1px solid ${T.ink12}` }">
         <div class="row" :style="{ color: T.ink70 }">
@@ -203,6 +229,8 @@ async function submit() {
         <span>{{ isSubmitting ? t('cart.submitting') : t('cart.submit') }}</span>
       </BigButton>
     </div>
+
+    <VibeySheet v-if="cartStore.items.length > 0" />
   </PhoneScreen>
 </template>
 

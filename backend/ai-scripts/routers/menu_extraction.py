@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import os
-import shutil
 from pathlib import Path
 from typing import Callable, List
 from urllib.parse import urlparse
@@ -15,7 +14,12 @@ from models.menu_extraction import MenuExtractionResponse, PdfJobRequest
 from services.item_photo_extractor import resolve_item_photo_extractor
 from services.menu_extraction_service import MenuExtractionService
 from services.menu_organizer import resolve_organizer
-from services.pdf_menu_extraction_service import PdfMenuExtractionService, PdfReadError
+from services.pdf_menu_extraction_service import (
+    DEFAULT_MAX_PDF_PAGES,
+    PdfMenuExtractionService,
+    PdfReadError,
+    PdfTooManyPagesError,
+)
 from services.progress_reporter import ProgressReporter
 from services.text_extractor import ClaudeTextExtractor, GeminiTextExtractor, TextExtractor
 from services.vision_extractor import ClaudeExtractor, GeminiExtractor, VisionExtractor
@@ -75,6 +79,7 @@ def get_extraction_service() -> MenuExtractionService:
         extractor_factory=_default_extractor_factory,
         organizer_factory=resolve_organizer,
         photo_extractor_factory=resolve_item_photo_extractor,
+        concurrency=_read_int_env("MENU_EXTRACT_CONCURRENCY", 4, minimum=1),
     )
 
 
@@ -87,7 +92,34 @@ async def extract_menu(
 ) -> MenuExtractionResponse:
     if not photos:
         raise HTTPException(status_code=400, detail="At least one photo is required.")
-    image_bytes_list = [await p.read() for p in photos]
+
+    # Cap the batch size and total bytes before reading everything into memory,
+    # so one request cannot OOM the service or burst into unbounded paid calls.
+    max_photos = _read_int_env("MENU_EXTRACT_MAX_PHOTOS", 20, minimum=1)
+    if len(photos) > max_photos:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many photos: {len(photos)} (maximum {max_photos}).",
+        )
+    max_total_bytes = _read_int_env(
+        "MENU_EXTRACT_MAX_TOTAL_BYTES", 25_000_000, minimum=1
+    )
+
+    image_bytes_list: list[bytes] = []
+    total_bytes = 0
+    for p in photos:
+        data = await p.read()
+        total_bytes += len(data)
+        if total_bytes > max_total_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Uploaded photos exceed the maximum total size of "
+                    f"{max_total_bytes} bytes."
+                ),
+            )
+        image_bytes_list.append(data)
+
     return await service.extract(
         image_bytes_list, locale=locale, extract_item_photos=extract_item_photos
     )
@@ -141,6 +173,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
     )
     item_photo_max_pages = _read_int_env("ITEM_PHOTO_MAX_PAGES", 50, minimum=0)
     organizer_chunk_size = _read_int_env("PDF_ORGANIZER_CHUNK_SIZE", 40, minimum=1)
+    max_pages = _read_int_env("MAX_PDF_PAGES", DEFAULT_MAX_PDF_PAGES, minimum=1)
 
     text_extractor_factory = _build_text_extractor_factory()
 
@@ -169,6 +202,7 @@ def get_pdf_extraction_service_factory() -> Callable[[PdfJobRequest], PdfMenuExt
                 resolve_item_photo_extractor if req.extract_item_photos else None
             ),
             item_photo_max_pages=item_photo_max_pages,
+            max_pages=max_pages,
         )
 
     return builder
@@ -240,9 +274,29 @@ async def extract_pdf(
     storage_root.mkdir(parents=True, exist_ok=True)
     storage_path = storage_root / f"{job_id}-{uuid4().hex}.pdf"
 
+    max_upload_bytes = _read_int_env(
+        "MENU_IMPORT_MAX_PDF_BYTES", 104_857_600, minimum=1
+    )
+
     try:
+        # Stream to disk in bounded chunks so an oversized upload cannot fill the
+        # volume — abort (and clean up in `finally`) the moment the cap is passed.
+        written = 0
         with storage_path.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"Uploaded PDF exceeds the maximum size of "
+                            f"{max_upload_bytes} bytes."
+                        ),
+                    )
+                out.write(chunk)
 
         request = PdfJobRequest(
             job_id=job_id,
@@ -257,6 +311,8 @@ async def extract_pdf(
         service = factory(request)
         try:
             return await service.run(request)
+        except PdfTooManyPagesError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
         except PdfReadError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:

@@ -371,9 +371,19 @@ function matchesFilter(p: AdminProduct): boolean {
     return true
 }
 
+/** Escape a URL for safe interpolation inside a single-quoted CSS `url('…')`. */
+function cssEscape(value: string): string {
+    return value.replace(/[\\'\n\r]/g, (ch) => `\\${ch}`)
+}
+
 function backgroundImageStyle(url: string | null | undefined) {
     const resolved = resolveMediaUrl(url)
-    return resolved ? { backgroundImage: `url(${resolved})` } : {}
+    if (!resolved) return {}
+    // Category/product image URLs can originate from the AI import pipeline, so
+    // only allow http(s) absolute URLs or app-relative paths — reject anything
+    // else (javascript:, data:, CSS-injection tokens) rather than emit it.
+    if (!/^https?:\/\//i.test(resolved) && !resolved.startsWith('/')) return {}
+    return { backgroundImage: `url('${cssEscape(resolved)}')` }
 }
 
 const visibleCategories = computed(() => {

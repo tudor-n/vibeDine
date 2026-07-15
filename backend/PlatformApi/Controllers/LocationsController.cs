@@ -102,15 +102,21 @@ public class LocationsController : ControllerBase
         if (string.IsNullOrWhiteSpace(name))
             return BadRequest(new { message = "Name is required." });
 
+        var timezone = string.IsNullOrWhiteSpace(request.Timezone) ? "Europe/Bucharest" : request.Timezone!.Trim();
+        var currency = string.IsNullOrWhiteSpace(request.Currency) ? "RON" : request.Currency!.Trim().ToUpperInvariant();
+        var locale = string.IsNullOrWhiteSpace(request.Locale) ? "ro-RO" : request.Locale!.Trim();
+        if (ValidateLocaleFields(timezone, currency, locale) is { } error)
+            return BadRequest(new { message = error });
+
         var location = new Restaurant
         {
             OrganizationId = org.Id,
             Name = name,
             Slug = Slug.From(name),
             Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address!.Trim(),
-            Timezone = string.IsNullOrWhiteSpace(request.Timezone) ? "Europe/Bucharest" : request.Timezone!.Trim(),
-            Currency = string.IsNullOrWhiteSpace(request.Currency) ? "RON" : request.Currency!.Trim(),
-            Locale = string.IsNullOrWhiteSpace(request.Locale) ? "ro-RO" : request.Locale!.Trim(),
+            Timezone = timezone,
+            Currency = currency,
+            Locale = locale,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
         };
@@ -139,11 +145,23 @@ public class LocationsController : ControllerBase
         if (request.Address is not null)
             location.Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
         if (request.Timezone is not null && request.Timezone.Trim().Length > 0)
-            location.Timezone = request.Timezone.Trim();
+        {
+            var timezone = request.Timezone.Trim();
+            if (!IsValidTimezone(timezone)) return BadRequest(new { message = TimezoneError });
+            location.Timezone = timezone;
+        }
         if (request.Currency is not null && request.Currency.Trim().Length > 0)
-            location.Currency = request.Currency.Trim();
+        {
+            var currency = request.Currency.Trim().ToUpperInvariant();
+            if (!IsValidCurrency(currency)) return BadRequest(new { message = CurrencyError });
+            location.Currency = currency;
+        }
         if (request.Locale is not null && request.Locale.Trim().Length > 0)
-            location.Locale = request.Locale.Trim();
+        {
+            var locale = request.Locale.Trim();
+            if (!IsValidLocale(locale)) return BadRequest(new { message = LocaleError });
+            location.Locale = locale;
+        }
 
         await _db.SaveChangesAsync();
 
@@ -198,4 +216,31 @@ public class LocationsController : ControllerBase
         _logger.LogInformation("Deleted location {Id} ({Name})", location.Id, location.Name);
         return NoContent();
     }
+
+    // PLAT-08: these values are persisted to shared tables read by RestaurantApi, so cap/whitelist
+    // them instead of accepting arbitrary or oversized strings.
+    private const int MaxLocaleLength = 35;
+    private const int MaxTimezoneLength = 64;
+    private const string CurrencyError = "Currency must be a 3-letter ISO-4217 code (e.g. RON, EUR).";
+    private const string TimezoneError = "Timezone is invalid or exceeds 64 characters.";
+    private const string LocaleError = "Locale is invalid or exceeds 35 characters.";
+
+    private static string? ValidateLocaleFields(string timezone, string currency, string locale)
+    {
+        if (!IsValidTimezone(timezone)) return TimezoneError;
+        if (!IsValidCurrency(currency)) return CurrencyError;
+        if (!IsValidLocale(locale)) return LocaleError;
+        return null;
+    }
+
+    private static bool IsValidCurrency(string value) =>
+        value.Length == 3 && value.All(char.IsLetter);
+
+    private static bool IsValidLocale(string value) =>
+        value.Length is > 0 and <= MaxLocaleLength
+        && value.All(c => char.IsLetterOrDigit(c) || c is '-' or '_');
+
+    private static bool IsValidTimezone(string value) =>
+        value.Length is > 0 and <= MaxTimezoneLength
+        && value.All(c => char.IsLetterOrDigit(c) || c is '/' or '_' or '+' or '-');
 }

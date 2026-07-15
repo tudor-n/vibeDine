@@ -433,6 +433,15 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(r => r.Currency).HasColumnName("currency");
             e.Property(r => r.Locale).HasColumnName("locale").HasDefaultValue("ro-RO");
             e.Property(r => r.IsActive).HasColumnName("is_active");
+            e.Property(r => r.BrandingEnabled).HasColumnName("branding_enabled").HasDefaultValue(false);
+            e.Property(r => r.BrandPrimary).HasColumnName("brand_primary");
+            e.Property(r => r.BrandSecondary).HasColumnName("brand_secondary");
+            e.Property(r => r.BrandBackground).HasColumnName("brand_background");
+            e.Property(r => r.LogoUrl).HasColumnName("logo_url");
+            e.Property(r => r.PhotoUrl).HasColumnName("photo_url");
+            e.Property(r => r.BrandPresetKey).HasColumnName("brand_preset_key");
+            e.Property(r => r.LogoBackground).HasColumnName("logo_background");
+            e.Property(r => r.LogoIsDark).HasColumnName("logo_is_dark");
             e.Property(r => r.CreatedAt).HasColumnName("created_at");
             e.HasIndex(r => r.OrganizationId);
 
@@ -478,6 +487,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.ToTable("refresh_tokens");
             e.Property(t => t.Id).HasColumnName("id");
             e.Property(t => t.UserId).HasColumnName("user_id");
+            // Stores the SHA-256 hash of the token value, not the plaintext (see RefreshToken).
             e.Property(t => t.Token).HasColumnName("token");
             e.Property(t => t.ExpiresAt).HasColumnName("expires_at");
             e.Property(t => t.CreatedAt).HasColumnName("created_at");

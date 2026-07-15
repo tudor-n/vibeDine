@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using PlatformApi.Auth;
 using PlatformApi.Common;
 using PlatformApi.Data;
 using PlatformApi.DTO.Requests;
@@ -98,12 +99,17 @@ public class OrganizationsController : ControllerBase
         if (string.IsNullOrWhiteSpace(name))
             return BadRequest(new { message = "Name is required." });
 
+        // PLAT-08: stamp the real acting platform admin, never Guid.Empty, so the audit trail is meaningful.
+        var actorId = User.PlatformAdminId();
+        if (actorId is null)
+            return Unauthorized(new { message = "Could not resolve the acting platform admin." });
+
         var seed = string.IsNullOrWhiteSpace(request.Slug) ? name : request.Slug!;
         var org = new Organization
         {
             Name = name,
             Slug = await UniqueSlugAsync(Slug.From(seed)),
-            CreatedByUserId = Guid.Empty,
+            CreatedByUserId = actorId.Value,
             CreatedAt = DateTime.UtcNow,
         };
 

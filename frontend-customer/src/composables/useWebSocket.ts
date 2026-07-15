@@ -23,9 +23,25 @@ export function useWebSocket() {
   const { setAvailability } = useMenu()
   const isConnected = ref(false)
   let socket: WebSocket | null = null
+  // Keep-alive ping timer (CUST-03) and reconnect timer / intentional-close flag
+  // (CUST-04) — module-scoped to this composable instance so disconnect() and
+  // onUnmounted can fully tear the connection down.
+  let pingInterval: ReturnType<typeof setInterval> | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let intentionalClose = false
+
+  function stopPing() {
+    if (pingInterval) {
+      clearInterval(pingInterval)
+      pingInterval = null
+    }
+  }
 
   function connect() {
     if (socket) return  // already connected, don't check tableId here
+
+    // A fresh connect means we want to stay connected; reconnect on unexpected close.
+    intentionalClose = false
 
     const socketUrl = `${BASE_WS_URL}/hubs/customer?token=${sessionStore.qrToken}`
 
@@ -37,6 +53,17 @@ export function useWebSocket() {
 
       // Step 1: send handshake
       socket?.send(JSON.stringify({ protocol: 'json', version: 1 }) + '\x1e')
+
+      // Keep-alive: SignalR expects periodic client pings ({"type":6}). Without
+      // them the server's default 30s ClientTimeoutInterval drops the socket
+      // roughly every 30s, and any event fired during the reconnect gap is lost
+      // (SignalR does not replay group messages). Ping every 15s while open.
+      stopPing()
+      pingInterval = setInterval(() => {
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 6 }) + '\x1e')
+        }
+      }, 15000)
     }
 
     socket.onmessage = (event) => {
@@ -128,7 +155,16 @@ export function useWebSocket() {
 
             if (data.target === 'OrderStatusUpdated') {
               const payload = data.arguments[0] as { orderId: string; status: OrderStatus }
-              if (payload?.orderId && payload?.status) {
+              // Broadcast to the whole table group, but each phone owns a
+              // different order in a pay-separately party. Apply the update only
+              // to THIS phone's order so a peer's status (or a cancel) can't
+              // overwrite our timeline — mirror the FlashDealAvailable filter.
+              const myOrderId = sessionStore.orderId
+              const isMyOrder =
+                !!myOrderId &&
+                !!payload?.orderId &&
+                String(payload.orderId).toLowerCase() === myOrderId.toLowerCase()
+              if (isMyOrder && payload?.status) {
                 orderStatusStore.setStatus(payload.orderId, payload.status)
               }
             }
@@ -207,7 +243,13 @@ export function useWebSocket() {
       console.log('Conexiune WebSocket închisă.')
       isConnected.value = false
       socket = null
-      setTimeout(() => {
+      stopPing()
+      // Don't reconnect after an intentional disconnect() (teardown / unmount) —
+      // otherwise close() would just trigger another connect() loop.
+      if (intentionalClose) return
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
         if (sessionStore.tableId) connect()
       }, 5000)
     }
@@ -218,6 +260,14 @@ export function useWebSocket() {
   }
 
   function disconnect() {
+    // Mark this as an intentional close so onclose does not schedule a reconnect,
+    // and cancel any pending reconnect / ping timers so nothing survives teardown.
+    intentionalClose = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    stopPing()
     if (socket) {
       socket.close()
     }

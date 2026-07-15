@@ -1021,6 +1021,28 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("address");
 
+                    b.Property<string>("BrandBackground")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_background");
+
+                    b.Property<string>("BrandPresetKey")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_preset_key");
+
+                    b.Property<string>("BrandPrimary")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_primary");
+
+                    b.Property<string>("BrandSecondary")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_secondary");
+
+                    b.Property<bool>("BrandingEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("branding_enabled");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1041,6 +1063,18 @@ namespace RestaurantApi.Migrations
                         .HasDefaultValue("ro-RO")
                         .HasColumnName("locale");
 
+                    b.Property<string>("LogoBackground")
+                        .HasColumnType("text")
+                        .HasColumnName("logo_background");
+
+                    b.Property<bool?>("LogoIsDark")
+                        .HasColumnType("boolean")
+                        .HasColumnName("logo_is_dark");
+
+                    b.Property<string>("LogoUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("logo_url");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1049,6 +1083,10 @@ namespace RestaurantApi.Migrations
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid")
                         .HasColumnName("organization_id");
+
+                    b.Property<string>("PhotoUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("photo_url");
 
                     b.Property<string>("Slug")
                         .IsRequired()

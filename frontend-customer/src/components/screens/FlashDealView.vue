@@ -5,12 +5,13 @@ import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useFlashDealStore } from '@/stores/useFlashDealStore'
 import { apiClient } from '@/services/api-client'
+import { roundMoney, formatMoney } from '@/utils/money'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import BigButton from '@/components/ui/BigButton.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
 
 const store = useFlashDealStore()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
 const emit = defineEmits<{
@@ -90,10 +91,9 @@ const unitNow = computed(() => store.activeDeal?.discountedPrice ?? 0)
 const unitWas = computed(() => store.activeDeal?.menuItem.price ?? 0)
 // The discount is baked into the unit price, so the headline total is simply
 // unit × guests — e.g. a 20-lei item at 20% off, for 3 guests, shows 3 × 16 = 48
-// (equivalently, 20% off the 60-lei full total). round2 guards float drift.
-const round2 = (n: number) => Math.round(n * 100) / 100
-const totalNow = computed(() => round2(unitNow.value * quantity.value))
-const totalWas = computed(() => round2(unitWas.value * quantity.value))
+// (equivalently, 20% off the 60-lei full total). roundMoney guards float drift.
+const totalNow = computed(() => roundMoney(unitNow.value * quantity.value))
+const totalWas = computed(() => roundMoney(unitWas.value * quantity.value))
 
 async function claim() {
   const deal = store.activeDeal
@@ -124,7 +124,7 @@ function dismiss() {
 </script>
 
 <template>
-  <PhoneScreen v-if="store.activeDeal" :theme="theme">
+  <PhoneScreen v-if="store.activeDeal" :theme="mode">
     <!-- Lime-dominant blooms per the design (the deal screen is the only
          lime-led surface in the app). -->
     <div
@@ -139,9 +139,9 @@ function dismiss() {
     <div class="header">
       <div
         class="badge"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
       >
-        <span class="dot" :style="{ background: '#000' }" />
+        <span class="dot" :style="{ background: T.onLime }" />
         {{ t('flash.badge') }}
       </div>
       <button
@@ -158,7 +158,7 @@ function dismiss() {
       <h1 class="title">
         {{ t('flash.title1') }}<br /><span
           class="hero-mark"
-          :style="{ background: T.lime, color: '#000' }"
+          :style="{ background: T.lime, color: T.onLime }"
         >{{ t('flash.titleMark') }}</span><br />{{ t('flash.title3') }}
       </h1>
       <p class="lede" :style="{ color: T.ink70 }">
@@ -179,7 +179,7 @@ function dismiss() {
           <div
             v-if="discountPercent"
             class="discount"
-            :style="{ background: T.lime, color: T.ink }"
+            :style="{ background: T.lime, color: T.onLime }"
           >{{ t('flash.discount', { percent: discountPercent }) }}</div>
           <div class="deal-name">
             {{ store.activeDeal.menuItem.name }}
@@ -198,22 +198,22 @@ function dismiss() {
                  (unit × guests); for a solo order that's just the unit price. -->
             <span
               class="price-now"
-              :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }"
+              :style="{ color: mode === 'dark' ? T.lime : '#3E7B10' }"
             >
-              {{ totalNow }}
+              {{ formatMoney(totalNow) }}
               <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
             </span>
             <span
               v-if="totalWas !== totalNow"
               class="price-was"
               :style="{ color: T.ink40 }"
-            >{{ totalWas }} {{ t('common.ron') }}</span>
+            >{{ formatMoney(totalWas) }} {{ t('common.ron') }}</span>
           </div>
           <div
             v-if="isMulti"
             class="unit-note"
             :style="{ color: T.ink70 }"
-          >{{ quantity }} × {{ unitNow }} {{ t('common.ron') }}</div>
+          >{{ quantity }} × {{ formatMoney(unitNow) }} {{ t('common.ron') }}</div>
         </div>
       </div>
 
@@ -221,7 +221,7 @@ function dismiss() {
         <div class="countdown-label" :style="{ color: T.ink70 }">{{ t('flash.timeLeft') }}</div>
         <div class="countdown-row">
           <span class="num">{{ minutes }}</span>
-          <span class="colon" :style="{ color: theme === 'dark' ? T.lime : '#3E7B10' }">:</span>
+          <span class="colon" :style="{ color: mode === 'dark' ? T.lime : '#3E7B10' }">:</span>
           <span class="num">{{ seconds }}</span>
           <span class="unit" :style="{ color: T.ink70 }">{{ t('flash.minutes') }}</span>
         </div>
@@ -241,10 +241,10 @@ function dismiss() {
     <div class="cta">
       <!-- Lime CTA with an ink arrow circle filled lime, per the handoff. -->
       <BigButton
-        :theme="theme"
+        :theme="mode"
         :bg="T.lime"
-        :color="T.ink"
-        :arrow-bg="T.ink"
+        :color="T.onLime"
+        :arrow-bg="T.onLime"
         :arrow-color="T.lime"
         :disabled="isClaiming || claimSuccess"
         @click="claim"

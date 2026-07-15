@@ -54,8 +54,15 @@ public static class ProductValidator
             return ValidationResult<string?>.Ok(raw);
         }
 
-        if (!Uri.TryCreate(raw, UriKind.Absolute, out _))
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri))
             return ValidationResult<string?>.Fail("ImageUrl must be a valid absolute URL or root-relative path.");
+
+        // Allowlist schemes: only http(s). Reject javascript:, data:, file:, etc. —
+        // stored verbatim on the customer menu, these become stored-XSS / exfiltration
+        // vectors the moment ImageUrl is bound anywhere other than an <img src>.
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            return ValidationResult<string?>.Fail("ImageUrl must use the http or https scheme.");
+
         return ValidationResult<string?>.Ok(raw);
     }
 }

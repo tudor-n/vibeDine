@@ -6,7 +6,9 @@ services:
       POSTGRES_USER: dev
       POSTGRES_PASSWORD: devpass
     ports:
-      - "5433:5432"
+      # Bound to loopback so the dev DB is never published on 0.0.0.0 if this
+      # compose file is ever run on a non-localhost host.
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +20,7 @@ services:
   backend-api:
     build: ./backend/RestaurantApi
     ports:
-      - "5005:5000"
+      - "127.0.0.1:5005:5000"
     environment:
       ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
       AiService__BaseUrl: "http://ai-service:8000"
@@ -52,13 +54,19 @@ services:
     volumes:
       - ./backend/RestaurantApi:/src
       - menu_imports:/menu-imports
+      # Uploaded blobs (branding logo/photo, avatars, menu-item images) are written
+      # to /app/wwwroot/uploads at runtime. Without this, they live only in the
+      # container's ephemeral layer and vanish on every image rebuild/recreate.
+      # Bind to the host's own wwwroot/uploads (gitignored) so docker and host-run
+      # (`dotnet run`) dev share the same files and they survive rebuilds.
+      - ./backend/RestaurantApi/wwwroot/uploads:/app/wwwroot/uploads
 
   # vibeDine HQ — platform/super-admin control plane. Shares the Postgres DB with
   # backend-api but owns its own auth (platform_admins) and registration-link tables.
   platform-api:
     build: ./backend/PlatformApi
     ports:
-      - "5006:5000"
+      - "127.0.0.1:5006:5000"
     environment:
       ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
       ASPNETCORE_ENVIRONMENT: "Development"
@@ -67,8 +75,9 @@ services:
       Jwt__Audience: "vibedine-platform"
       Jwt__AccessTokenMinutes: "720"
       # Default platform operator seeded on first start — change in production.
+      # Overridable via env so a real deploy never has to edit this file.
       PlatformSeed__Email: "admin@vibedine.local"
-      PlatformSeed__Password: "ChangeMe123!"
+      PlatformSeed__Password: "${PLATFORM_SEED_PASSWORD:-ChangeMe123!}"
       # Base URL one-time registration links point at (redeemed in the restaurant app).
       RegistrationLink__BaseUrl: "http://localhost:3001/register"
       AllowedOrigins__0: "http://localhost:3002"
@@ -80,16 +89,46 @@ services:
     volumes:
       - ./backend/PlatformApi:/src
 
+  # vibeDine Ops — server/infrastructure management console. Shares the Postgres DB with
+  # backend-api but owns its own auth (ops_admins) and ops_* tables. Manages Railway today and a
+  # VPS (Hetzner/SSH) later through a pluggable provider layer; provider tokens are AES-GCM encrypted.
+  ops-api:
+    build: ./backend/OpsApi
+    ports:
+      - "127.0.0.1:5007:5000"
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=restaurant;Username=dev;Password=devpass"
+      ASPNETCORE_ENVIRONMENT: "Development"
+      Jwt__Key: "dev-only-ops-signing-key-change-me-32+chars"
+      Jwt__Issuer: "vibedine-ops"
+      Jwt__Audience: "vibedine-ops"
+      Jwt__AccessTokenMinutes: "720"
+      # Default ops operator seeded on first start — change in production.
+      # Overridable via env so a real deploy never has to edit this file.
+      OpsSeed__Email: "ops@vibedine.local"
+      OpsSeed__Password: "${OPS_SEED_PASSWORD:-ChangeMe123!}"
+      # 32+ char secret that AES-GCM encrypts provider tokens at rest — change in production.
+      Ops__Encryption__Key: "dev-only-ops-encryption-key-change-me-32chars"
+      Ops__Railway__GraphqlEndpoint: "https://backboard.railway.com/graphql/v2"
+      AllowedOrigins__0: "http://localhost:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-api:
+        condition: service_started
+    volumes:
+      - ./backend/OpsApi:/src
+
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025"   # SMTP
-      - "8025:8025"   # Web UI — open http://localhost:8025 to inspect emails
+      - "127.0.0.1:1025:1025"   # SMTP
+      - "127.0.0.1:8025:8025"   # Web UI — open http://localhost:8025 to inspect emails
 
   ai-service:
     build: ./backend/ai-scripts
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend/ai-scripts:/app
       - menu_imports:/menu-imports
@@ -99,22 +138,33 @@ services:
     environment:
       MENU_IMPORT_STORAGE_ROOT: "/menu-imports"
       MENU_IMPORT_CALLBACK_HOSTS: "backend-api,localhost,127.0.0.1"
+    healthcheck:
+      # python is already in the image; avoids depending on curl/wget being present.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   frontend-customer:
     build: ./frontend-customer
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       VITE_API_URL: "http://localhost:5005/"
       VITE_WS_URL: "ws://localhost:5005"
     volumes:
       - ./frontend-customer:/app
+      # Branding pulls runtime code from @shared (../shared → /shared): the
+      # welcome lockup + useTheme import shared/branding/derive at runtime, so
+      # the shared dir must be mounted here just like the other frontends.
+      - ./shared:/shared:ro
       - /app/node_modules
 
   frontend-admin:
     build: ./frontend-admin
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       VITE_API_URL: "http://localhost:5005/"
       # Base URL the generated table QR codes / links point at (customer app).
@@ -127,11 +177,23 @@ services:
   frontend-platform:
     build: ./frontend-platform
     ports:
-      - "3002:3002"
+      - "127.0.0.1:3002:3002"
     environment:
       VITE_API_URL: "http://localhost:5006/"
     volumes:
       - ./frontend-platform:/app
+      - ./shared:/shared:ro
+      - /app/node_modules
+
+  # vibeDine Ops console — talks to ops-api (5007).
+  frontend-ops:
+    build: ./frontend-ops
+    ports:
+      - "127.0.0.1:3003:3003"
+    environment:
+      VITE_API_URL: "http://localhost:5007/"
+    volumes:
+      - ./frontend-ops:/app
       - ./shared:/shared:ro
       - /app/node_modules
 

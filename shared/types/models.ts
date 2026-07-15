@@ -103,7 +103,15 @@ export interface TableSession {
 }
 
 
-export type OrderStatus = 'draft' | 'submitted' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+export type OrderStatus =
+  | 'draft'
+  | 'pending_dispatch'
+  | 'submitted'
+  | 'preparing'
+  | 'ready'
+  | 'completed'
+  | 'cancelled'
+  | 'merged';
 export type PaymentStatus = 'unpaid' | 'paid' | 'refunded';
 
 export interface OrderItem {
@@ -271,4 +279,18 @@ export interface DailyMetrics {
   flashDealsClaimed: number;
   recommendationClicks: number;
   upsellRevenue: number;
+}
+
+
+// ── White-label branding ─────────────────────────────────────────────────────
+export interface RestaurantBranding {
+  enabled: boolean;
+  primary: string | null;
+  secondary: string | null;
+  background: string | null;
+  logoUrl: string | null;
+  photoUrl: string | null;
+  presetKey?: string | null;
+  logoBackground: string | null;
+  logoIsDark: boolean | null;
 }
