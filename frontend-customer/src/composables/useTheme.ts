@@ -1,7 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { T, TD, type ThemeTokens } from '@/design/tokens'
 import { deriveBrandPalette, type BrandInput } from '@shared/branding/derive'
-import { readCachedBrand } from '@shared/branding/cache'
+import { readCachedBrandEntry } from '@shared/branding/cache'
 
 export type ThemeMode = 'light' | 'dark'
 
@@ -17,6 +17,11 @@ function readInitial(): ThemeMode {
 const theme = ref<ThemeMode>(readInitial())
 const brandTokens = ref<ThemeTokens | null>(null)
 const brandMode = ref<ThemeMode | null>(null)
+// Whether this table's branding has been RESOLVED yet — which is not the same as
+// "is branded": a restaurant with no branding is resolved and has no colours.
+// Anything that must not render a palette on a guess (the boot splash) keys off
+// this, never off isBranded, and never off unrelated state like sessionStorage.
+const brandKnown = ref(false)
 
 const tokens = computed<ThemeTokens>(() =>
   brandTokens.value ?? (theme.value === 'dark' ? TD : T),
@@ -35,8 +40,12 @@ function setTheme(m: ThemeMode) {
   theme.value = m
 }
 
-/** Enable branded tokens from 3 colours, or pass null to fall back to light/dark. */
+/**
+ * Enable branded tokens from 3 colours, or pass null to fall back to light/dark.
+ * Either way the branding is now resolved — this is what join calls once it knows.
+ */
 function applyBrand(colors: BrandInput | null) {
+  brandKnown.value = true
   if (!colors) {
     brandTokens.value = null
     brandMode.value = null
@@ -68,13 +77,18 @@ function applyBrand(colors: BrandInput | null) {
  * mounts, so a branded restaurant doesn't flash the default tokens while the join
  * request is in flight — on a deployed split-origin setup that POST is slow enough
  * to see. useSessionStore then applies the authoritative colours when join lands.
- * A cache miss is a no-op, leaving the normal light/dark tokens.
+ *
+ * A cache MISS leaves brandKnown false, which is what puts the boot splash up. That
+ * matters beyond a first-ever scan: if storage is unavailable (private browsing) or
+ * was cleared, every load is a miss, and the splash has to cover each one.
  */
 export function hydrateBrandFromCache(scope: string | null | undefined): void {
-  const cached = readCachedBrand(scope)
-  if (cached) applyBrand(cached)
+  const { known, colors } = readCachedBrandEntry(scope)
+  if (!known) return
+  // Known-unbranded resolves the palette without painting one: the default is right.
+  applyBrand(colors)
 }
 
 export function useTheme() {
-  return { theme, tokens, mode, isBranded, toggle, setTheme, applyBrand }
+  return { theme, tokens, mode, isBranded, brandKnown, toggle, setTheme, applyBrand }
 }

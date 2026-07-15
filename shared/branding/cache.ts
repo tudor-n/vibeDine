@@ -25,34 +25,63 @@ function isHex(value: unknown): value is string {
   return typeof value === 'string' && /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(value)
 }
 
-/** Cached colours for `scope`, or null when absent, unparsable, or not 3 valid hexes. */
-export function readCachedBrand(scope: string | null | undefined): BrandInput | null {
-  if (!scope || typeof localStorage === 'undefined') return null
-  try {
-    const raw = localStorage.getItem(keyFor(scope))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<BrandInput>
-    if (!isHex(parsed.primary) || !isHex(parsed.secondary) || !isHex(parsed.background)) return null
-    return { primary: parsed.primary, secondary: parsed.secondary, background: parsed.background }
-  } catch {
-    return null
-  }
+// Marks a scope as known-to-have-no-brand. Without this, "unbranded restaurant"
+// and "never looked it up" both read as an absent entry — and the customer app has
+// to tell them apart: the first can render immediately (the default palette IS
+// correct), the second must not render a palette at all until it knows.
+const UNBRANDED = { unbranded: true } as const
+
+export interface CachedBrandEntry {
+  /** Have we ever resolved this scope's branding? False = never looked, or junk. */
+  known: boolean
+  /** The colours, or null when known-unbranded (or not known at all). */
+  colors: BrandInput | null
 }
 
 /**
- * Cache `colors` for `scope`. Passing null removes the entry — that's how an
- * unbranded (or newly un-branded) tenant stops painting a stale palette on the
- * next boot. Storage failures are ignored: private mode must not break the app.
+ * What we know about `scope`'s branding, distinguishing "no brand" from "no idea".
+ * Anything unparsable is reported as unknown rather than trusted or guessed at.
+ */
+export function readCachedBrandEntry(scope: string | null | undefined): CachedBrandEntry {
+  if (!scope || typeof localStorage === 'undefined') return { known: false, colors: null }
+  try {
+    const raw = localStorage.getItem(keyFor(scope))
+    if (!raw) return { known: false, colors: null }
+    const parsed = JSON.parse(raw) as Partial<BrandInput> & { unbranded?: boolean }
+    if (parsed?.unbranded === true) return { known: true, colors: null }
+    if (!isHex(parsed?.primary) || !isHex(parsed?.secondary) || !isHex(parsed?.background)) {
+      return { known: false, colors: null }
+    }
+    return {
+      known: true,
+      colors: { primary: parsed.primary, secondary: parsed.secondary, background: parsed.background },
+    }
+  } catch {
+    return { known: false, colors: null }
+  }
+}
+
+/** Cached colours for `scope`, or null when absent, unparsable, or not 3 valid hexes. */
+export function readCachedBrand(scope: string | null | undefined): BrandInput | null {
+  return readCachedBrandEntry(scope).colors
+}
+
+/**
+ * Cache what we now know about `scope`. Passing null records known-unbranded rather
+ * than deleting, so a newly un-branded tenant stops painting a stale palette AND
+ * still counts as resolved (no needless loading screen on its next boot).
+ *
+ * Storage failures are swallowed: private mode must not break the app. The caller
+ * cannot assume the write stuck — readCachedBrandEntry will simply report `unknown`
+ * next time, which every caller already handles.
  */
 export function writeCachedBrand(scope: string | null | undefined, colors: BrandInput | null): void {
   if (!scope || typeof localStorage === 'undefined') return
   try {
-    if (!colors) {
-      localStorage.removeItem(keyFor(scope))
-      return
-    }
-    const { primary, secondary, background } = colors
-    localStorage.setItem(keyFor(scope), JSON.stringify({ primary, secondary, background }))
+    const entry = colors
+      ? { primary: colors.primary, secondary: colors.secondary, background: colors.background }
+      : UNBRANDED
+    localStorage.setItem(keyFor(scope), JSON.stringify(entry))
   } catch {
     /* ignore — private mode / quota */
   }

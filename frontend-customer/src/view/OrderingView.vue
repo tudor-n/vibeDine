@@ -33,7 +33,7 @@ const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
 const happyHourStore = useHappyHourStore()
 const orderStatusStore = useOrderStatusStore()
-const { theme, tokens: T, toggle: toggleTheme, isBranded } = useTheme()
+const { theme, tokens: T, toggle: toggleTheme, isBranded, brandKnown } = useTheme()
 const { t } = useLocale()
 
 useWebSocket()
@@ -69,16 +69,20 @@ const activeCategoryId = ref<string | null>(restoredCategory)
 // the categories page when the cart was opened from its "Coșul meu" bar).
 const cartOrigin = ref<Screen>(readScreen(CART_ORIGIN_KEY, 'menu'))
 
-// Cover the first paint with the vibeDine splash only when this load can't know
-// the restaurant's palette yet, because branding arrives with /join. Two loads
-// already know it and must NOT be delayed behind a splash:
-//   - isBranded: main.ts painted a cached palette before mount (returning diner),
-//   - hadStoredScreen: a mid-session refresh, which resumes in place by design.
-// Everything else — a first-ever scan above all — would otherwise render the
-// default palette for the length of the join round-trip. An unbranded restaurant
-// also splashes briefly, which is harmless: it's a loading screen, not a wrong
-// theme, and we can't tell "unbranded" from "unknown" until join answers.
-const booting = ref(!hadStoredScreen && !isBranded.value)
+// Cover the first paint whenever this load cannot know the restaurant's palette,
+// because branding only arrives with /join. `brandKnown` is true when main.ts
+// resolved it from cache before mount — branded (colours painted) or known to have
+// no branding (default palette is correct). Both render immediately; only genuine
+// ignorance splashes.
+//
+// This deliberately does NOT consult sessionStorage. It used to also skip the
+// splash for a mid-session refresh, on the assumption that a returning tab must
+// already have the colours — but sessionStorage tracks where the diner WAS, not
+// what we know. Whenever the cache missed while sessionStorage survived (private
+// browsing, where localStorage writes throw; storage cleared; or a restaurant
+// branded after an earlier scan), that skipped the splash AND had no palette:
+// the default theme flashed on every scan after the first.
+const booting = ref(!brandKnown.value)
 
 watch(screen, (v) => sessionStorage.setItem(SCREEN_KEY, v))
 watch(activeCategoryId, (v) => {
