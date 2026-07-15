@@ -22,6 +22,7 @@ import MergedView from '@/components/screens/MergedView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
 import CallWaiterButton from '@/components/CallWaiterButton.vue'
 import HappyHourPopup from '@/components/HappyHourPopup.vue'
+import BootSplash from '@/components/ui/BootSplash.vue'
 
 type Screen = 'language' | 'welcome' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
 
@@ -67,6 +68,17 @@ const activeCategoryId = ref<string | null>(restoredCategory)
 // Screen the cart was opened from, so closing it returns there (the menu, or
 // the categories page when the cart was opened from its "Coșul meu" bar).
 const cartOrigin = ref<Screen>(readScreen(CART_ORIGIN_KEY, 'menu'))
+
+// Cover the first paint with the vibeDine splash only when this load can't know
+// the restaurant's palette yet, because branding arrives with /join. Two loads
+// already know it and must NOT be delayed behind a splash:
+//   - isBranded: main.ts painted a cached palette before mount (returning diner),
+//   - hadStoredScreen: a mid-session refresh, which resumes in place by design.
+// Everything else — a first-ever scan above all — would otherwise render the
+// default palette for the length of the join round-trip. An unbranded restaurant
+// also splashes briefly, which is harmless: it's a loading screen, not a wrong
+// theme, and we can't tell "unbranded" from "unknown" until join answers.
+const booting = ref(!hadStoredScreen && !isBranded.value)
 
 watch(screen, (v) => sessionStorage.setItem(SCREEN_KEY, v))
 watch(activeCategoryId, (v) => {
@@ -137,6 +149,7 @@ onMounted(async () => {
   const tokenFromUrl = (route.params.qrToken as string) || ''
   if (!tokenFromUrl) {
     sessionError.value = 'missing'
+    booting.value = false
     return
   }
   try {
@@ -160,6 +173,11 @@ onMounted(async () => {
     console.error('Could not initialize session', e)
     sessionError.value = 'invalid'
     return
+  } finally {
+    // Join has settled — the palette is now known (or never will be). Drop the
+    // splash on BOTH paths: on the error path it would otherwise sit on top of
+    // the invalid-QR screen the diner needs to read.
+    booting.value = false
   }
   partyPoll = setInterval(() => guestStore.refreshParty(sessionStore.qrToken), PARTY_POLL_MS)
   document.addEventListener('visibilitychange', onVisibilityChange)
@@ -356,7 +374,11 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
         </div>
       </div>
 
-      <Transition v-if="!showSessionError" name="fade" mode="out-in">
+      <Transition name="fade">
+        <BootSplash v-if="booting" />
+      </Transition>
+
+      <Transition v-if="!showSessionError && !booting" name="fade" mode="out-in">
         <LanguageSelectView
           v-if="screen === 'language'"
           key="language"
@@ -408,7 +430,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 
       <!-- Happy-hour offer popup (opens once per deal) + "added" toast. The
            reopen banner it collapses into lives inline on the menu screens. -->
-      <HappyHourPopup v-if="!showSessionError" :enabled="happyHourEnabled" />
+      <HappyHourPopup v-if="!showSessionError && !booting" :enabled="happyHourEnabled" />
 
       <!-- "Someone joined your table" toast — auto-dismissed by the guest store. -->
       <Transition name="toast" mode="out-in">
@@ -460,7 +482,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       </button>
 
       <button
-        v-if="!isBranded"
+        v-if="!isBranded && !booting"
         class="theme-toggle"
         :style="{
           background: T.card,

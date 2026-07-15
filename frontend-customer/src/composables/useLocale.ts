@@ -19,6 +19,8 @@ const ro: Dict = {
   'common.table': 'Masa',
   'common.ron': 'RON',
 
+  'splash.loading': 'Se încarcă meniul',
+
   'session.invalidTitle': 'Cod QR invalid',
   'session.missingMessage': 'Scanează codul QR de pe masă pentru a deschide meniul.',
   'session.invalidMessage': 'Acest cod QR nu mai este valid. Întreabă personalul pentru ajutor.',
@@ -180,6 +182,8 @@ const en: Dict = {
   'common.close': 'Close',
   'common.table': 'Table',
   'common.ron': 'RON',
+
+  'splash.loading': 'Loading the menu',
 
   'session.invalidTitle': 'Invalid QR code',
   'session.missingMessage': 'Scan the QR code on your table to open the menu.',
