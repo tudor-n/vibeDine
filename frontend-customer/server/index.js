@@ -35,6 +35,12 @@ const API_URL = (process.env.BRANDING_API_URL || process.env.VITE_API_URL || '')
 // client falls back), never the page.
 const BRANDING_TIMEOUT_MS = Number(process.env.BRANDING_TIMEOUT_MS || 400)
 const BRANDING_TTL_MS = Number(process.env.BRANDING_TTL_MS || 60_000)
+// Hard cap on cache entries. The key is the qrToken straight off a public URL, so
+// it is attacker-chosen: without a bound, requests for made-up tokens would grow
+// the Map forever. Sized well past any real restaurant's table count, so ordinary
+// traffic never evicts; a flood of junk tokens just churns the cache (costing
+// extra API lookups) instead of consuming the container's memory.
+const BRANDING_CACHE_MAX = Number(process.env.BRANDING_CACHE_MAX || 500)
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // HAND-SYNCED with isHex() in shared/branding/cache.ts. The client re-validates
@@ -44,16 +50,43 @@ const HEX_RE = /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/
 
 const indexHtml = readFileSync(join(DIST, 'index.html'), 'utf8')
 
-/** token -> { brand: {primary,secondary,background}|null, at: epochMs } */
+// token -> { brand: {primary,secondary,background}|null, at: epochMs }.
+// Bounded LRU: a Map iterates in insertion order, so re-inserting on read makes the
+// FIRST key the least-recently-used one, which is what eviction drops.
+//
+// A cached `null` is meaningful — it records "this token has no brand" (unbranded
+// restaurant, or unknown table) and is worth keeping: without it, every page load
+// for an unbranded tenant would pay a fresh API lookup inside the TTFB budget.
+// `undefined` from cacheGet means "not cached", which is a different thing.
 const brandCache = new Map()
+
+function cacheGet(token) {
+  const hit = brandCache.get(token)
+  if (!hit) return undefined
+  if (Date.now() - hit.at >= BRANDING_TTL_MS) {
+    brandCache.delete(token)
+    return undefined
+  }
+  brandCache.delete(token)
+  brandCache.set(token, hit) // touch: move to the most-recently-used end
+  return hit.brand
+}
+
+function cacheSet(token, brand) {
+  brandCache.delete(token)
+  brandCache.set(token, { brand, at: Date.now() })
+  while (brandCache.size > BRANDING_CACHE_MAX) {
+    brandCache.delete(brandCache.keys().next().value) // oldest first
+  }
+}
 
 function isHex(v) {
   return typeof v === 'string' && HEX_RE.test(v)
 }
 
 async function fetchBrand(token) {
-  const hit = brandCache.get(token)
-  if (hit && Date.now() - hit.at < BRANDING_TTL_MS) return hit.brand
+  const cached = cacheGet(token)
+  if (cached !== undefined) return cached
 
   let brand = null
   if (API_URL) {
@@ -76,7 +109,7 @@ async function fetchBrand(token) {
     clearTimeout(timer)
   }
 
-  brandCache.set(token, { brand, at: Date.now() })
+  cacheSet(token, brand)
   return brand
 }
 
