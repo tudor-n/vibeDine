@@ -23,7 +23,14 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DIST = join(__dirname, '..', 'dist')
-const PORT = Number(process.env.PORT || 3000)
+
+// Deliberately NOT process.env.PORT. Railway injects PORT=8080 into the container,
+// but its proxy routes to 3000 — the port from EXPOSE 3000, which is what the
+// `serve` command this replaced always listened on (it hardcoded -l tcp://0.0.0.0:3000
+// and ignored PORT). Honouring PORT here means listening on 8080 while the proxy
+// knocks on 3000: a healthy container that answers nothing. Keep this in sync with
+// EXPOSE in Dockerfile.railway; override with CUSTOMER_SERVER_PORT if ever needed.
+const PORT = Number(process.env.CUSTOMER_SERVER_PORT || 3000)
 
 // Server-side base URL for the API. Separate from the build-time VITE_API_URL the
 // browser uses: on Railway this should be the internal URL, which is faster and
