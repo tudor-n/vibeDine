@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useBrandingStore } from '@/stores/useBrandingStore'
 import { orgApi } from '@/services/api-client'
 import BrandControls from '@/components/branding/BrandControls.vue'
+import BrandPreview from '@/components/branding/BrandPreview.vue'
 import { BRAND_PRESETS, type BrandDraft } from '@/components/branding/presets'
 import { computeLogoIsDark } from '@/utils/logoLuminance'
+import type { BrandingAssetKind } from '@/services/brandingUpload'
 
 const auth = useAuthStore()
 const branding = useBrandingStore()
@@ -58,6 +60,8 @@ const draft = ref<BrandDraft>({
   presetKey: classicPreset.key,
   logoUrl: null,
   photoUrl: null,
+  menuBackgroundUrl: null,
+  menuBackgroundStyle: null,
   logoBackground: null,
   logoIsDark: null,
 })
@@ -65,6 +69,12 @@ const draft = ref<BrandDraft>({
 const brandError = ref<string | null>(null)
 const finishing = ref(false)
 const skipping = ref(false)
+
+const previewColors = computed(() => ({
+  primary: draft.value.primary,
+  secondary: draft.value.secondary,
+  background: draft.value.background,
+}))
 
 async function onUploadLogo(file: File) {
   try {
@@ -85,6 +95,26 @@ async function onUploadPhoto(file: File) {
   }
 }
 
+async function onUploadMenuBackground(file: File) {
+  try {
+    const url = await branding.uploadMenuBackground(file)
+    draft.value = { ...draft.value, menuBackgroundUrl: url }
+  } catch (e) {
+    brandError.value = e instanceof Error ? e.message : 'Nu am putut încărca fundalul de meniu.'
+  }
+}
+
+async function onRemoveAsset(kind: BrandingAssetKind) {
+  try {
+    await branding.removeAsset(kind)
+    if (kind === 'logo') draft.value = { ...draft.value, logoUrl: null, logoIsDark: null }
+    else if (kind === 'photo') draft.value = { ...draft.value, photoUrl: null }
+    else if (kind === 'menu-background') draft.value = { ...draft.value, menuBackgroundUrl: null }
+  } catch (e) {
+    brandError.value = e instanceof Error ? e.message : 'Nu am putut elimina imaginea.'
+  }
+}
+
 async function finalize() {
   brandError.value = null
   finishing.value = true
@@ -97,6 +127,7 @@ async function finalize() {
       presetKey: draft.value.presetKey,
       logoBackground: draft.value.logoBackground,
       logoIsDark: draft.value.logoIsDark,
+      menuBackgroundStyle: draft.value.menuBackgroundStyle,
     })
     router.replace('/select-organization')
   } catch (e) {
@@ -118,6 +149,7 @@ async function skipBranding() {
       presetKey: draft.value.presetKey,
       logoBackground: draft.value.logoBackground,
       logoIsDark: draft.value.logoIsDark,
+      menuBackgroundStyle: draft.value.menuBackgroundStyle,
     })
     router.replace('/select-organization')
   } catch (e) {
@@ -169,7 +201,25 @@ async function skipBranding() {
         sală. Poți sări peste acest pas și reveni oricând din Setări.
       </p>
 
-      <BrandControls v-model="draft" @upload-logo="onUploadLogo" @upload-photo="onUploadPhoto" />
+      <div class="onboard-brand-grid">
+        <BrandControls
+          v-model="draft"
+          @upload-logo="onUploadLogo"
+          @upload-photo="onUploadPhoto"
+          @upload-menu-background="onUploadMenuBackground"
+          @remove="onRemoveAsset"
+        />
+        <BrandPreview
+          class="onboard-brand-preview"
+          :colors="previewColors"
+          :logo-url="draft.logoUrl"
+          :photo-url="draft.photoUrl"
+          :logo-background="draft.logoBackground"
+          :logo-is-dark="draft.logoIsDark"
+          :menu-background-url="draft.menuBackgroundUrl"
+          :menu-background-style="draft.menuBackgroundStyle"
+        />
+      </div>
 
       <p v-if="brandError" class="text-sm text-red-600 mt-4">{{ brandError }}</p>
 
@@ -191,6 +241,24 @@ async function skipBranding() {
 </template>
 
 <style scoped>
+.onboard-brand-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px;
+  align-items: start;
+}
+.onboard-brand-preview {
+  align-self: start;
+}
+@media (max-width: 900px) {
+  .onboard-brand-grid {
+    grid-template-columns: 1fr;
+  }
+  .onboard-brand-preview {
+    justify-self: center;
+  }
+}
+
 .auth-input {
   width: 100%;
   padding: 12px 14px;

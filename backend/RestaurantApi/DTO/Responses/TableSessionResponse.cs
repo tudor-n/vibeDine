@@ -21,6 +21,8 @@ public class BrandingInfo
     public string? Background { get; set; }
     public string? LogoUrl { get; set; }
     public string? PhotoUrl { get; set; }
+    public string? MenuBackgroundUrl { get; set; }
+    public string? MenuBackgroundStyle { get; set; }
     public string? LogoBackground { get; set; }
     public bool? LogoIsDark { get; set; }
 }

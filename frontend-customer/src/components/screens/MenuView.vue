@@ -11,6 +11,7 @@ import type { Product, RecipeLine } from '@shared/types/models'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
 import HappyHourBanner from '@/components/HappyHourBanner.vue'
+import MenuBackdrop from '@/components/ui/MenuBackdrop.vue'
 
 const props = defineProps<{ categoryId: string }>()
 const emit = defineEmits<{
@@ -97,6 +98,7 @@ const cartCount = computed(() =>
 
 <template>
   <PhoneScreen :theme="mode">
+    <MenuBackdrop />
     <div
       class="bloom bloom-accent"
       :style="{ background: `radial-gradient(circle, ${T.accent} 0%, transparent 70%)` }"

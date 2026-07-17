@@ -134,6 +134,8 @@ public class PartyController : ControllerBase
                 background = restaurant?.BrandBackground,
                 logoUrl = restaurant?.LogoUrl,
                 photoUrl = restaurant?.PhotoUrl,
+                menuBackgroundUrl = restaurant?.MenuBackgroundUrl,
+                menuBackgroundStyle = restaurant?.MenuBackgroundStyle,
                 logoBackground = restaurant?.LogoBackground,
                 logoIsDark = restaurant?.LogoIsDark,
             },

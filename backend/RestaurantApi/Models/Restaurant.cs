@@ -33,6 +33,12 @@ public class Restaurant
     public string? BrandBackground { get; set; }
     public string? LogoUrl { get; set; }
     public string? PhotoUrl { get; set; }
+    // Background image shown behind the diner's ordering screens (categories +
+    // menu), the counterpart to PhotoUrl on the QR welcome screen.
+    public string? MenuBackgroundUrl { get; set; }
+    // How prominently that background shows: "visible" | "medium" | "subtle"
+    // (null = default). Drives the scrim opacity on the customer side.
+    public string? MenuBackgroundStyle { get; set; }
     public string? BrandPresetKey { get; set; }
     // Logo plate: null = Auto, "transparent", or a #RRGGBB hex. LogoIsDark is a
     // client-computed hint (null = unknown) used to make Auto pick a legible plate.

@@ -290,6 +290,9 @@ export interface RestaurantBranding {
   background: string | null;
   logoUrl: string | null;
   photoUrl: string | null;
+  menuBackgroundUrl: string | null;
+  // How prominently the menu background photo shows: 'visible' | 'medium' | 'subtle'.
+  menuBackgroundStyle: string | null;
   presetKey?: string | null;
   logoBackground: string | null;
   logoIsDark: boolean | null;
