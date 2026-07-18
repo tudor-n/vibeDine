@@ -14,7 +14,7 @@ import type {
     RestaurantBranding,
 } from '@shared/types/models';
 import { useAuthStore, type UserProfile } from '@/stores/useAuthStore';
-import { assertBrandingAssetSize } from '@/services/brandingUpload';
+import { assertBrandingAssetSize, type BrandingAssetKind } from '@/services/brandingUpload';
 
 export interface CreateCategoryPayload {
     name: string;
@@ -768,11 +768,13 @@ export interface BrandingUpdatePayload {
     presetKey: string | null;
     logoBackground: string | null;
     logoIsDark: boolean | null;
+    menuBackgroundStyle: string | null;
 }
 
 export interface BrandingAssetResponse {
     logoUrl?: string;
     photoUrl?: string;
+    menuBackgroundUrl?: string;
 }
 
 // NOTE: deliberately bypasses authedFetcher for the upload calls. authedFetcher
@@ -781,7 +783,7 @@ export interface BrandingAssetResponse {
 // (the same reason profileApi.uploadAvatar above does its own raw fetch instead
 // of going through authedFetcher). Mirrors that exact pattern, scoped to the
 // active restaurant.
-async function uploadBrandingAsset(kind: 'logo' | 'photo', file: File): Promise<BrandingAssetResponse> {
+async function uploadBrandingAsset(kind: BrandingAssetKind, file: File): Promise<BrandingAssetResponse> {
     // Reject oversize files before the request so the user gets a clear message
     // instead of the server's cross-origin "Failed to fetch" on RequestSizeLimit.
     assertBrandingAssetSize(kind, file);
@@ -817,4 +819,9 @@ export const brandingApi = {
 
     uploadLogo: (file: File) => uploadBrandingAsset('logo', file),
     uploadPhoto: (file: File) => uploadBrandingAsset('photo', file),
+    uploadMenuBackground: (file: File) => uploadBrandingAsset('menu-background', file),
+
+    // Remove a stored asset (logo / photo / menu-background). Returns 204.
+    remove: (kind: BrandingAssetKind) =>
+        authedFetcher<void>(scoped(`/admin/branding/${kind}`), { method: 'DELETE' }),
 };

@@ -28,6 +28,8 @@ export interface BrandDraft {
   presetKey: string | null
   logoUrl: string | null
   photoUrl: string | null
+  menuBackgroundUrl: string | null
+  menuBackgroundStyle: string | null
   logoBackground: string | null
   logoIsDark: boolean | null
 }

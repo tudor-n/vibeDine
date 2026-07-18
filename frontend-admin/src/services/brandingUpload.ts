@@ -1,15 +1,21 @@
-import { BRANDING_LOGO_MAX_BYTES, BRANDING_PHOTO_MAX_BYTES } from '@shared/branding/limits'
+import {
+  BRANDING_LOGO_MAX_BYTES,
+  BRANDING_PHOTO_MAX_BYTES,
+  BRANDING_MENU_BG_MAX_BYTES,
+} from '@shared/branding/limits'
 
-export type BrandingAssetKind = 'logo' | 'photo'
+export type BrandingAssetKind = 'logo' | 'photo' | 'menu-background'
 
 const LIMIT: Record<BrandingAssetKind, number> = {
   logo: BRANDING_LOGO_MAX_BYTES,
   photo: BRANDING_PHOTO_MAX_BYTES,
+  'menu-background': BRANDING_MENU_BG_MAX_BYTES,
 }
 
 const LABEL: Record<BrandingAssetKind, string> = {
   logo: 'Logo-ul',
   photo: 'Fotografia',
+  'menu-background': 'Fundalul de meniu',
 }
 
 /**

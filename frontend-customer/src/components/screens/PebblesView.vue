@@ -8,6 +8,7 @@ import { useCartStore } from '@/stores/useCartStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import Pebble from '@/components/ui/Pebble.vue'
 import HappyHourBanner from '@/components/HappyHourBanner.vue'
+import MenuBackdrop from '@/components/ui/MenuBackdrop.vue'
 
 const emit = defineEmits<{
   (e: 'open-category', id: string): void
@@ -141,6 +142,7 @@ onBeforeUnmount(() => {
 
 <template>
   <PhoneScreen :theme="mode">
+    <MenuBackdrop />
     <!-- Return-to-happy-hour banner — pinned at the very top of the screen once
          the diner has dismissed the offer sheet; tapping it reopens the offer. -->
     <HappyHourBanner />

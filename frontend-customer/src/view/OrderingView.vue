@@ -69,20 +69,31 @@ const activeCategoryId = ref<string | null>(restoredCategory)
 // the categories page when the cart was opened from its "Coșul meu" bar).
 const cartOrigin = ref<Screen>(readScreen(CART_ORIGIN_KEY, 'menu'))
 
-// Cover the first paint whenever this load cannot know the restaurant's palette,
-// because branding only arrives with /join. `brandKnown` is true when main.ts
-// resolved it from cache before mount — branded (colours painted) or known to have
-// no branding (default palette is correct). Both render immediately; only genuine
-// ignorance splashes.
+// Cover the first paint whenever this load can't yet show the FINAL starter
+// screen, because branding only fully arrives with /join. Two things are unknown
+// before join, and the splash bridges both:
 //
-// This deliberately does NOT consult sessionStorage. It used to also skip the
-// splash for a mid-session refresh, on the assumption that a returning tab must
-// already have the colours — but sessionStorage tracks where the diner WAS, not
-// what we know. Whenever the cache missed while sessionStorage survived (private
-// browsing, where localStorage writes throw; storage cleared; or a restaurant
-// branded after an earlier scan), that skipped the splash AND had no palette:
-// the default theme flashed on every scan after the first.
-const booting = ref(!brandKnown.value)
+//  1. The palette. `brandKnown` is true only once main.ts resolved it from cache
+//     before mount — branded (colours painted) or known-unbranded (default is
+//     correct). Genuine ignorance of the colours always splashes.
+//  2. WHICH starter screen. The cache restores colours ONLY, never the screen
+//     choice: a branded-with-photo table opens on the admin's designed WelcomeView,
+//     but that decision needs `branding.photoUrl`, which lands with join (see the
+//     screen switch in onMounted). So on a fresh session (no stored screen) of a
+//     table we already know is branded, the cache-painted palette would otherwise
+//     render LanguageSelectView immediately and join would then flip it to
+//     WelcomeView — the diner sees the language picker (right colours, wrong
+//     screen) for the whole join round-trip, then the designed welcome page.
+//     Splashing until join hides that swap so they only ever see the finished page.
+//
+// A mid-session refresh (stored screen present) resumes its own screen, so it needs
+// no bridge and renders straight from cache; a known-unbranded table has no welcome
+// screen to flip to, so it also renders its language picker immediately. Point 1
+// intentionally never trusts sessionStorage: when the cache missed but sessionStorage
+// survived (private browsing where localStorage writes throw; cleared storage; or a
+// restaurant branded after an earlier scan), keying off it skipped the splash AND
+// had no palette, flashing the default theme on every scan after the first.
+const booting = ref(!brandKnown.value || (!hadStoredScreen && isBranded.value))
 
 watch(screen, (v) => sessionStorage.setItem(SCREEN_KEY, v))
 watch(activeCategoryId, (v) => {

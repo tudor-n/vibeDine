@@ -1075,6 +1075,14 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("logo_url");
 
+                    b.Property<string>("MenuBackgroundStyle")
+                        .HasColumnType("text")
+                        .HasColumnName("menu_background_style");
+
+                    b.Property<string>("MenuBackgroundUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("menu_background_url");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")

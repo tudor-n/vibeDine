@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { brandingApi } from '@/services/api-client'
+import type { BrandingAssetKind } from '@/services/brandingUpload'
 import type { RestaurantBranding } from '@shared/types/models'
 
 // Uploads always overwrite a stable filename (logo.png / photo.jpg), so the
@@ -31,6 +32,7 @@ export const useBrandingStore = defineStore('branding', () => {
     presetKey: string | null
     logoBackground: string | null
     logoIsDark: boolean | null
+    menuBackgroundStyle: string | null
   }) {
     branding.value = await brandingApi.update(draft)
     return branding.value
@@ -50,6 +52,23 @@ export const useBrandingStore = defineStore('branding', () => {
     return url
   }
 
+  async function uploadMenuBackground(file: File) {
+    const res = await brandingApi.uploadMenuBackground(file)
+    const url = res.menuBackgroundUrl ? cacheBust(res.menuBackgroundUrl) : null
+    if (branding.value && url) branding.value.menuBackgroundUrl = url
+    return url
+  }
+
+  // Delete a stored asset and clear its URL locally so the dropzone empties.
+  async function removeAsset(kind: BrandingAssetKind) {
+    await brandingApi.remove(kind)
+    if (branding.value) {
+      if (kind === 'logo') branding.value.logoUrl = null
+      else if (kind === 'photo') branding.value.photoUrl = null
+      else if (kind === 'menu-background') branding.value.menuBackgroundUrl = null
+    }
+  }
+
   async function disable() {
     const b = branding.value
     return save({
@@ -60,8 +79,9 @@ export const useBrandingStore = defineStore('branding', () => {
       presetKey: b?.presetKey ?? null,
       logoBackground: b?.logoBackground ?? null,
       logoIsDark: b?.logoIsDark ?? null,
+      menuBackgroundStyle: b?.menuBackgroundStyle ?? null,
     })
   }
 
-  return { branding, isEnabled, load, save, uploadLogo, uploadPhoto, disable }
+  return { branding, isEnabled, load, save, uploadLogo, uploadPhoto, uploadMenuBackground, removeAsset, disable }
 })

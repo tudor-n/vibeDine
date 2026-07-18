@@ -9,4 +9,5 @@ public class UpdateBrandingRequest
     public string? PresetKey { get; set; }
     public string? LogoBackground { get; set; }
     public bool? LogoIsDark { get; set; }
+    public string? MenuBackgroundStyle { get; set; }
 }
