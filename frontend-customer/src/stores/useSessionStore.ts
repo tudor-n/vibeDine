@@ -15,8 +15,25 @@ export const useSessionStore = defineStore('session' , () => {
   const restaurantName = ref<string | null>(sessionStorage.getItem('restaurantName'))
   const restaurantAddress = ref<string | null>(sessionStorage.getItem('restaurantAddress'))
   const organizationName = ref<string | null>(sessionStorage.getItem('organizationName'))
-  // Not persisted to sessionStorage — re-loads fresh on every join.
-  const branding = ref<RestaurantBranding | null>(null)
+  // Persisted to sessionStorage as a render hint only — join always overwrites.
+  // The brand cache in localStorage restores COLOURS before mount, but the
+  // branding images (welcome photo, logo, menu background) only exist here; a
+  // mid-session reload renders its restored screen immediately (no splash), so
+  // without this restore those images pop in when join lands — the diner sees a
+  // default-looking screen first, then the design. Restored only when the tab's
+  // stored session belongs to the table in the URL, so opening another table's
+  // QR in this tab can't paint the previous restaurant's images.
+  function readStoredBranding(): RestaurantBranding | null {
+    try {
+      const urlToken = window.location.pathname.split('/')[1] || null
+      if (!urlToken || sessionStorage.getItem('qrToken') !== urlToken) return null
+      const raw = sessionStorage.getItem('branding')
+      return raw ? (JSON.parse(raw) as RestaurantBranding) : null
+    } catch {
+      return null
+    }
+  }
+  const branding = ref<RestaurantBranding | null>(readStoredBranding())
 
   async function initializeSession(token: string): Promise<JoinTableResponse>{
     try{
@@ -48,6 +65,9 @@ export const useSessionStore = defineStore('session' , () => {
         applyBrand(null)
         writeCachedBrand(token, null)
       }
+
+      if (branding.value) sessionStorage.setItem('branding', JSON.stringify(branding.value))
+      else sessionStorage.removeItem('branding')
 
       sessionStorage.setItem('tableId', response.tableId)
       sessionStorage.setItem('orderId', response.activeOrder.id)
