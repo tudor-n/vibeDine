@@ -71,6 +71,8 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
         sc.AddSingleton<IPdfExtractor>(pythonClient);
         // Item-photo merge dependencies — used only when a job opts in.
         sc.AddSingleton<IWebHostEnvironment>(new TestWebHostEnv());
+        sc.AddSingleton(provider => new UploadPaths(Path.Combine(
+            provider.GetRequiredService<IWebHostEnvironment>().ContentRootPath, "wwwroot", "uploads")));
         sc.AddSingleton<ItemPhotoStorage>();
         sc.AddScoped<MenuImportPhotoMerger>();
         sc.AddSingleton<IOptions<MenuImportOptions>>(Options.Create(new MenuImportOptions

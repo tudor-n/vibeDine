@@ -6,6 +6,7 @@ using RestaurantApi.Data;
 using RestaurantApi.DTOs.Requests;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Services;
+using RestaurantApi.Storage;
 using RestaurantApi.Tenancy;
 
 namespace RestaurantApi.Controllers;
@@ -14,7 +15,8 @@ namespace RestaurantApi.Controllers;
 /// Per-restaurant white-label branding. Tenant-scoped: <see cref="TenantResolutionMiddleware"/>
 /// resolves the restaurant from the route and verifies membership, so any member of this
 /// restaurant may read/write its branding. Colour GET/PUT and logo/photo uploads both live
-/// here; uploaded assets are stored under wwwroot/uploads/branding/{restaurantId:N}/.
+/// here; uploaded assets are stored under the uploads root (<see cref="UploadPaths"/>)
+/// at branding/{restaurantId:N}/ and served back at /uploads/branding/….
 /// </summary>
 [ApiController]
 [Authorize]
@@ -37,18 +39,18 @@ public class BrandingController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly ICurrentTenant _tenant;
-    private readonly IWebHostEnvironment _env;
+    private readonly UploadPaths _uploads;
     private readonly ILogger<BrandingController> _logger;
 
     public BrandingController(
         AppDbContext db,
         ICurrentTenant tenant,
-        IWebHostEnvironment env,
+        UploadPaths uploads,
         ILogger<BrandingController> logger)
     {
         _db = db;
         _tenant = tenant;
-        _env = env;
+        _uploads = uploads;
         _logger = logger;
     }
 
@@ -133,7 +135,7 @@ public class BrandingController : ControllerBase
             return BadRequest(new { message = "Tip de imagine necunoscut." });
 
         var rid = _tenant.RestaurantId!.Value;
-        var dir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "branding", rid.ToString("N"));
+        var dir = _uploads.Dir("branding", rid.ToString("N"));
         if (Directory.Exists(dir))
         {
             foreach (var old in Directory.EnumerateFiles(dir, $"{kind}.*"))
@@ -170,7 +172,7 @@ public class BrandingController : ControllerBase
 
         var ext = ImageValidation.ExtensionFor(detected);
         var rid = _tenant.RestaurantId!.Value;
-        var dir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "branding", rid.ToString("N"));
+        var dir = _uploads.Dir("branding", rid.ToString("N"));
         Directory.CreateDirectory(dir);
 
         // Remove any prior asset of this kind (any extension) so we don't accumulate dead files.

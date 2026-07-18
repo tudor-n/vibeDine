@@ -1,8 +1,10 @@
+using RestaurantApi.Storage;
+
 namespace RestaurantApi.Services;
 
 /// <summary>
 /// Persists dish-photo crops (decoded from the Python extractor's base64) to
-/// <c>wwwroot/uploads/menu-items/{restaurantId:N}/{guid:N}.jpg</c> and returns a
+/// <c>&lt;uploads root&gt;/menu-items/{restaurantId:N}/{guid:N}.jpg</c> and returns a
 /// root-relative public URL served by the existing static-files middleware.
 ///
 /// Mirrors the avatar storage precedent. Defensive by design: it re-checks the
@@ -13,12 +15,12 @@ public class ItemPhotoStorage
 {
     private const long MaxBytes = 2L * 1024 * 1024;
 
-    private readonly IWebHostEnvironment _env;
+    private readonly UploadPaths _uploads;
     private readonly ILogger<ItemPhotoStorage> _logger;
 
-    public ItemPhotoStorage(IWebHostEnvironment env, ILogger<ItemPhotoStorage> logger)
+    public ItemPhotoStorage(UploadPaths uploads, ILogger<ItemPhotoStorage> logger)
     {
-        _env = env;
+        _uploads = uploads;
         _logger = logger;
     }
 
@@ -33,8 +35,7 @@ public class ItemPhotoStorage
 
         try
         {
-            var dirFull = Path.Combine(
-                _env.ContentRootPath, "wwwroot", "uploads", "menu-items", restaurantId.ToString("N"));
+            var dirFull = _uploads.Dir("menu-items", restaurantId.ToString("N"));
             Directory.CreateDirectory(dirFull);
 
             var fileName = $"{Guid.NewGuid():N}.jpg";

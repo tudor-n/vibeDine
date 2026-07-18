@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using RestaurantApi.Auth;
 using RestaurantApi.Data;
@@ -23,6 +24,17 @@ builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 110_000_000)
 builder.Services.AddScoped<ICurrentTenant, CurrentTenant>();
 builder.Services.AddScoped<ITenantAccess, TenantAccess>();
 builder.Services.AddSingleton<IFileStorage, LocalDiskFileStorage>();
+// Where user uploads live on disk. Overridable so production can point it at a
+// persistent volume (docs/railway-persistent-uploads.md) — without that, every
+// redeploy wipes branding/avatars/menu-item images. Resolved lazily so test
+// hosts' content-root and config overrides are already in effect.
+builder.Services.AddSingleton(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    return new UploadPaths(
+        cfg["Uploads:Root"] ?? Path.Combine(env.ContentRootPath, "wwwroot", "uploads"));
+});
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -74,8 +86,18 @@ if (!builder.Environment.IsEnvironment("Testing") &&
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer();
+
+// Bind bearer validation from JwtOptions LAZILY (when the options are first
+// built) rather than from the eager `jwt` snapshot above. The snapshot is fine
+// for real runs (env/appsettings exist at process start) but misses configuration
+// added late by test hosts (WebApplicationFactory's in-memory collection), which
+// left the validation key empty and 500'd every authenticated request in tests —
+// token issuing (JwtTokenService) already binds the same section lazily.
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((options, jwtOptions) =>
     {
+        var j = jwtOptions.Value;
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -83,9 +105,9 @@ builder.Services
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = jwt.Issuer,
-            ValidAudience = jwt.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            ValidIssuer = j.Issuer,
+            ValidAudience = j.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(j.Key)),
             ClockSkew = TimeSpan.FromMinutes(1),
         };
 
@@ -297,15 +319,17 @@ app.UseRouting();
 app.UseCors();
 app.UseRateLimiter();
 
-// Serve uploaded files out of ContentRoot/wwwroot even when the published
-// container starts without a checked-in wwwroot directory.
-var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "avatars"));
-Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "menu-items"));
-Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "branding"));
+// Serve uploaded files at /uploads from the (possibly volume-backed) uploads
+// root, creating it on first start — the published container has no checked-in
+// wwwroot, and a freshly attached volume starts empty.
+var uploads = app.Services.GetRequiredService<UploadPaths>();
+Directory.CreateDirectory(uploads.Dir("avatars"));
+Directory.CreateDirectory(uploads.Dir("menu-items"));
+Directory.CreateDirectory(uploads.Dir("branding"));
 app.UseStaticFiles(new StaticFileOptions
 {
-    FileProvider = new PhysicalFileProvider(webRoot),
+    RequestPath = "/uploads",
+    FileProvider = new PhysicalFileProvider(uploads.Root),
 });
 
 app.UseAuthentication();

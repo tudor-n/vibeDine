@@ -5,12 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using RestaurantApi.Data;
 using RestaurantApi.Models;
 using RestaurantApi.Services;
+using RestaurantApi.Storage;
 
 namespace RestaurantApi.Controllers;
 
 /// <summary>
 /// Read/write the authenticated user's own profile: display name and avatar.
-/// Avatars are stored on disk under <c>wwwroot/uploads/avatars/</c> and served as static files.
+/// Avatars are stored under the uploads root (<see cref="UploadPaths"/>) at
+/// <c>avatars/</c> and served as static files at <c>/uploads/avatars/…</c>.
 /// </summary>
 [ApiController]
 [Authorize]
@@ -21,19 +23,30 @@ public class ProfileController : ControllerBase
 
     private readonly UserManager<AppUser> _users;
     private readonly AppDbContext _db;
-    private readonly IWebHostEnvironment _env;
+    private readonly UploadPaths _uploads;
     private readonly ILogger<ProfileController> _logger;
 
     public ProfileController(
         UserManager<AppUser> users,
         AppDbContext db,
-        IWebHostEnvironment env,
+        UploadPaths uploads,
         ILogger<ProfileController> logger)
     {
         _users = users;
         _db = db;
-        _env = env;
+        _uploads = uploads;
         _logger = logger;
+    }
+
+    // AvatarPath is stored URL-shaped ("uploads/avatars/{file}", see AppUser); on
+    // disk that file lives under the uploads root, so strip the "uploads/" prefix
+    // before combining. Keeps old DB rows working unchanged.
+    private string AvatarDiskPath(string avatarPath)
+    {
+        var rel = avatarPath.TrimStart('/');
+        const string prefix = "uploads/";
+        if (rel.StartsWith(prefix, StringComparison.Ordinal)) rel = rel[prefix.Length..];
+        return Path.Combine(_uploads.Root, rel.Replace('/', Path.DirectorySeparatorChar));
     }
 
     private Guid UserId =>
@@ -89,13 +102,13 @@ public class ProfileController : ControllerBase
         var user = await _users.GetUserAsync(User);
         if (user == null) return Unauthorized();
 
-        var uploadsRoot = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "avatars");
+        var uploadsRoot = _uploads.Dir("avatars");
         Directory.CreateDirectory(uploadsRoot);
 
         // Remove any prior avatar so we don't accumulate dead files.
         if (!string.IsNullOrEmpty(user.AvatarPath))
         {
-            var prior = Path.Combine(_env.ContentRootPath, "wwwroot", user.AvatarPath.Replace('/', Path.DirectorySeparatorChar));
+            var prior = AvatarDiskPath(user.AvatarPath);
             if (System.IO.File.Exists(prior))
             {
                 try { System.IO.File.Delete(prior); } catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete old avatar {Path}", prior); }
@@ -126,7 +139,7 @@ public class ProfileController : ControllerBase
 
         if (!string.IsNullOrEmpty(user.AvatarPath))
         {
-            var path = Path.Combine(_env.ContentRootPath, "wwwroot", user.AvatarPath.Replace('/', Path.DirectorySeparatorChar));
+            var path = AvatarDiskPath(user.AvatarPath);
             if (System.IO.File.Exists(path))
             {
                 try { System.IO.File.Delete(path); } catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete avatar {Path}", path); }

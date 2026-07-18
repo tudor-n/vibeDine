@@ -3,10 +3,9 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using RestaurantApi.Services;
+using RestaurantApi.Storage;
 using Xunit;
 
 namespace RestaurantApi.Tests;
@@ -20,7 +19,9 @@ public class ItemPhotoStorageTests : IDisposable
     {
         _contentRoot = Path.Combine(Path.GetTempPath(), "item-photo-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_contentRoot);
-        _storage = new ItemPhotoStorage(new StubEnv(_contentRoot), NullLogger<ItemPhotoStorage>.Instance);
+        _storage = new ItemPhotoStorage(
+            new UploadPaths(Path.Combine(_contentRoot, "wwwroot", "uploads")),
+            NullLogger<ItemPhotoStorage>.Instance);
     }
 
     public void Dispose()
@@ -66,16 +67,5 @@ public class ItemPhotoStorageTests : IDisposable
     public async Task SaveAsync_EmptyPayload_ReturnsNull()
     {
         (await _storage.SaveAsync(Guid.NewGuid(), Array.Empty<byte>(), CancellationToken.None)).Should().BeNull();
-    }
-
-    private sealed class StubEnv : IWebHostEnvironment
-    {
-        public StubEnv(string contentRoot) => ContentRootPath = contentRoot;
-        public string ApplicationName { get; set; } = "Test";
-        public IFileProvider ContentRootFileProvider { get; set; } = null!;
-        public string ContentRootPath { get; set; }
-        public string EnvironmentName { get; set; } = "Test";
-        public IFileProvider WebRootFileProvider { get; set; } = null!;
-        public string WebRootPath { get; set; } = null!;
     }
 }
