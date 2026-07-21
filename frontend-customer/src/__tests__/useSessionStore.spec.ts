@@ -57,6 +57,7 @@ const PENDING_DEAL: PendingFlashDealPayload = {
   imageUrl: 'http://localhost:5005/uploads/products/lemonade.jpg',
   originalPrice: 12,
   discountPrice: 9.6,
+  discountPercent: 20,
   expiresAt: '2026-07-21T12:02:00Z',
   quantity: 1,
 }

@@ -240,11 +240,12 @@ onUnmounted(() => {
 
 // The device-session link expired (see useLinkExpiry / the backend's
 // LinkExpirySeconds wipe window): an abandoned open tab must stop talking to
-// the server — heartbeats (party poll) and live pushes (WebSocket) — so the
-// backend can actually wipe the session, and the happy-hour poll has no
-// reason to keep running behind a screen the diner can no longer act on.
-// Deliberately does NOT clear any store or sessionStorage: re-scanning the QR
-// (a fresh page load, fresh timer) must restore everything as-is.
+// the server — heartbeats (party poll, the visibilitychange refocus beat) and
+// live pushes (WebSocket) — so the backend can actually wipe the session, and
+// the happy-hour poll has no reason to keep running behind a screen the diner
+// can no longer act on. Deliberately does NOT clear any store or
+// sessionStorage: re-scanning the QR (a fresh page load, fresh timer) must
+// restore everything as-is.
 watch(linkExpired, (isExpired) => {
   if (!isExpired) return
   websocket.disconnect()
@@ -252,6 +253,9 @@ watch(linkExpired, (isExpired) => {
     clearInterval(partyPoll)
     partyPoll = null
   }
+  // Otherwise bringing this abandoned tab back to the foreground would still
+  // fire a fresh presence heartbeat straight past the poll's own teardown.
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   happyHourStore.stopPolling()
 })
 
@@ -303,11 +307,6 @@ async function orderAgain() {
   if (sessionStore.qrToken) {
     try {
       await sessionStore.initializeSession(sessionStore.qrToken)
-      // The backend refreshes this device session's LastSeenAt on every join,
-      // pushing its wipe window out — restart the local countdown to match, or
-      // it would keep counting down from the FIRST join and expire the link
-      // under an actively-ordering diner.
-      startLinkExpiry(sessionStore.linkExpirySeconds ?? 900)
     } catch (e) {
       console.error('Could not start a new order', e)
     }
@@ -427,6 +426,11 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 <template>
   <div class="stage" :style="{ background: T.paper }">
     <div class="phone-frame" :style="{ '--hh-banner-offset': happyHourBannerOffset }">
+      <!-- Everything the diner could otherwise interact with while the
+           link-expired overlay covers it. `inert` drops it from the tab order
+           and blocks pointer/focus reaching it, on top of the overlay's own
+           z-index — the tree itself stays mounted (see LinkExpiredView below). -->
+      <div :inert="linkExpired">
       <div
         v-if="showSessionError"
         class="session-error"
@@ -591,6 +595,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       </button>
+      </div>
 
       <!-- Rendered last and on top of everything (incl. the flash-deal modal) —
            the app tree behind it stays mounted so a re-scan (fresh page load,

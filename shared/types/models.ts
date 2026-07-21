@@ -293,6 +293,7 @@ export interface PendingFlashDealPayload {
   imageUrl: string | null;
   originalPrice: number;
   discountPrice: number;
+  discountPercent: number;
   expiresAt: string;
   quantity: number;
 }

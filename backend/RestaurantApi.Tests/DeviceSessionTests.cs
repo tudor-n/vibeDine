@@ -428,6 +428,10 @@ public class DeviceSessionTests : IAsyncLifetime
         pendingDeal.ValueKind.Should().NotBe(JsonValueKind.Null);
         pendingDeal.GetProperty("orderId").GetGuid().Should().Be(draftOrderId);
         pendingDeal.GetProperty("productId").GetGuid().Should().Be(dealProductId);
+        // Mirrors the FlashDealAvailable WebSocket push's DiscountPercent field,
+        // derived from the FlashDealRule seeded above (20%) rather than a
+        // hardcoded frontend fallback.
+        pendingDeal.GetProperty("discountPercent").GetInt32().Should().Be(20);
         var dealId = pendingDeal.GetProperty("dealId").GetGuid();
 
         using (var scope = _factory.Services.CreateScope())

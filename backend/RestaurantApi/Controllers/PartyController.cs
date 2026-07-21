@@ -428,6 +428,21 @@ public class PartyController : ControllerBase
             // one discounted portion per guest whose draft was merged into this bill.
             var quantity = await _db.Orders.CountAsync(o => o.MergedIntoOrderId == deal.OrderId) + 1;
 
+            // FlashDealOffer doesn't persist the percent it was created from (only
+            // the resulting DiscountPrice), so mirror FlashDealService's own lookup
+            // (~lines 208-219: DiscountPercent = rule.DiscountPercent) by re-reading
+            // the rule for this product. The rule can have changed/disappeared since
+            // the deal fired (it's a single per-restaurant row an admin save
+            // replaces), so fall back to deriving the percent from the prices we do
+            // have rather than inventing a number.
+            var dealRule = await _db.FlashDealRules.FirstOrDefaultAsync(r => r.ProductId == deal.ProductId);
+            var originalPrice = dealProduct?.Price ?? 0m;
+            var discountPriceValue = deal.DiscountPrice ?? 0m;
+            var discountPercent = dealRule?.DiscountPercent
+                ?? (originalPrice > 0m
+                    ? (int)Math.Round((1 - discountPriceValue / originalPrice) * 100m)
+                    : 0);
+
             pendingDeal = new
             {
                 dealId = deal.Id,
@@ -435,8 +450,9 @@ public class PartyController : ControllerBase
                 productId = deal.ProductId,
                 productName = dealProduct?.Name ?? "Special Item",
                 imageUrl = dealProduct?.ImageUrl,
-                originalPrice = dealProduct?.Price ?? 0m,
-                discountPrice = deal.DiscountPrice ?? 0m,
+                originalPrice,
+                discountPrice = discountPriceValue,
+                discountPercent,
                 expiresAt = deal.ExpiresAt,
                 quantity,
             };

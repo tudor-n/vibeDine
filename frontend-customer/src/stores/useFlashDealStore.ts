@@ -3,11 +3,10 @@ import { ref } from 'vue'
 import type { FlashDeal } from '@shared/types/models'
 
 // The two places a flash-deal payload arrives from — the live `FlashDealAvailable`
-// WebSocket push and the join response's `pendingDeal` (see
-// shared/types/models.ts DeviceSessionSummary) — share every field EXCEPT:
-// `imageUrl` (join-only; the WS push doesn't carry it) and `discountPercent`
-// (WS-only; the join payload has no configured-discount field to restore).
-// Both are therefore optional here so one mapping covers both callers.
+// WebSocket push and the join response's `pendingDeal` (PendingFlashDealPayload
+// in shared/types/models.ts) — share every field except `imageUrl` (join-only;
+// the WS push doesn't carry a product image). `imageUrl` is therefore the only
+// optional field here so one mapping covers both callers.
 export interface FlashDealPayloadLike {
   dealId: string
   orderId: string
@@ -16,7 +15,7 @@ export interface FlashDealPayloadLike {
   imageUrl?: string | null
   originalPrice: number
   discountPrice: number
-  discountPercent?: number
+  discountPercent: number
   expiresAt: string
   quantity?: number
 }
@@ -26,6 +25,16 @@ export interface FlashDealPayloadLike {
 // (OrderingView.onMounted) so a pending deal survives a re-scan identically
 // to a freshly pushed one.
 export function buildFlashDealFromPayload(raw: FlashDealPayloadLike): FlashDeal {
+  // Prefer the server-computed percent (now sent by both the WS push and the
+  // join payload). If it's ever missing/zero, derive it from the two prices we
+  // always have rather than inventing a number — guarded against a zero/invalid
+  // originalPrice, which would otherwise divide by zero.
+  const derivedPercent =
+    raw.originalPrice > 0
+      ? Math.round((1 - raw.discountPrice / raw.originalPrice) * 100)
+      : 0
+  const discountPercent = raw.discountPercent || derivedPercent
+
   return {
     id: raw.dealId,
     menuItemId: raw.productId,
@@ -35,7 +44,7 @@ export function buildFlashDealFromPayload(raw: FlashDealPayloadLike): FlashDeal 
       price: raw.originalPrice,
       imageUrl: raw.imageUrl ?? null,
     },
-    discountPercent: raw.discountPercent || 20,
+    discountPercent,
     discountedPrice: raw.discountPrice,
     trigger: 'post_order',
     countdownSeconds: 120,
