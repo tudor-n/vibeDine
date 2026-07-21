@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { toneFromKey } from '@/design/tokens'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
@@ -17,6 +17,7 @@ const props = defineProps<{ categoryId: string }>()
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'open-cart'): void
+  (e: 'select-category', id: string): void
 }>()
 
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
@@ -25,8 +26,6 @@ const happyHour = useHappyHourStore()
 const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
-type FilterKey = 'all' | 'meat' | 'fish' | 'veggie' | 'chef'
-const filter = ref<FilterKey>('all')
 const searchOpen = ref(false)
 const searchQuery = ref('')
 
@@ -48,26 +47,32 @@ function formatRecipe(recipe: RecipeLine[]): string {
     .join(' · ')
 }
 
-const FILTERS = computed<Array<{ key: FilterKey; label: string }>>(() => [
-  { key: 'all',    label: t('menu.filter.all') },
-  { key: 'meat',   label: t('menu.filter.meat') },
-  { key: 'fish',   label: t('menu.filter.fish') },
-  { key: 'veggie', label: t('menu.filter.veggie') },
-  { key: 'chef',   label: t('menu.filter.chef') },
-])
+// The chip row is a category switcher: one chip per menu category, in the same
+// order as the pebble grid. Tapping one switches the menu in place (handled by
+// the parent, which swaps `categoryId` and remounts this screen via its :key).
+const categoryChips = computed(() =>
+  categories.value.map((c) => ({ id: c.id, label: c.name })),
+)
 
-// Lightweight client-side filter — backend doesn't tag dishes by diet, so we
-// heuristically match against name + description.
-const FILTER_PATTERNS: Record<Exclude<FilterKey, 'all'>, RegExp> = {
-  meat:   /carne|vit[aă]|porc|miel|pui|chicken|beef|burger|șunc|sunc|cârn|carn/i,
-  fish:   /pe[șs]te|somon|salmon|tuna|scoici|fruct.?de.?mare|cremă.?de.?pe|caracati/i,
-  veggie: /vegetar|vegan|legum|sala[tț]|brocoli|spanac|ciuperc|paste|risotto/i,
-  chef:   /chef|signature|special|degustare|tasting|maturat/i,
+const chipsEl = ref<HTMLElement | null>(null)
+
+function selectCategory(id: string) {
+  if (id === props.categoryId) return
+  emit('select-category', id)
 }
 
-onMounted(() => {
+// Bring the active category's chip into view so the diner can always see where
+// they are — the row scrolls horizontally and the active chip may be off-screen.
+function scrollActiveChipIntoView() {
+  const active = chipsEl.value?.querySelector<HTMLElement>('[aria-pressed="true"]')
+  active?.scrollIntoView({ inline: 'center', block: 'nearest' })
+}
+
+onMounted(async () => {
   load().catch(() => undefined)
   happyHour.startPolling()
+  await nextTick()
+  scrollActiveChipIntoView()
 })
 
 const category = computed(() =>
@@ -78,10 +83,6 @@ const allItems = computed<Product[]>(() => productsByCategory(props.categoryId))
 
 const items = computed<Product[]>(() => {
   let result = allItems.value
-  if (filter.value !== 'all') {
-    const pattern = FILTER_PATTERNS[filter.value]
-    result = result.filter((p) => pattern.test(`${p.name} ${p.description ?? ''}`))
-  }
   const q = normalize(searchQuery.value.trim())
   if (q) {
     result = result.filter((p) =>
@@ -161,18 +162,18 @@ const cartCount = computed(() =>
     </div>
 
     <div class="scroll">
-    <div class="chips">
+    <div ref="chipsEl" class="chips">
       <button
-        v-for="f in FILTERS"
-        :key="f.key"
+        v-for="c in categoryChips"
+        :key="c.id"
         class="chip"
         type="button"
-        :style="filter === f.key
+        :style="c.id === props.categoryId
           ? { background: T.ink, color: T.paperHi, border: 'none' }
           : { background: T.card, color: T.ink, border: `1px solid ${T.ink12}` }"
-        :aria-pressed="filter === f.key"
-        @click="filter = f.key"
-      >{{ f.label }}</button>
+        :aria-pressed="c.id === props.categoryId"
+        @click="selectCategory(c.id)"
+      >{{ c.label }}</button>
     </div>
 
     <div

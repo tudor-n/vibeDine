@@ -417,6 +417,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           :category-id="activeCategoryId"
           @back="backToPebbles"
           @open-cart="openCart"
+          @select-category="openCategory"
         />
         <CartView
           v-else-if="screen === 'cart'"
