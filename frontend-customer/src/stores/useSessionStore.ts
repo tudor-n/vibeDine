@@ -3,8 +3,9 @@ import { ref } from 'vue'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { useTheme } from '@/composables/useTheme'
 import { writeCachedBrand } from '@shared/branding/cache'
-import type { JoinTableResponse } from '@/services/api-client'
-import type { RestaurantBranding } from '@shared/types/models'
+import { roundMoney } from '@/utils/money'
+import type { DeviceSessionOrder, JoinTableResponse } from '@/services/api-client'
+import type { PendingFlashDealPayload, RestaurantBranding } from '@shared/types/models'
 
 export const useSessionStore = defineStore('session' , () => {
   const tableId = ref<string | null>(sessionStorage.getItem('tableId'))
@@ -34,6 +35,34 @@ export const useSessionStore = defineStore('session' , () => {
     }
   }
   const branding = ref<RestaurantBranding | null>(readStoredBranding())
+
+  // Device-session summary (multi-round visit tracking, see Task 2/3 wire
+  // contract). sessionOrders/cumulativeTotal/deviceSessionId/linkExpirySeconds
+  // mirror the existing sessionStorage-persisted fields above: a same-tab
+  // reload before the next join lands still has them. pendingDeal is
+  // deliberately NOT persisted — it's restored fresh from each join, since a
+  // stale claimable deal (past its expiry) is worse than a missing one.
+  function readStoredNumber(key: string): number | null {
+    const raw = sessionStorage.getItem(key)
+    if (raw === null) return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  }
+
+  function readStoredOrders(): DeviceSessionOrder[] {
+    try {
+      const raw = sessionStorage.getItem('sessionOrders')
+      return raw ? (JSON.parse(raw) as DeviceSessionOrder[]) : []
+    } catch {
+      return []
+    }
+  }
+
+  const deviceSessionId = ref<string | null>(sessionStorage.getItem('deviceSessionId'))
+  const linkExpirySeconds = ref<number | null>(readStoredNumber('linkExpirySeconds'))
+  const cumulativeTotal = ref<number>(readStoredNumber('cumulativeTotal') ?? 0)
+  const sessionOrders = ref<DeviceSessionOrder[]>(readStoredOrders())
+  const pendingDeal = ref<PendingFlashDealPayload | null>(null)
 
   async function initializeSession(token: string): Promise<JoinTableResponse>{
     try{
@@ -78,11 +107,40 @@ export const useSessionStore = defineStore('session' , () => {
       sessionStorage.setItem('restaurantAddress', response.restaurantAddress ?? '')
       sessionStorage.setItem('organizationName', response.organizationName)
 
+      const session = response.session
+      deviceSessionId.value = session?.id ?? null
+      linkExpirySeconds.value = session?.linkExpirySeconds ?? null
+      cumulativeTotal.value = session ? roundMoney(session.cumulativeTotal) : 0
+      sessionOrders.value = session?.orders ?? []
+      // Restored fresh from THIS join only — never from storage (see comment above).
+      pendingDeal.value = session?.pendingDeal ?? null
+
+      if (deviceSessionId.value) sessionStorage.setItem('deviceSessionId', deviceSessionId.value)
+      else sessionStorage.removeItem('deviceSessionId')
+
+      if (linkExpirySeconds.value !== null) {
+        sessionStorage.setItem('linkExpirySeconds', String(linkExpirySeconds.value))
+      } else {
+        sessionStorage.removeItem('linkExpirySeconds')
+      }
+
+      sessionStorage.setItem('cumulativeTotal', String(cumulativeTotal.value))
+      sessionStorage.setItem('sessionOrders', JSON.stringify(sessionOrders.value))
+
       return response
     }catch(error){
       console.error('Eroare la inițializarea sesiunii:', error)
       throw error
     }
+  }
+
+  // Adds roundTotal to cumulativeTotal (persisting immediately) and returns the
+  // new running total. This is a local, optimistic bump only — the next join's
+  // `session.cumulativeTotal` is the authoritative value and will overwrite it.
+  function registerSubmittedRound(roundTotal: number): number {
+    cumulativeTotal.value = roundMoney(cumulativeTotal.value + roundTotal)
+    sessionStorage.setItem('cumulativeTotal', String(cumulativeTotal.value))
+    return cumulativeTotal.value
   }
 
   function clearSession() {
@@ -95,10 +153,33 @@ export const useSessionStore = defineStore('session' , () => {
     restaurantAddress.value = null
     organizationName.value = null
     branding.value = null
+    deviceSessionId.value = null
+    linkExpirySeconds.value = null
+    cumulativeTotal.value = 0
+    sessionOrders.value = []
+    pendingDeal.value = null
     const { applyBrand } = useTheme()
     applyBrand(null)
     sessionStorage.clear()
   }
 
-  return { tableId, orderId, qrToken, tableNumber, restaurantId, restaurantName, restaurantAddress, organizationName, branding, initializeSession, clearSession}
+  return {
+    tableId,
+    orderId,
+    qrToken,
+    tableNumber,
+    restaurantId,
+    restaurantName,
+    restaurantAddress,
+    organizationName,
+    branding,
+    deviceSessionId,
+    linkExpirySeconds,
+    cumulativeTotal,
+    sessionOrders,
+    pendingDeal,
+    initializeSession,
+    registerSubmittedRound,
+    clearSession,
+  }
 })

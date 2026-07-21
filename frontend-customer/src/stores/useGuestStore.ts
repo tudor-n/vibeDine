@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiClient, type JoinTableResponse, type MergePartyResponse, type PartyMember } from '@/services/api-client'
+import { getDeviceId } from '@/services/deviceId'
 
 // Guest identity is stored per-table (keyed by qrToken) in *localStorage*.
 // This is what lets a phone keep its order across more than a same-tab reload:
@@ -59,7 +60,7 @@ export const useGuestStore = defineStore('guest', () => {
     // until the response has landed so a phone never announces itself.
     joinInFlight = true
     try {
-      const res = await apiClient.joinTable(qrToken, readStoredGuestId(qrToken))
+      const res = await apiClient.joinTable(qrToken, readStoredGuestId(qrToken), getDeviceId())
       guestId.value = res.guestId
       displayName.value = res.displayName
       partyMembers.value = res.partyMembers

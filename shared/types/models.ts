@@ -282,6 +282,32 @@ export interface DailyMetrics {
 }
 
 
+// ── Device sessions (multi-round visit tracking) ────────────────────────────
+// Mirrors the WebSocket `FlashDealAvailable` payload field-for-field so both
+// consumers (the join response and the live push) can share one mapping.
+export interface PendingFlashDealPayload {
+  dealId: UUID;
+  orderId: UUID;
+  productId: UUID;
+  productName: string;
+  imageUrl: string | null;
+  originalPrice: number;
+  discountPrice: number;
+  expiresAt: string;
+  quantity: number;
+}
+
+// A device's whole visit at a table: every already-submitted round plus any
+// flash deal still pending on one of them. Returned as `session` on
+// POST /tables/:qrToken/join; null when the client sent no usable deviceId.
+export interface DeviceSessionSummary {
+  id: UUID;
+  linkExpirySeconds: number;
+  cumulativeTotal: number;
+  orders: Order[];
+  pendingDeal: PendingFlashDealPayload | null;
+}
+
 // ── White-label branding ─────────────────────────────────────────────────────
 export interface RestaurantBranding {
   enabled: boolean;
