@@ -6,8 +6,7 @@
 // reopened, bare starter then design" bug).
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { RestaurantBranding, PendingFlashDealPayload } from '@shared/types/models'
-import type { DeviceSessionPayload } from '@/services/api-client'
+import type { RestaurantBranding, PendingFlashDealPayload, DeviceSessionSummary } from '@shared/types/models'
 
 const { joinMock } = vi.hoisted(() => ({ joinMock: vi.fn() }))
 
@@ -33,7 +32,7 @@ const BRANDING: RestaurantBranding = {
   logoIsDark: false,
 }
 
-function joinResponse(branding: RestaurantBranding | null, session: DeviceSessionPayload | null = null) {
+function joinResponse(branding: RestaurantBranding | null, session: DeviceSessionSummary | null = null) {
   return {
     guestId: 'g-1',
     displayName: null,
@@ -62,7 +61,7 @@ const PENDING_DEAL: PendingFlashDealPayload = {
   quantity: 1,
 }
 
-function deviceSession(overrides: Partial<DeviceSessionPayload> = {}): DeviceSessionPayload {
+function deviceSession(overrides: Partial<DeviceSessionSummary> = {}): DeviceSessionSummary {
   return {
     id: 'ds-1',
     linkExpirySeconds: 3600,

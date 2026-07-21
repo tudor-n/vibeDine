@@ -4,8 +4,8 @@ import { useGuestStore } from '@/stores/useGuestStore'
 import { useTheme } from '@/composables/useTheme'
 import { writeCachedBrand } from '@shared/branding/cache'
 import { roundMoney } from '@/utils/money'
-import type { DeviceSessionOrder, JoinTableResponse } from '@/services/api-client'
-import type { PendingFlashDealPayload, RestaurantBranding } from '@shared/types/models'
+import type { JoinTableResponse } from '@/services/api-client'
+import type { DeviceSessionOrder, PendingFlashDealPayload, RestaurantBranding } from '@shared/types/models'
 
 export const useSessionStore = defineStore('session' , () => {
   const tableId = ref<string | null>(sessionStorage.getItem('tableId'))

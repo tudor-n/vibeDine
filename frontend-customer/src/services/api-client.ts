@@ -1,6 +1,6 @@
 import type { MenuResponse, VibeyRecommendationResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest, VibeyRecommendationRequest } from '@shared/types/api-requests';
-import type { ActiveHappyHour, PendingFlashDealPayload, RestaurantBranding } from '@shared/types/models';
+import type { ActiveHappyHour, DeviceSessionSummary, RestaurantBranding } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
@@ -35,27 +35,6 @@ export interface PartyMember {
   status: string;
 }
 
-// One already-submitted round of a device's visit, as returned inside
-// `session.orders` — same narrow shape as `activeOrder` (not the full shared
-// `Order` model, which carries fields the join endpoint doesn't send).
-export interface DeviceSessionOrder {
-  id: string;
-  status: string;
-  totalAmount: number;
-  items: PartyOrderItem[];
-}
-
-// The requesting device's whole visit at this table (every already-submitted
-// round + cumulative total + any flash deal still pending on one of them).
-// Present only when the request carried a usable deviceId.
-export interface DeviceSessionPayload {
-  id: string;
-  linkExpirySeconds: number;
-  cumulativeTotal: number;
-  orders: DeviceSessionOrder[];
-  pendingDeal: PendingFlashDealPayload | null;
-}
-
 export interface JoinTableResponse {
   guestId: string;
   displayName: string | null;
@@ -68,7 +47,7 @@ export interface JoinTableResponse {
   activeOrder: { id: string; status: string; totalAmount: number; items: PartyOrderItem[] };
   partyMembers: PartyMember[];
   branding: RestaurantBranding | null;
-  session: DeviceSessionPayload | null;
+  session: DeviceSessionSummary | null;
 }
 
 export interface MergePartyResponse {
