@@ -62,10 +62,17 @@ function selectCategory(id: string) {
 }
 
 // Bring the active category's chip into view so the diner can always see where
-// they are — the row scrolls horizontally and the active chip may be off-screen.
+// they are. We adjust ONLY the chip row's own scrollLeft — never el.scrollIntoView(),
+// which would also scroll every scrollable ancestor (the dish list, the phone
+// frame, the page) and shift the whole screen.
 function scrollActiveChipIntoView() {
-  const active = chipsEl.value?.querySelector<HTMLElement>('[aria-pressed="true"]')
-  active?.scrollIntoView({ inline: 'center', block: 'nearest' })
+  const row = chipsEl.value
+  const active = row?.querySelector<HTMLElement>('[aria-pressed="true"]')
+  if (!row || !active) return
+  const rowRect = row.getBoundingClientRect()
+  const activeRect = active.getBoundingClientRect()
+  const delta = activeRect.left - rowRect.left - (row.clientWidth - active.clientWidth) / 2
+  row.scrollLeft += delta // browser clamps to [0, maxScrollLeft]
 }
 
 onMounted(async () => {
