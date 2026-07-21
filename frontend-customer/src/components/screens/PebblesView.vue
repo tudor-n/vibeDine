@@ -81,6 +81,11 @@ function imageFor(name: string): string {
 // matches, or if any dish inside it matches. Diacritic-insensitive so "peste"
 // finds "pește".
 const searchQuery = ref('')
+const searchOpen = ref(false)
+function toggleSearch() {
+  searchOpen.value = !searchOpen.value
+  if (!searchOpen.value) searchQuery.value = ''
+}
 function normalize(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
 }
@@ -184,10 +189,23 @@ onBeforeUnmount(() => {
       <h2 class="title">
         {{ t('pebbles.title1') }} <span :style="{ color: T.accent }">{{ t('pebbles.title2') }}</span>
       </h2>
-      <p class="lede" :style="{ color: T.ink70 }">
-        {{ t('pebbles.subtitle') }}
-      </p>
+      <div class="lede-row">
+        <p class="lede" :style="{ color: T.ink70 }">
+          {{ t('pebbles.subtitle') }}
+        </p>
+        <button
+          class="search-toggle"
+          type="button"
+          :style="searchOpen
+            ? { background: T.ink, border: 'none', color: T.paperHi }
+            : { background: T.card, border: `1px solid ${T.ink12}`, color: T.ink70 }"
+          :aria-label="searchOpen ? t('menu.closeSearch') : t('menu.openSearch')"
+          :aria-pressed="searchOpen"
+          @click="toggleSearch"
+        >{{ searchOpen ? '×' : '⌕' }}</button>
+      </div>
       <div
+        v-if="searchOpen"
         class="search-box"
         :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
       >
@@ -198,6 +216,7 @@ onBeforeUnmount(() => {
           type="search"
           :placeholder="t('pebbles.searchPlaceholder')"
           :style="{ color: T.ink }"
+          autofocus
         />
         <button
           v-if="searchQuery"
@@ -327,9 +346,29 @@ onBeforeUnmount(() => {
   letter-spacing: -0.03em;
   margin: 0;
 }
+.lede-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
 .lede {
   font-size: clamp(14px, 4.1vw, 16px);
-  margin: 8px 0 0;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.search-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
 }
 .search-box {
   display: flex;
