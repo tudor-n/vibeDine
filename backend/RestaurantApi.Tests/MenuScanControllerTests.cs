@@ -61,7 +61,9 @@ public class MenuScanControllerTests : IAsyncLifetime
     private static MultipartFormDataContent OnePhoto()
     {
         var form = new MultipartFormDataContent();
-        var bytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+        // Full 8-byte PNG signature — the scan endpoint sniffs magic bytes and
+        // rejects anything shorter (ImageValidation.SniffImage needs >= 8).
+        var bytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
         var content = new ByteArrayContent(bytes);
         content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         form.Add(content, "photos", "p0.png");

@@ -17,7 +17,7 @@ export function resolveResponseMediaUrls<T>(value: T): T {
   if (value && typeof value === 'object') {
     const result: Record<string, unknown> = {}
     for (const [key, nested] of Object.entries(value)) {
-      if ((key === 'imageUrl' || key === 'avatarUrl' || key === 'logoUrl' || key === 'photoUrl') && typeof nested === 'string') {
+      if ((key === 'imageUrl' || key === 'avatarUrl' || key === 'logoUrl' || key === 'photoUrl' || key === 'menuBackgroundUrl') && typeof nested === 'string') {
         result[key] = resolveMediaUrl(nested)
       } else {
         result[key] = resolveResponseMediaUrls(nested)

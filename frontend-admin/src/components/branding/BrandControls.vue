@@ -1,18 +1,28 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import BrandPreview from './BrandPreview.vue'
 import { BRAND_PRESETS, type BrandDraft, type BrandPreset } from './presets'
 import { resolveMediaUrl } from '@/services/mediaUrl'
+import type { BrandingAssetKind } from '@/services/brandingUpload'
+import { deriveBrandPalette } from '@shared/branding/derive'
+import {
+  MENU_BACKGROUND_STYLES,
+  DEFAULT_MENU_BACKGROUND_STYLE,
+  menuBackgroundScrimOpacity,
+  type MenuBackgroundStyle,
+} from '@shared/branding/menuBackground'
 
 const props = defineProps<{ modelValue: BrandDraft }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: BrandDraft): void
   (e: 'upload-logo', f: File): void
   (e: 'upload-photo', f: File): void
+  (e: 'upload-menu-background', f: File): void
+  (e: 'remove', kind: BrandingAssetKind): void
 }>()
 
 const logoInput = ref<HTMLInputElement | null>(null)
 const photoInput = ref<HTMLInputElement | null>(null)
+const menuBgInput = ref<HTMLInputElement | null>(null)
 
 function emitDraft(patch: Partial<BrandDraft>) {
   emit('update:modelValue', { ...props.modelValue, ...patch })
@@ -82,6 +92,7 @@ function onLogoBgColor(event: Event) {
 
 const logoSrc = computed(() => resolveMediaUrl(props.modelValue.logoUrl))
 const photoSrc = computed(() => resolveMediaUrl(props.modelValue.photoUrl))
+const menuBgSrc = computed(() => resolveMediaUrl(props.modelValue.menuBackgroundUrl))
 
 function fileNameFromUrl(url: string | null): string | null {
   if (!url) return null
@@ -96,12 +107,16 @@ function fileNameFromUrl(url: string | null): string | null {
 
 const logoFileName = computed(() => fileNameFromUrl(props.modelValue.logoUrl))
 const photoFileName = computed(() => fileNameFromUrl(props.modelValue.photoUrl))
+const menuBgFileName = computed(() => fileNameFromUrl(props.modelValue.menuBackgroundUrl))
 
 function pickLogo() {
   logoInput.value?.click()
 }
 function pickPhoto() {
   photoInput.value?.click()
+}
+function pickMenuBg() {
+  menuBgInput.value?.click()
 }
 
 function onLogoFile(event: Event) {
@@ -117,6 +132,31 @@ function onPhotoFile(event: Event) {
   if (file) emit('upload-photo', file)
   target.value = ''
 }
+
+function onMenuBgFile(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) emit('upload-menu-background', file)
+  target.value = ''
+}
+
+// ── Menu background visibility ("Vizibilitate fundal") ───────────────────
+const MENU_BG_LABELS: Record<MenuBackgroundStyle, string> = {
+  visible: 'Vizibil', medium: 'Mediu', subtle: 'Estompat',
+}
+const menuBgStyle = computed<MenuBackgroundStyle>(
+  () => (props.modelValue.menuBackgroundStyle as MenuBackgroundStyle) ?? DEFAULT_MENU_BACKGROUND_STYLE,
+)
+function setMenuBgStyle(style: MenuBackgroundStyle) {
+  emitDraft({ menuBackgroundStyle: style })
+}
+// Derive the branded palette so the preview scrim + text match what the diner sees.
+const menuBgPalette = computed(() => {
+  try { return deriveBrandPalette(previewColors.value) } catch { return null }
+})
+const menuBgScrimColor = computed(() => menuBgPalette.value?.paper ?? props.modelValue.background)
+const menuBgInkColor = computed(() => menuBgPalette.value?.ink ?? '#15140F')
+const menuBgScrimOpacity = computed(() => menuBackgroundScrimOpacity(menuBgStyle.value))
 </script>
 
 <template>
@@ -191,16 +231,25 @@ function onPhotoFile(event: Event) {
       <section class="upload-grid">
         <div class="upload-field">
           <div class="field-label brand-section-label">Logo</div>
-          <div class="dropzone-row" role="button" tabindex="0" @click="pickLogo" @keydown.enter="pickLogo">
-            <div class="dropzone-thumb">
-              <img v-if="logoSrc" :src="logoSrc" alt="" />
-              <span v-else class="dropzone-thumb-empty" aria-hidden="true">+</span>
+          <div class="dropzone-wrap">
+            <div class="dropzone-row" role="button" tabindex="0" @click="pickLogo" @keydown.enter="pickLogo">
+              <div class="dropzone-thumb">
+                <img v-if="logoSrc" :src="logoSrc" alt="" />
+                <span v-else class="dropzone-thumb-empty" aria-hidden="true">+</span>
+              </div>
+              <div class="dropzone-meta">
+                <div class="dropzone-filename">{{ logoFileName ?? 'Niciun fișier încărcat' }}</div>
+                <div class="dropzone-hint">PNG, JPG sau WebP</div>
+              </div>
+              <span class="dropzone-action">{{ logoSrc ? 'Înlocuiește' : 'Adaugă' }}</span>
             </div>
-            <div class="dropzone-meta">
-              <div class="dropzone-filename">{{ logoFileName ?? 'Niciun fișier încărcat' }}</div>
-              <div class="dropzone-hint">PNG, JPG sau WebP</div>
-            </div>
-            <span class="dropzone-action">{{ logoSrc ? 'Înlocuiește' : 'Adaugă' }}</span>
+            <button
+              v-if="logoSrc"
+              type="button"
+              class="dropzone-remove"
+              aria-label="Elimină logo-ul"
+              @click="emit('remove', 'logo')"
+            >×</button>
           </div>
           <input
             ref="logoInput"
@@ -235,15 +284,24 @@ function onPhotoFile(event: Event) {
 
         <div class="upload-field">
           <div class="field-label brand-section-label">Fotografie de prezentare</div>
-          <div class="dropzone-row" role="button" tabindex="0" @click="pickPhoto" @keydown.enter="pickPhoto">
-            <div class="dropzone-thumb dropzone-thumb-photo" :style="photoSrc ? { backgroundImage: `url('${photoSrc}')` } : {}">
-              <span v-if="!photoSrc" class="dropzone-thumb-empty" aria-hidden="true">+</span>
+          <div class="dropzone-wrap">
+            <div class="dropzone-row" role="button" tabindex="0" @click="pickPhoto" @keydown.enter="pickPhoto">
+              <div class="dropzone-thumb dropzone-thumb-photo" :style="photoSrc ? { backgroundImage: `url('${photoSrc}')` } : {}">
+                <span v-if="!photoSrc" class="dropzone-thumb-empty" aria-hidden="true">+</span>
+              </div>
+              <div class="dropzone-meta">
+                <div class="dropzone-filename">{{ photoFileName ?? 'Niciun fișier încărcat' }}</div>
+                <div class="dropzone-hint">Ecranul de întâmpinare · JPG, PNG sau WebP</div>
+              </div>
+              <span class="dropzone-action">{{ photoSrc ? 'Înlocuiește' : 'Adaugă' }}</span>
             </div>
-            <div class="dropzone-meta">
-              <div class="dropzone-filename">{{ photoFileName ?? 'Niciun fișier încărcat' }}</div>
-              <div class="dropzone-hint">JPG, PNG sau WebP</div>
-            </div>
-            <span class="dropzone-action">{{ photoSrc ? 'Înlocuiește' : 'Adaugă' }}</span>
+            <button
+              v-if="photoSrc"
+              type="button"
+              class="dropzone-remove"
+              aria-label="Elimină fotografia"
+              @click="emit('remove', 'photo')"
+            >×</button>
           </div>
           <input
             ref="photoInput"
@@ -253,25 +311,62 @@ function onPhotoFile(event: Event) {
             @change="onPhotoFile"
           />
         </div>
+
+        <div class="upload-field">
+          <div class="field-label brand-section-label">Fundal meniu</div>
+          <div class="dropzone-wrap">
+            <div class="dropzone-row" role="button" tabindex="0" @click="pickMenuBg" @keydown.enter="pickMenuBg">
+              <div class="dropzone-thumb dropzone-thumb-photo" :style="menuBgSrc ? { backgroundImage: `url('${menuBgSrc}')` } : {}">
+                <span v-if="!menuBgSrc" class="dropzone-thumb-empty" aria-hidden="true">+</span>
+              </div>
+              <div class="dropzone-meta">
+                <div class="dropzone-filename">{{ menuBgFileName ?? 'Niciun fișier încărcat' }}</div>
+                <div class="dropzone-hint">În spatele meniului · JPG, PNG sau WebP</div>
+              </div>
+              <span class="dropzone-action">{{ menuBgSrc ? 'Înlocuiește' : 'Adaugă' }}</span>
+            </div>
+            <button
+              v-if="menuBgSrc"
+              type="button"
+              class="dropzone-remove"
+              aria-label="Elimină fundalul de meniu"
+              @click="emit('remove', 'menu-background')"
+            >×</button>
+          </div>
+          <input
+            ref="menuBgInput"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            class="hidden-input"
+            @change="onMenuBgFile"
+          />
+
+          <div v-if="menuBgSrc" class="logo-bg-row">
+            <span class="field-label">Vizibilitate fundal</span>
+            <div class="logo-bg-modes" role="group" aria-label="Vizibilitate fundal meniu">
+              <button
+                v-for="m in MENU_BACKGROUND_STYLES"
+                :key="m"
+                type="button"
+                class="logo-bg-chip"
+                :class="{ 'is-active': menuBgStyle === m }"
+                @click="setMenuBgStyle(m)"
+              >{{ MENU_BG_LABELS[m] }}</button>
+            </div>
+            <div class="menu-bg-preview">
+              <div class="menu-bg-preview-photo" :style="{ backgroundImage: `url('${menuBgSrc}')` }" />
+              <div class="menu-bg-preview-scrim" :style="{ background: menuBgScrimColor, opacity: menuBgScrimOpacity }" />
+              <span class="menu-bg-preview-label" :style="{ color: menuBgInkColor }">Meniu</span>
+            </div>
+          </div>
+        </div>
       </section>
     </div>
-
-    <BrandPreview
-      class="brand-controls-preview"
-      :colors="previewColors"
-      :logo-url="modelValue.logoUrl"
-      :photo-url="modelValue.photoUrl"
-      :logo-background="modelValue.logoBackground"
-      :logo-is-dark="modelValue.logoIsDark"
-    />
   </div>
 </template>
 
 <style scoped>
 .brand-controls {
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 28px;
   padding: 30px;
 }
 
@@ -280,12 +375,6 @@ function onPhotoFile(event: Event) {
   flex-direction: column;
   gap: 28px;
   min-width: 0;
-}
-
-.brand-controls-preview {
-  align-self: start;
-  position: sticky;
-  top: 16px;
 }
 
 .brand-section-label { margin-bottom: 12px; }
@@ -379,6 +468,31 @@ function onPhotoFile(event: Event) {
 }
 .upload-field { flex: 1; min-width: 220px; }
 
+.dropzone-wrap { position: relative; }
+/* Small floating "remove" badge on the dropzone's top-right corner. Rendered as
+   a sibling of the role="button" row (not a child) so it never triggers the
+   file picker and avoids nesting interactive controls. */
+.dropzone-remove {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--ink12);
+  background: var(--card);
+  color: var(--ink70);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.25);
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+}
+.dropzone-remove:hover { color: var(--accent); border-color: var(--accent); transform: scale(1.05); }
+
 .dropzone-row {
   cursor: pointer;
   background: var(--card);
@@ -454,8 +568,29 @@ function onPhotoFile(event: Event) {
 .logo-bg-chip.is-active { border-color: var(--accent); color: var(--accent); }
 .logo-bg-color { width: 32px; height: 28px; }
 
-@media (max-width: 860px) {
-  .brand-controls { grid-template-columns: 1fr; }
-  .brand-controls-preview { position: static; justify-self: center; }
+/* Live preview of the menu background with the selected scrim, so the manager
+   sees "visible vs faded" (and text legibility) without leaving the page. */
+.menu-bg-preview {
+  position: relative;
+  margin-top: 4px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--ink12);
+}
+.menu-bg-preview-photo {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+}
+.menu-bg-preview-scrim { position: absolute; inset: 0; }
+.menu-bg-preview-label {
+  position: absolute;
+  left: 12px;
+  bottom: 9px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 </style>

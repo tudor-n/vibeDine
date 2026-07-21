@@ -399,6 +399,8 @@ public class CustomerController : ControllerBase
                 Background = restaurant?.BrandBackground,
                 LogoUrl = restaurant?.LogoUrl,
                 PhotoUrl = restaurant?.PhotoUrl,
+                MenuBackgroundUrl = restaurant?.MenuBackgroundUrl,
+                MenuBackgroundStyle = restaurant?.MenuBackgroundStyle,
                 LogoBackground = restaurant?.LogoBackground,
                 LogoIsDark = restaurant?.LogoIsDark,
             },
