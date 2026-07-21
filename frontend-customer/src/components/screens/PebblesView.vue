@@ -77,15 +77,37 @@ function imageFor(name: string): string {
   return FALLBACK_IMAGE
 }
 
-const pebbles = computed(() =>
-  categories.value.map((cat, i) => ({
-    id: cat.id,
-    label: cat.name,
-    count: productsByCategory(cat.id).length,
-    pathIndex: i % 6,
-    image: imageFor(cat.name),
-  })),
-)
+// Search across categories AND their dishes: a category shows if its own name
+// matches, or if any dish inside it matches. Diacritic-insensitive so "peste"
+// finds "pește".
+const searchQuery = ref('')
+function normalize(s: string) {
+  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+}
+
+const pebbles = computed(() => {
+  const q = normalize(searchQuery.value.trim())
+  return categories.value
+    .map((cat, i) => ({
+      id: cat.id,
+      label: cat.name,
+      items: productsByCategory(cat.id),
+      pathIndex: i % 6,
+      image: imageFor(cat.name),
+    }))
+    .filter((cat) => {
+      if (!q) return true
+      if (normalize(cat.label).includes(q)) return true
+      return cat.items.some((it) => normalize(`${it.name} ${it.description ?? ''}`).includes(q))
+    })
+    .map((cat) => ({
+      id: cat.id,
+      label: cat.label,
+      count: cat.items.length,
+      pathIndex: cat.pathIndex,
+      image: cat.image,
+    }))
+})
 
 type PebbleVm = (typeof pebbles)['value'][number]
 
@@ -165,6 +187,27 @@ onBeforeUnmount(() => {
       <p class="lede" :style="{ color: T.ink70 }">
         {{ t('pebbles.subtitle') }}
       </p>
+      <div
+        class="search-box"
+        :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
+      >
+        <span class="search-icon" :style="{ color: T.ink70 }">⌕</span>
+        <input
+          v-model="searchQuery"
+          class="search-input"
+          type="search"
+          :placeholder="t('pebbles.searchPlaceholder')"
+          :style="{ color: T.ink }"
+        />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="search-clear"
+          :style="{ color: T.ink70 }"
+          :aria-label="t('menu.clearSearch')"
+          @click="searchQuery = ''"
+        >×</button>
+      </div>
     </div>
 
     <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">
@@ -172,6 +215,13 @@ onBeforeUnmount(() => {
     </div>
     <div v-else-if="error" class="state" :style="{ color: T.accent }">
       {{ error }}
+    </div>
+    <div
+      v-else-if="searchQuery.trim() && pebbles.length === 0"
+      class="state"
+      :style="{ color: T.ink70 }"
+    >
+      {{ t('pebbles.noResults', { query: searchQuery }) }}
     </div>
 
     <div v-else class="grid-wrap" :class="{ 'has-cart-bar': cartCount > 0 }">
@@ -280,6 +330,40 @@ onBeforeUnmount(() => {
 .lede {
   font-size: clamp(14px, 4.1vw, 16px);
   margin: 8px 0 0;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  border-radius: 999px;
+  padding: 0 16px;
+  margin-top: 14px;
+}
+.search-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 0;
+}
+.search-input::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
 }
 .state {
   padding: 32px 24px;
