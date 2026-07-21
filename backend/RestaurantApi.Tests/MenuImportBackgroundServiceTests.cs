@@ -75,7 +75,7 @@ public class MenuImportBackgroundServiceTests : IAsyncLifetime
             provider.GetRequiredService<IWebHostEnvironment>().ContentRootPath, "wwwroot", "uploads")));
         sc.AddSingleton<ItemPhotoStorage>();
         sc.AddScoped<MenuImportPhotoMerger>();
-        sc.AddSingleton<IOptions<MenuImportOptions>>(Options.Create(new MenuImportOptions
+        sc.AddSingleton<IOptions<MenuImportOptions>>(Microsoft.Extensions.Options.Options.Create(new MenuImportOptions
         {
             MaxConcurrentJobs = 3,
             PollIntervalMs = 100,
