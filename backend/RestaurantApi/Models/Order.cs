@@ -15,6 +15,10 @@ public class Order : ITenantScoped {
     // drafts (created before multi-person ordering) and on merged orders.
     public Guid? GuestId { get; set; }
 
+    // The device-bound visit this order belongs to; null for legacy orders and
+    // after the session is swept (orders outlive sessions as plain history).
+    public Guid? DeviceSessionId { get; set; }
+
     // When this draft is merged into another guest's draft, this points at the
     // surviving order and Status becomes "merged" so it drops out of active queries.
     public Guid? MergedIntoOrderId { get; set; }
