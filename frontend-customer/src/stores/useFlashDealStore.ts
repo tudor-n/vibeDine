@@ -2,6 +2,50 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { FlashDeal } from '@shared/types/models'
 
+// The two places a flash-deal payload arrives from — the live `FlashDealAvailable`
+// WebSocket push and the join response's `pendingDeal` (see
+// shared/types/models.ts DeviceSessionSummary) — share every field EXCEPT:
+// `imageUrl` (join-only; the WS push doesn't carry it) and `discountPercent`
+// (WS-only; the join payload has no configured-discount field to restore).
+// Both are therefore optional here so one mapping covers both callers.
+export interface FlashDealPayloadLike {
+  dealId: string
+  orderId: string
+  productId: string
+  productName: string
+  imageUrl?: string | null
+  originalPrice: number
+  discountPrice: number
+  discountPercent?: number
+  expiresAt: string
+  quantity?: number
+}
+
+// Single source of truth for payload -> FlashDeal conversion, used by the
+// WebSocket handler (useWebSocket.ts) and by the join-restore path
+// (OrderingView.onMounted) so a pending deal survives a re-scan identically
+// to a freshly pushed one.
+export function buildFlashDealFromPayload(raw: FlashDealPayloadLike): FlashDeal {
+  return {
+    id: raw.dealId,
+    menuItemId: raw.productId,
+    menuItem: {
+      id: raw.productId,
+      name: raw.productName,
+      price: raw.originalPrice,
+      imageUrl: raw.imageUrl ?? null,
+    },
+    discountPercent: raw.discountPercent || 20,
+    discountedPrice: raw.discountPrice,
+    trigger: 'post_order',
+    countdownSeconds: 120,
+    expiresAt: raw.expiresAt,
+    reason: '',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  }
+}
+
 export const useFlashDealStore = defineStore('flashDeal', () => {
   const activeDeal = ref<FlashDeal | null>(null)
   const activeDealOrderId = ref<string | null>(null)
