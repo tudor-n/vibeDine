@@ -34,6 +34,10 @@ services:
       Jwt__Audience: "smart-restaurant"
       Jwt__AccessTokenMinutes: "60"
       Jwt__RefreshTokenDays: "30"
+      # Customer device sessions (appsettings.Development.json never reaches the
+      # image, so the 30s testing value must be set here too)
+      CustomerSession__LinkExpirySeconds: "30"
+      CustomerSession__SessionLifetimeMinutes: "180"
       # PDF menu import
       MenuImport__HmacSecret: "dev-menu-import-hmac-secret-32chars-minimum"
       MenuImport__CallbackBaseUrl: "http://backend-api:5000"
