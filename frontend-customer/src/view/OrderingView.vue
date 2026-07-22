@@ -429,8 +429,11 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       <!-- Everything the diner could otherwise interact with while the
            link-expired overlay covers it. `inert` drops it from the tab order
            and blocks pointer/focus reaching it, on top of the overlay's own
-           z-index — the tree itself stays mounted (see LinkExpiredView below). -->
-      <div :inert="linkExpired">
+           z-index — the tree itself stays mounted (see LinkExpiredView below).
+           `.content-layer` carries height:100% so the .phone-frame (explicit
+           height) -> this wrapper -> .phone-screen (height:100%, see
+           ui/PhoneScreen.vue) chain isn't broken by this extra unstyled level. -->
+      <div class="content-layer" :inert="linkExpired">
       <div
         v-if="showSessionError"
         class="session-error"
@@ -624,6 +627,14 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
   height: 100dvh;
   position: relative;
   overflow: hidden;
+}
+/* Restores the height chain broken by inserting this wrapper between
+   .phone-frame (explicit height above) and the screens' .phone-screen root
+   (height: 100%, see ui/PhoneScreen.vue): a plain unstyled div here would
+   default to height: auto, and a percentage height resolves against an auto
+   parent as auto too, collapsing every screen behind the link-expiry overlay. */
+.content-layer {
+  height: 100%;
 }
 @media (min-width: 480px) {
   .stage {

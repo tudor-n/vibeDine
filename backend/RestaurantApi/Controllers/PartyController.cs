@@ -429,19 +429,22 @@ public class PartyController : ControllerBase
             var quantity = await _db.Orders.CountAsync(o => o.MergedIntoOrderId == deal.OrderId) + 1;
 
             // FlashDealOffer doesn't persist the percent it was created from (only
-            // the resulting DiscountPrice), so mirror FlashDealService's own lookup
-            // (~lines 208-219: DiscountPercent = rule.DiscountPercent) by re-reading
-            // the rule for this product. The rule can have changed/disappeared since
-            // the deal fired (it's a single per-restaurant row an admin save
-            // replaces), so fall back to deriving the percent from the prices we do
-            // have rather than inventing a number.
-            var dealRule = await _db.FlashDealRules.FirstOrDefaultAsync(r => r.ProductId == deal.ProductId);
+            // the resulting DiscountPrice), so derive it from the two prices THIS
+            // deal actually used — immutable for this deal, unlike
+            // FlashDealRules.DiscountPercent, which an admin can edit while the
+            // deal is still live and would otherwise drift out of sync with the
+            // DiscountPrice already locked in. Only fall back to the rule's
+            // currently configured percent (mirroring FlashDealService's own
+            // lookup, ~lines 208-219: DiscountPercent = rule.DiscountPercent) when
+            // derivation is impossible (e.g. the product's price is zero/missing).
             var originalPrice = dealProduct?.Price ?? 0m;
             var discountPriceValue = deal.DiscountPrice ?? 0m;
-            var discountPercent = dealRule?.DiscountPercent
-                ?? (originalPrice > 0m
-                    ? (int)Math.Round((1 - discountPriceValue / originalPrice) * 100m)
-                    : 0);
+            int? derivedPercent = originalPrice > 0m
+                ? (int)Math.Round((1 - discountPriceValue / originalPrice) * 100m)
+                : null;
+            var discountPercent = derivedPercent
+                ?? (await _db.FlashDealRules.FirstOrDefaultAsync(r => r.ProductId == deal.ProductId))?.DiscountPercent
+                ?? 0;
 
             pendingDeal = new
             {
