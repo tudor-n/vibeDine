@@ -10,6 +10,7 @@ using RestaurantApi.Auth;
 using RestaurantApi.Data;
 using RestaurantApi.Hubs;
 using RestaurantApi.Models;
+using RestaurantApi.Options;
 using RestaurantApi.Services;
 using RestaurantApi.Services.Email;
 using RestaurantApi.Storage;
@@ -233,6 +234,7 @@ builder.Services.AddTransient<IPdfExtractor, MenuImportPythonClient>(sp =>
     sp.GetRequiredService<MenuImportPythonClient>());
 
 builder.Services.Configure<MenuImportOptions>(builder.Configuration.GetSection("MenuImport"));
+builder.Services.Configure<CustomerSessionOptions>(builder.Configuration.GetSection(CustomerSessionOptions.SectionName));
 builder.Services.AddSingleton<MenuImportProgressNotifier>();
 builder.Services.AddSingleton<ItemPhotoStorage>();
 builder.Services.AddScoped<MenuImportPhotoMerger>();

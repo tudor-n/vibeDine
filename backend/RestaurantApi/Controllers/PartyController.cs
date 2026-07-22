@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using RestaurantApi.Data;
 using RestaurantApi.DTOs.Requests;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Hubs;
 using RestaurantApi.Models;
+using RestaurantApi.Options;
 
 namespace RestaurantApi.Controllers;
 
@@ -43,11 +45,23 @@ public class PartyController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly IHubContext<CustomerHub> _customerHub;
+    private readonly CustomerSessionOptions _sessionOptions;
 
-    public PartyController(AppDbContext db, IHubContext<CustomerHub> customerHub)
+    // Statuses that count toward a device session's cumulative visit: everything
+    // past "draft" up to and including "completed" (which is soft-deleted 45s
+    // after ready but must still count — DeletedAt is deliberately not filtered
+    // here). "cancelled"/"merged" don't represent a paid/kitchen-bound round.
+    private static readonly string[] SessionOrderStatuses =
+        ["pending_dispatch", "submitted", "preparing", "ready", "completed"];
+
+    public PartyController(
+        AppDbContext db,
+        IHubContext<CustomerHub> customerHub,
+        IOptions<CustomerSessionOptions> sessionOptions)
     {
         _db = db;
         _customerHub = customerHub;
+        _sessionOptions = sessionOptions.Value;
     }
 
     // POST /api/tables/{qrToken}/join — claim/restore this phone's guest slot and
@@ -61,6 +75,7 @@ public class PartyController : ControllerBase
             return NotFound(new { message = "Invalid QR Code. Table not found." });
 
         await PurgeStaleGuestsAsync(table.Id);
+        await PurgeExpiredDeviceSessionsAsync(table.Id);
 
         // Resolve the guest only if the passed id actually belongs to THIS table —
         // a stored id from another table (or a forged one) starts a fresh slot here.
@@ -85,6 +100,33 @@ public class PartyController : ControllerBase
         }
         await _db.SaveChangesAsync();
 
+        // Resolve (or create) this phone's device-bound session — only when a
+        // usable deviceId was supplied. Requests without one behave exactly as
+        // before except for the added `session: null` field below (back-compat
+        // for clients that don't send it yet).
+        var rawDeviceId = body?.DeviceId?.Trim();
+        var hasDeviceId = !string.IsNullOrEmpty(rawDeviceId) && rawDeviceId.Length <= 64;
+
+        DeviceSession? session = null;
+        if (hasDeviceId)
+        {
+            session = await _db.DeviceSessions
+                .FirstOrDefaultAsync(d => d.TableId == table.Id && d.DeviceId == rawDeviceId);
+
+            if (session is null)
+            {
+                session = new DeviceSession
+                {
+                    RestaurantId = table.RestaurantId,
+                    TableId = table.Id,
+                    DeviceId = rawDeviceId!,
+                };
+                _db.DeviceSessions.Add(session);
+            }
+            session.LastSeenAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+
         // Each guest owns exactly one live draft.
         var draft = await _db.Orders
             .Include(o => o.Items).ThenInclude(i => i.Product)
@@ -100,10 +142,20 @@ public class PartyController : ControllerBase
                 Status = "draft",
                 PaymentStatus = "unpaid",
                 TotalAmount = 0,
+                DeviceSessionId = session?.Id,
             };
             _db.Orders.Add(draft);
             await _db.SaveChangesAsync();
         }
+        else if (session is not null && draft.DeviceSessionId != session.Id)
+        {
+            // Stamp a pre-existing draft too (e.g. a returning phone whose stored
+            // guestId still resolves) so its round joins the session's visit.
+            draft.DeviceSessionId = session.Id;
+            await _db.SaveChangesAsync();
+        }
+
+        var sessionPayload = session is null ? null : await BuildDeviceSessionPayloadAsync(session);
 
         if (isNewGuest)
         {
@@ -141,6 +193,7 @@ public class PartyController : ControllerBase
             },
             activeOrder = MapOrder(draft),
             partyMembers = await BuildPartyAsync(table.Id),
+            session = sessionPayload,
         });
     }
 
@@ -319,6 +372,103 @@ public class PartyController : ControllerBase
         await _db.TableGuests
             .Where(g => staleIds.Contains(g.Id))
             .ExecuteDeleteAsync();
+    }
+
+    // A device session idle past SessionLifetimeMinutes is presumed gone for good —
+    // unlike a TableGuest's seat (one visit), a device session is meant to survive
+    // submits, so its expiry is judged on its own LastSeenAt, swept lazily here on
+    // the next join at this table. The FK (Order.DeviceSessionId, SetNull) detaches
+    // any orders it produced automatically at the DB level; they remain as plain
+    // history under the table/restaurant, just no longer attributed to a live visit.
+    private async Task PurgeExpiredDeviceSessionsAsync(Guid tableId)
+    {
+        var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(_sessionOptions.SessionLifetimeMinutes);
+        await _db.DeviceSessions
+            .Where(d => d.TableId == tableId && d.LastSeenAt < cutoff)
+            .ExecuteDeleteAsync();
+    }
+
+    // Restores a device's visit: every submitted-or-later round this session owns
+    // (soft-deleted "completed" orders included — DeletedAt is not filtered, see
+    // SessionOrderStatuses), the live running total, and any flash deal still
+    // pending on one of those rounds.
+    private async Task<object> BuildDeviceSessionPayloadAsync(DeviceSession session)
+    {
+        var sessionOrders = await _db.Orders
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Where(o => o.DeviceSessionId == session.Id && SessionOrderStatuses.Contains(o.Status))
+            .ToListAsync();
+
+        var orderResponses = sessionOrders.Select(o =>
+        {
+            var mapped = MapOrder(o);
+            // Recompute live from items rather than trust the stored TotalAmount,
+            // same reasoning as BuildPartyAsync: it can lag a post-submit mutation
+            // (e.g. a claimed flash-deal item) even though SubmitOrder itself
+            // recomputes it at that instant.
+            mapped.TotalAmount = o.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
+            return mapped;
+        }).ToList();
+
+        var cumulativeTotal = sessionOrders.Sum(o => o.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase));
+
+        var sessionOrderIds = sessionOrders.Select(o => o.Id).ToList();
+        var now = DateTime.UtcNow;
+        var deal = await _db.FlashDealOffers
+            .Where(d => d.OrderId != null && sessionOrderIds.Contains(d.OrderId.Value)
+                && d.Status == "pending" && d.ExpiresAt != null && d.ExpiresAt > now)
+            .OrderByDescending(d => d.ExpiresAt)
+            .FirstOrDefaultAsync();
+
+        object? pendingDeal = null;
+        if (deal is not null)
+        {
+            var dealProduct = await _db.Products.FirstOrDefaultAsync(p => p.Id == deal.ProductId);
+            // Same "combined guests" scaling as FlashDealService.CountCombinedGuestsAsync —
+            // one discounted portion per guest whose draft was merged into this bill.
+            var quantity = await _db.Orders.CountAsync(o => o.MergedIntoOrderId == deal.OrderId) + 1;
+
+            // FlashDealOffer doesn't persist the percent it was created from (only
+            // the resulting DiscountPrice), so derive it from the two prices THIS
+            // deal actually used — immutable for this deal, unlike
+            // FlashDealRules.DiscountPercent, which an admin can edit while the
+            // deal is still live and would otherwise drift out of sync with the
+            // DiscountPrice already locked in. Only fall back to the rule's
+            // currently configured percent (mirroring FlashDealService's own
+            // lookup, ~lines 208-219: DiscountPercent = rule.DiscountPercent) when
+            // derivation is impossible (e.g. the product's price is zero/missing).
+            var originalPrice = dealProduct?.Price ?? 0m;
+            var discountPriceValue = deal.DiscountPrice ?? 0m;
+            int? derivedPercent = originalPrice > 0m
+                ? Math.Clamp((int)Math.Round((1 - discountPriceValue / originalPrice) * 100m), 0, 100)
+                : null;
+            var discountPercent = derivedPercent
+                ?? (await _db.FlashDealRules.FirstOrDefaultAsync(r => r.ProductId == deal.ProductId))?.DiscountPercent
+                ?? 0;
+
+            pendingDeal = new
+            {
+                dealId = deal.Id,
+                orderId = deal.OrderId,
+                productId = deal.ProductId,
+                productName = dealProduct?.Name ?? "Special Item",
+                imageUrl = dealProduct?.ImageUrl,
+                originalPrice,
+                discountPrice = discountPriceValue,
+                discountPercent,
+                expiresAt = deal.ExpiresAt,
+                quantity,
+            };
+        }
+
+        return new
+        {
+            id = session.Id,
+            linkExpirySeconds = _sessionOptions.LinkExpirySeconds,
+            cumulativeTotal,
+            orders = orderResponses,
+            pendingDeal,
+        };
     }
 
     // Each guest's current order summary for the party panel. Only guests heard

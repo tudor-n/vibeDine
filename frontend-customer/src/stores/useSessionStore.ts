@@ -3,8 +3,9 @@ import { ref } from 'vue'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { useTheme } from '@/composables/useTheme'
 import { writeCachedBrand } from '@shared/branding/cache'
+import { roundMoney } from '@/utils/money'
 import type { JoinTableResponse } from '@/services/api-client'
-import type { RestaurantBranding } from '@shared/types/models'
+import type { DeviceSessionOrder, PendingFlashDealPayload, RestaurantBranding } from '@shared/types/models'
 
 export const useSessionStore = defineStore('session' , () => {
   const tableId = ref<string | null>(sessionStorage.getItem('tableId'))
@@ -34,6 +35,34 @@ export const useSessionStore = defineStore('session' , () => {
     }
   }
   const branding = ref<RestaurantBranding | null>(readStoredBranding())
+
+  // Device-session summary (multi-round visit tracking, see Task 2/3 wire
+  // contract). sessionOrders/cumulativeTotal/deviceSessionId/linkExpirySeconds
+  // mirror the existing sessionStorage-persisted fields above: a same-tab
+  // reload before the next join lands still has them. pendingDeal is
+  // deliberately NOT persisted — it's restored fresh from each join, since a
+  // stale claimable deal (past its expiry) is worse than a missing one.
+  function readStoredNumber(key: string): number | null {
+    const raw = sessionStorage.getItem(key)
+    if (raw === null) return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  }
+
+  function readStoredOrders(): DeviceSessionOrder[] {
+    try {
+      const raw = sessionStorage.getItem('sessionOrders')
+      return raw ? (JSON.parse(raw) as DeviceSessionOrder[]) : []
+    } catch {
+      return []
+    }
+  }
+
+  const deviceSessionId = ref<string | null>(sessionStorage.getItem('deviceSessionId'))
+  const linkExpirySeconds = ref<number | null>(readStoredNumber('linkExpirySeconds'))
+  const cumulativeTotal = ref<number>(readStoredNumber('cumulativeTotal') ?? 0)
+  const sessionOrders = ref<DeviceSessionOrder[]>(readStoredOrders())
+  const pendingDeal = ref<PendingFlashDealPayload | null>(null)
 
   async function initializeSession(token: string): Promise<JoinTableResponse>{
     try{
@@ -78,11 +107,66 @@ export const useSessionStore = defineStore('session' , () => {
       sessionStorage.setItem('restaurantAddress', response.restaurantAddress ?? '')
       sessionStorage.setItem('organizationName', response.organizationName)
 
+      const session = response.session
+      deviceSessionId.value = session?.id ?? null
+      linkExpirySeconds.value = session?.linkExpirySeconds ?? null
+      cumulativeTotal.value = session ? roundMoney(session.cumulativeTotal) : 0
+      sessionOrders.value = session?.orders ?? []
+      // Restored fresh from THIS join only — never from storage (see comment above).
+      pendingDeal.value = session?.pendingDeal ?? null
+
+      if (deviceSessionId.value) sessionStorage.setItem('deviceSessionId', deviceSessionId.value)
+      else sessionStorage.removeItem('deviceSessionId')
+
+      if (linkExpirySeconds.value !== null) {
+        sessionStorage.setItem('linkExpirySeconds', String(linkExpirySeconds.value))
+      } else {
+        sessionStorage.removeItem('linkExpirySeconds')
+      }
+
+      sessionStorage.setItem('cumulativeTotal', String(cumulativeTotal.value))
+      sessionStorage.setItem('sessionOrders', JSON.stringify(sessionOrders.value))
+
       return response
     }catch(error){
       console.error('Eroare la inițializarea sesiunii:', error)
       throw error
     }
+  }
+
+  // Adds roundTotal to cumulativeTotal (persisting immediately) and returns the
+  // new running total. This is a local, optimistic bump only — the next join's
+  // `session.cumulativeTotal` is the authoritative value and will overwrite it.
+  // Also appends a minimal round entry to sessionOrders so a later cancellation
+  // of THIS round (before the next join lands) can be reconciled locally — see
+  // removeCancelledOrder. Join still overwrites sessionOrders authoritatively.
+  function registerSubmittedRound(roundTotal: number, orderId: string): number {
+    cumulativeTotal.value = roundMoney(cumulativeTotal.value + roundTotal)
+    sessionStorage.setItem('cumulativeTotal', String(cumulativeTotal.value))
+    sessionOrders.value = [
+      ...sessionOrders.value,
+      { id: orderId, status: 'submitted', totalAmount: roundTotal, items: [] },
+    ]
+    sessionStorage.setItem('sessionOrders', JSON.stringify(sessionOrders.value))
+    return cumulativeTotal.value
+  }
+
+  // Kitchen-side cancellation of an in-flight round: the diner's running total
+  // must self-correct instead of staying overstated until the next join
+  // overwrites it. Case-insensitive id match (order ids are GUIDs, casing can
+  // differ between what the socket echoes and what's stored); no-op if the id
+  // isn't one of this visit's known rounds — a stale/unrelated cancel event
+  // must never touch cumulativeTotal.
+  function removeCancelledOrder(orderId: string): void {
+    const needle = orderId.toLowerCase()
+    const match = sessionOrders.value.find((o) => o.id.toLowerCase() === needle)
+    if (!match) return
+
+    cumulativeTotal.value = Math.max(0, roundMoney(cumulativeTotal.value - match.totalAmount))
+    sessionOrders.value = sessionOrders.value.filter((o) => o.id.toLowerCase() !== needle)
+
+    sessionStorage.setItem('cumulativeTotal', String(cumulativeTotal.value))
+    sessionStorage.setItem('sessionOrders', JSON.stringify(sessionOrders.value))
   }
 
   function clearSession() {
@@ -95,10 +179,34 @@ export const useSessionStore = defineStore('session' , () => {
     restaurantAddress.value = null
     organizationName.value = null
     branding.value = null
+    deviceSessionId.value = null
+    linkExpirySeconds.value = null
+    cumulativeTotal.value = 0
+    sessionOrders.value = []
+    pendingDeal.value = null
     const { applyBrand } = useTheme()
     applyBrand(null)
     sessionStorage.clear()
   }
 
-  return { tableId, orderId, qrToken, tableNumber, restaurantId, restaurantName, restaurantAddress, organizationName, branding, initializeSession, clearSession}
+  return {
+    tableId,
+    orderId,
+    qrToken,
+    tableNumber,
+    restaurantId,
+    restaurantName,
+    restaurantAddress,
+    organizationName,
+    branding,
+    deviceSessionId,
+    linkExpirySeconds,
+    cumulativeTotal,
+    sessionOrders,
+    pendingDeal,
+    initializeSession,
+    registerSubmittedRound,
+    removeCancelledOrder,
+    clearSession,
+  }
 })

@@ -25,6 +25,9 @@ const ro: Dict = {
   'session.missingMessage': 'Scanează codul QR de pe masă pentru a deschide meniul.',
   'session.invalidMessage': 'Acest cod QR nu mai este valid. Întreabă personalul pentru ajutor.',
 
+  'expired.title': 'Sesiunea a expirat',
+  'expired.message': 'Scanează din nou codul QR de pe masă pentru a continua.',
+
   'theme.toLight': 'Comutați la tema deschisă',
   'theme.toDark': 'Comutați la tema închisă',
 
@@ -185,6 +188,9 @@ const en: Dict = {
   'session.invalidTitle': 'Invalid QR code',
   'session.missingMessage': 'Scan the QR code on your table to open the menu.',
   'session.invalidMessage': 'This QR code is no longer valid. Please ask the staff for help.',
+
+  'expired.title': 'Session expired',
+  'expired.message': 'Scan the table QR code again to continue.',
 
   'theme.toLight': 'Switch to light theme',
   'theme.toDark': 'Switch to dark theme',

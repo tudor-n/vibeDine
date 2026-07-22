@@ -64,6 +64,16 @@ public class CustomerController : ControllerBase
         if (order.Items == null || order.Items.Count == 0)
             return BadRequest(new { message = "Cannot submit an empty order. Please add items to your cart first." });
 
+        // A submit proves the diner is still at the table — extend their device
+        // session's wipe window so the visit (and its running total) survives
+        // through the kitchen wait instead of expiring mid-order.
+        if (order.DeviceSessionId is Guid deviceSessionId)
+        {
+            await _context.DeviceSessions
+                .Where(d => d.Id == deviceSessionId)
+                .ExecuteUpdateAsync(s => s.SetProperty(d => d.LastSeenAt, DateTime.UtcNow));
+        }
+
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         // Hold the order in pending_dispatch until the 2-minute flash deal window
         // elapses (or the customer claims the deal). The active-orders kanban

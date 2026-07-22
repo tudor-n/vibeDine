@@ -4,10 +4,11 @@ import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useGuestStore } from '@/stores/useGuestStore'
-import { useFlashDealStore } from '@/stores/useFlashDealStore'
+import { useFlashDealStore, buildFlashDealFromPayload } from '@/stores/useFlashDealStore'
 import { useHappyHourStore } from '@/stores/useHappyHourStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import { useWebSocket } from '@/composables/useWebSocket'
+import { useLinkExpiry } from '@/composables/useLinkExpiry'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 
@@ -19,6 +20,7 @@ import CartView from '@/components/screens/CartView.vue'
 import FlashDealView from '@/components/screens/FlashDealView.vue'
 import OrderSentView from '@/components/screens/OrderSentView.vue'
 import MergedView from '@/components/screens/MergedView.vue'
+import LinkExpiredView from '@/components/screens/LinkExpiredView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
 import CallWaiterButton from '@/components/CallWaiterButton.vue'
 import HappyHourPopup from '@/components/HappyHourPopup.vue'
@@ -36,7 +38,8 @@ const orderStatusStore = useOrderStatusStore()
 const { theme, tokens: T, toggle: toggleTheme, isBranded, brandKnown } = useTheme()
 const { t } = useLocale()
 
-useWebSocket()
+const websocket = useWebSocket()
+const { expired: linkExpired, start: startLinkExpiry } = useLinkExpiry()
 
 // Navigation state is persisted so an accidental tab refresh keeps the diner on
 // the screen they were on instead of bouncing them back to the language picker
@@ -110,6 +113,11 @@ const lastTotal = ref(Number(sessionStorage.getItem('lastTotal')) || 0)
 const orderInProgress = ref(sessionStorage.getItem('orderInProgress') === 'true')
 watch(lastTotal, (v) => sessionStorage.setItem('lastTotal', String(v)))
 watch(orderInProgress, (v) => sessionStorage.setItem('orderInProgress', v ? 'true' : 'false'))
+// The sent screen's displayed total must self-correct when a cancellation
+// reconciles cumulativeTotal (see useWebSocket's OrderStatusUpdated handler /
+// useSessionStore.removeCancelledOrder) — mirror the store's running total
+// onto the locally-persisted one reactively instead of only at join/submit.
+watch(() => sessionStore.cumulativeTotal, (v) => { lastTotal.value = v })
 // The order is "archived to the order log" when its status flips to completed:
 // the kitchen's 45s ready-grace elapses, the order leaves the admin's active
 // list, and the customer gets that completed event (stamped as servedAt). We
@@ -181,6 +189,33 @@ onMounted(async () => {
     if (!hadStoredScreen && sessionStore.branding?.enabled && sessionStore.branding?.photoUrl) {
       screen.value = 'welcome'
     }
+    // A fresh context (re-scan / new tab, i.e. no stored screen for this tab)
+    // that already has submitted rounds this visit skips the language/welcome
+    // picker entirely and lands on the order-status screen instead — an
+    // existing tab keeps whatever screen it already had (handled above).
+    if (!hadStoredScreen && sessionStore.sessionOrders.length > 0) {
+      screen.value = 'sent'
+      orderInProgress.value = true
+    }
+    // The join response's cumulativeTotal is authoritative (it includes every
+    // submitted round of this visit) — covers a reload/re-scan landing on the
+    // sent screen with the correct running total instead of the last round's.
+    if (sessionStore.cumulativeTotal > 0) {
+      lastTotal.value = sessionStore.cumulativeTotal
+    }
+    // Restore a still-live flash deal from the join payload (e.g. a re-scan
+    // mid-countdown) using the same payload->FlashDeal mapping the WebSocket
+    // push uses, so it renders identically. A deal whose window already
+    // elapsed is not worth restoring.
+    const pending = sessionStore.pendingDeal
+    if (pending && Date.parse(pending.expiresAt) > Date.now()) {
+      const restoredDeal = buildFlashDealFromPayload(pending)
+      flashDealStore.setActiveDeal(restoredDeal, pending.orderId, pending.quantity)
+    }
+    // Link-expiry countdown starts once the session is live; a wipe on the
+    // backend should be mirrored here by disconnecting and stopping polling
+    // (see the `linkExpired` watcher below).
+    startLinkExpiry(sessionStore.linkExpirySeconds ?? 900)
     // Poll the live happy hour app-wide (not just on the menu screen) so the bar
     // shows on the categories page and stays visible after an order is sent.
     happyHourStore.startPolling()
@@ -208,6 +243,30 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
+// The device-session link expired (see useLinkExpiry / the backend's
+// LinkExpirySeconds wipe window): an abandoned open tab must stop talking to
+// the server — heartbeats (party poll, the visibilitychange refocus beat) and
+// live pushes (WebSocket) — so the backend can actually wipe the session, and
+// the happy-hour poll has no reason to keep running behind a screen the diner
+// can no longer act on. Deliberately does NOT clear any store or
+// sessionStorage: re-scanning the QR (a fresh page load, fresh timer) must
+// restore everything as-is.
+watch(linkExpired, (isExpired) => {
+  if (!isExpired) return
+  websocket.disconnect()
+  if (partyPoll) {
+    clearInterval(partyPoll)
+    partyPoll = null
+  }
+  // Otherwise bringing this abandoned tab back to the foreground would still
+  // fire a fresh presence heartbeat straight past the poll's own teardown.
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  happyHourStore.stopPolling()
+  // A pending debounced cart sync has no server to reach once the link is
+  // considered expired — cancel it rather than let it fire into the void.
+  cartStore.cancelPendingSync()
+})
+
 function onLanguageSelected() {
   screen.value = 'pebbles'
 }
@@ -232,7 +291,14 @@ function openCart() {
 function backFromCart() { screen.value = cartOrigin.value }
 
 function handleSubmitted() {
-  lastTotal.value = cartStore.total
+  // Capture the draft's orderId BEFORE anything that could re-join — submit
+  // itself doesn't change it, but this call must never rely on that lasting
+  // past this tick. An active order always has an orderId at this point (the
+  // submit that just happened required one).
+  const submittedOrderId = sessionStore.orderId!
+  // cumulativeTotal already tracks this visit's prior rounds — the running
+  // total (not just this round's) is what the sent screen should show.
+  lastTotal.value = sessionStore.registerSubmittedRound(cartStore.total, submittedOrderId)
   cartStore.clearCart()
   // Drop the previous round's status so the timeline starts fresh instead of
   // instantly showing the last order's "completed" stage.
@@ -373,6 +439,14 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 <template>
   <div class="stage" :style="{ background: T.paper }">
     <div class="phone-frame" :style="{ '--hh-banner-offset': happyHourBannerOffset }">
+      <!-- Everything the diner could otherwise interact with while the
+           link-expired overlay covers it. `inert` drops it from the tab order
+           and blocks pointer/focus reaching it, on top of the overlay's own
+           z-index — the tree itself stays mounted (see LinkExpiredView below).
+           `.content-layer` carries height:100% so the .phone-frame (explicit
+           height) -> this wrapper -> .phone-screen (height:100%, see
+           ui/PhoneScreen.vue) chain isn't broken by this extra unstyled level. -->
+      <div class="content-layer" :inert="linkExpired">
       <div
         v-if="showSessionError"
         class="session-error"
@@ -537,6 +611,13 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       </button>
+      </div>
+
+      <!-- Rendered last and on top of everything (incl. the flash-deal modal) —
+           the app tree behind it stays mounted so a re-scan (fresh page load,
+           fresh timer) resumes exactly where the diner left off. Offers no
+           button on purpose: re-scanning the QR is the only way forward. -->
+      <LinkExpiredView v-if="linkExpired" />
     </div>
   </div>
 </template>
@@ -559,6 +640,14 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
   height: 100dvh;
   position: relative;
   overflow: hidden;
+}
+/* Restores the height chain broken by inserting this wrapper between
+   .phone-frame (explicit height above) and the screens' .phone-screen root
+   (height: 100%, see ui/PhoneScreen.vue): a plain unstyled div here would
+   default to height: auto, and a percentage height resolves against an auto
+   parent as auto too, collapsing every screen behind the link-expiry overlay. */
+.content-layer {
+  height: 100%;
 }
 @media (min-width: 480px) {
   .stage {

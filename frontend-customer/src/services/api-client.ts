@@ -1,6 +1,6 @@
 import type { MenuResponse, VibeyRecommendationResponse } from '@shared/types/api-responses';
 import type { UpdateOrderItemsRequest, VibeyRecommendationRequest } from '@shared/types/api-requests';
-import type { ActiveHappyHour, RestaurantBranding } from '@shared/types/models';
+import type { ActiveHappyHour, DeviceSessionSummary, RestaurantBranding } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
@@ -47,6 +47,7 @@ export interface JoinTableResponse {
   activeOrder: { id: string; status: string; totalAmount: number; items: PartyOrderItem[] };
   partyMembers: PartyMember[];
   branding: RestaurantBranding | null;
+  session: DeviceSessionSummary | null;
 }
 
 export interface MergePartyResponse {
@@ -106,10 +107,12 @@ export const apiClient = {
 
   // Guest-aware session entry: claims/restores this phone's own draft under the
   // shared table and returns the current party. Replaces initSession in the app.
-  joinTable: async (qrToken: string, guestId: string | null) => {
+  // deviceId identifies this phone (independent of the per-table guestId) so the
+  // backend can attach/restore a DeviceSession spanning multiple rounds.
+  joinTable: async (qrToken: string, guestId: string | null, deviceId: string | null) => {
     const res = await fetcher<JoinTableResponse>(`/api/tables/${qrToken}/join`, {
       method: 'POST',
-      body: JSON.stringify({ guestId }),
+      body: JSON.stringify({ guestId, deviceId }),
     });
     if (res.restaurantId) setRestaurantId(res.restaurantId);
     return res;

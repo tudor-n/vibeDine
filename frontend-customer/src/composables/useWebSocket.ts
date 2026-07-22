@@ -1,12 +1,12 @@
 import { ref, onUnmounted, watch } from 'vue'
 import { useSessionStore } from '@/stores/useSessionStore'
-import { useFlashDealStore } from '@/stores/useFlashDealStore'
+import { useFlashDealStore, buildFlashDealFromPayload } from '@/stores/useFlashDealStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import { useHelpCallStore } from '@/stores/useHelpCallStore'
 import { useGuestStore } from '@/stores/useGuestStore'
 import { useCartStore } from '@/stores/useCartStore'
 import { useMenu } from '@/composables/useMenu'
-import type { FlashDeal, OrderStatus } from '@shared/types/models'
+import type { OrderStatus } from '@shared/types/models'
 
 
 const rawWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5005'
@@ -118,24 +118,7 @@ export function useWebSocket() {
                 String(raw.orderId).toLowerCase() === myOrderId.toLowerCase()
 
               if (isMyDeal) {
-                const newDeal: FlashDeal = {
-                  id: raw.dealId,
-                  menuItemId: raw.productId,
-                  menuItem: {
-                    id: raw.productId,
-                    name: raw.productName,
-                    price: raw.originalPrice,
-                    imageUrl: null
-                  },
-                  discountPercent: raw.discountPercent || 20,
-                  discountedPrice: raw.discountPrice,
-                  trigger: 'post_order',
-                  countdownSeconds: 120,
-                  expiresAt: raw.expiresAt,
-                  reason: '',
-                  isActive: true,
-                  createdAt: new Date().toISOString()
-                }
+                const newDeal = buildFlashDealFromPayload(raw)
 
                 // Store the orderId the deal belongs to + how many portions it's
                 // for (one per guest on this bill; 1 unless the bill was merged).
@@ -166,6 +149,14 @@ export function useWebSocket() {
                 String(payload.orderId).toLowerCase() === myOrderId.toLowerCase()
               if (isMyOrder && payload?.status) {
                 orderStatusStore.setStatus(payload.orderId, payload.status)
+              }
+              // A cancellation must self-correct the visit's running total no
+              // matter which round it hit — a diner can be looking at the
+              // "sent" screen for round 2 while the kitchen cancels round 1.
+              // Reconcile against every known session order, not just this
+              // phone's current draft.
+              if (payload?.status === 'cancelled' && payload?.orderId) {
+                sessionStore.removeCancelledOrder(payload.orderId)
               }
             }
 
@@ -288,5 +279,8 @@ export function useWebSocket() {
     disconnect()
   })
 
-  return { isConnected }
+  // Exposed so a link-expiry timeout can tear down the socket explicitly (an
+  // abandoned open tab must stop talking to the server so the backend's wipe
+  // of the device session can proceed) without waiting for unmount.
+  return { isConnected, disconnect }
 }
