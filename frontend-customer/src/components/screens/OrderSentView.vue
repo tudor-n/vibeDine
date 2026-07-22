@@ -14,11 +14,11 @@ const emit = defineEmits<{
 
 const sessionStore = useSessionStore()
 const orderStatusStore = useOrderStatusStore()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
 const totalCardStyle = computed(() => {
-  if (theme.value === 'dark') {
+  if (mode.value === 'dark') {
     return {
       background: T.value.paperHi,
       color: T.value.ink,
@@ -33,13 +33,13 @@ const totalCardStyle = computed(() => {
 })
 
 const totalSubtleColor = computed(() =>
-  theme.value === 'dark' ? T.value.ink70 : 'rgba(251,247,236,0.55)',
+  mode.value === 'dark' ? T.value.ink70 : 'rgba(251,247,236,0.55)',
 )
 const totalUnitColor = computed(() =>
-  theme.value === 'dark' ? T.value.ink70 : 'rgba(251,247,236,0.6)',
+  mode.value === 'dark' ? T.value.ink70 : 'rgba(251,247,236,0.6)',
 )
 const totalHintColor = computed(() =>
-  theme.value === 'dark' ? T.value.ink40 : 'rgba(251,247,236,0.45)',
+  mode.value === 'dark' ? T.value.ink40 : 'rgba(251,247,236,0.45)',
 )
 
 // Stamp the submitted time as soon as this screen first appears. Timestamps
@@ -91,7 +91,7 @@ const steps = computed(() => [
 </script>
 
 <template>
-  <PhoneScreen :theme="theme">
+  <PhoneScreen :theme="mode">
     <div
       class="bloom bloom-lime"
       :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
@@ -105,7 +105,7 @@ const steps = computed(() => [
       <div class="status-table" :style="{ color: T.ink70 }">{{ tableLabel }}</div>
       <div
         class="confirm-pill"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
       >
         {{ t('sent.confirmed') }}
       </div>
@@ -181,7 +181,7 @@ const steps = computed(() => [
     </div>
 
     <div class="cta">
-      <BigButton :theme="theme" :font-size="16" @click="emit('order-again')">{{ t('sent.orderAgain') }}</BigButton>
+      <BigButton :theme="mode" :font-size="16" @click="emit('order-again')">{{ t('sent.orderAgain') }}</BigButton>
     </div>
   </PhoneScreen>
 </template>

@@ -30,6 +30,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<SimilarityRule> SimilarityRules => Set<SimilarityRule>();
     public DbSet<HelpRequest> HelpRequests => Set<HelpRequest>();
     public DbSet<TableGuest> TableGuests => Set<TableGuest>();
+    public DbSet<DeviceSession> DeviceSessions => Set<DeviceSession>();
     public DbSet<MenuImportJob> MenuImportJobs => Set<MenuImportJob>();
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<RecipeItem> RecipeItems => Set<RecipeItem>();
@@ -155,6 +156,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.ReadyAt).HasColumnName("ready_at");
             e.Property(o => o.DeletedAt).HasColumnName("deleted_at");
             e.Property(o => o.GuestId).HasColumnName("guest_id");
+            e.Property(o => o.DeviceSessionId).HasColumnName("device_session_id");
             e.Property(o => o.MergedIntoOrderId).HasColumnName("merged_into_order_id");
             e.Property(o => o.StockDecremented).HasColumnName("stock_decremented").HasDefaultValue(false);
             e.Property(o => o.ClaimedByWaiterId).HasColumnName("claimed_by_waiter_id");
@@ -164,6 +166,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             // Fast "is there a draft for this guest at this table" lookup.
             e.HasIndex(o => new { o.TableId, o.GuestId, o.Status });
             e.HasIndex(o => o.ClaimedByWaiterId);
+            e.HasIndex(o => o.DeviceSessionId);
 
             e.HasOne(o => o.Table)
              .WithMany(t => t.Orders)
@@ -173,6 +176,13 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.HasOne(o => o.ClaimedByWaiter)
              .WithMany()
              .HasForeignKey(o => o.ClaimedByWaiterId)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // Orders outlive device sessions as plain history: SetNull so sweeping
+            // a stale session never touches the orders it produced.
+            e.HasOne<DeviceSession>()
+             .WithMany()
+             .HasForeignKey(o => o.DeviceSessionId)
              .OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -380,6 +390,24 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
              .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<DeviceSession>(e =>
+        {
+            e.ToTable("device_sessions");
+            e.Property(d => d.Id).HasColumnName("id");
+            e.Property(d => d.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(d => d.TableId).HasColumnName("table_id");
+            e.Property(d => d.DeviceId).HasColumnName("device_id").HasMaxLength(64);
+            e.Property(d => d.CreatedAt).HasColumnName("created_at");
+            e.Property(d => d.LastSeenAt).HasColumnName("last_seen_at");
+            e.HasIndex(d => new { d.TableId, d.DeviceId });
+            e.HasIndex(d => d.RestaurantId);
+
+            e.HasOne(d => d.Table)
+             .WithMany()
+             .HasForeignKey(d => d.TableId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<MenuImportJob>(e =>
         {
             e.ToTable("menu_import_jobs");
@@ -433,6 +461,17 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(r => r.Currency).HasColumnName("currency");
             e.Property(r => r.Locale).HasColumnName("locale").HasDefaultValue("ro-RO");
             e.Property(r => r.IsActive).HasColumnName("is_active");
+            e.Property(r => r.BrandingEnabled).HasColumnName("branding_enabled").HasDefaultValue(false);
+            e.Property(r => r.BrandPrimary).HasColumnName("brand_primary");
+            e.Property(r => r.BrandSecondary).HasColumnName("brand_secondary");
+            e.Property(r => r.BrandBackground).HasColumnName("brand_background");
+            e.Property(r => r.LogoUrl).HasColumnName("logo_url");
+            e.Property(r => r.PhotoUrl).HasColumnName("photo_url");
+            e.Property(r => r.MenuBackgroundUrl).HasColumnName("menu_background_url");
+            e.Property(r => r.MenuBackgroundStyle).HasColumnName("menu_background_style");
+            e.Property(r => r.BrandPresetKey).HasColumnName("brand_preset_key");
+            e.Property(r => r.LogoBackground).HasColumnName("logo_background");
+            e.Property(r => r.LogoIsDark).HasColumnName("logo_is_dark");
             e.Property(r => r.CreatedAt).HasColumnName("created_at");
             e.HasIndex(r => r.OrganizationId);
 
@@ -478,6 +517,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.ToTable("refresh_tokens");
             e.Property(t => t.Id).HasColumnName("id");
             e.Property(t => t.UserId).HasColumnName("user_id");
+            // Stores the SHA-256 hash of the token value, not the plaintext (see RefreshToken).
             e.Property(t => t.Token).HasColumnName("token");
             e.Property(t => t.ExpiresAt).HasColumnName("expires_at");
             e.Property(t => t.CreatedAt).HasColumnName("created_at");
@@ -558,6 +598,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<SimilarityRule>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<HelpRequest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<TableGuest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<DeviceSession>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<MenuImportJob>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Ingredient>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<RecipeItem>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);

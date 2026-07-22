@@ -1,13 +1,16 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using RestaurantApi.Auth;
 using RestaurantApi.Data;
 using RestaurantApi.Hubs;
 using RestaurantApi.Models;
+using RestaurantApi.Options;
 using RestaurantApi.Services;
 using RestaurantApi.Services.Email;
 using RestaurantApi.Storage;
@@ -22,6 +25,17 @@ builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 110_000_000)
 builder.Services.AddScoped<ICurrentTenant, CurrentTenant>();
 builder.Services.AddScoped<ITenantAccess, TenantAccess>();
 builder.Services.AddSingleton<IFileStorage, LocalDiskFileStorage>();
+// Where user uploads live on disk. Overridable so production can point it at a
+// persistent volume (docs/railway-persistent-uploads.md) — without that, every
+// redeploy wipes branding/avatars/menu-item images. Resolved lazily so test
+// hosts' content-root and config overrides are already in effect.
+builder.Services.AddSingleton(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    return new UploadPaths(
+        cfg["Uploads:Root"] ?? Path.Combine(env.ContentRootPath, "wwwroot", "uploads"));
+});
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -43,13 +57,22 @@ builder.Services
 
 var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 
-// HMAC-SHA256 needs a >= 256-bit (32-byte) key. Fail fast at startup with a clear
-// message instead of a confusing per-request 500 from the auth middleware.
-if (System.Text.Encoding.UTF8.GetByteCount(jwt.Key) < 32)
+// The JWT signing key must be a real secret in Production/Staging. A length-only check
+// is not enough: the committed placeholders are long enough to pass it, so a prod deploy
+// that forgets Jwt__Key would boot on a publicly-known key and every token would be
+// forgeable. Reject empty/short values AND the known dev/test placeholders. Development
+// and Testing run with their committed dev keys by design. (Mirrors OpsApi's RequireSecret.)
+if (!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing"))
 {
-    throw new InvalidOperationException(
-        "Jwt:Key is missing or shorter than 32 bytes. Set it via the Jwt__Key environment " +
-        "variable (appsettings.Development.json is excluded from the Docker image by .dockerignore).");
+    if (string.IsNullOrWhiteSpace(jwt.Key)
+        || System.Text.Encoding.UTF8.GetByteCount(jwt.Key) < 32
+        || jwt.Key.StartsWith("test-only", StringComparison.Ordinal)
+        || jwt.Key.StartsWith("dev-only", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "Jwt:Key must be set to a non-default secret of at least 32 bytes outside Development. " +
+            "Set it via the Jwt__Key environment variable (never commit it).");
+    }
 }
 
 // MenuImport HMAC secret fail-fast: require at least 32 characters.
@@ -64,8 +87,18 @@ if (!builder.Environment.IsEnvironment("Testing") &&
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer();
+
+// Bind bearer validation from JwtOptions LAZILY (when the options are first
+// built) rather than from the eager `jwt` snapshot above. The snapshot is fine
+// for real runs (env/appsettings exist at process start) but misses configuration
+// added late by test hosts (WebApplicationFactory's in-memory collection), which
+// left the validation key empty and 500'd every authenticated request in tests —
+// token issuing (JwtTokenService) already binds the same section lazily.
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((options, jwtOptions) =>
     {
+        var j = jwtOptions.Value;
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -73,9 +106,9 @@ builder.Services
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = jwt.Issuer,
-            ValidAudience = jwt.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            ValidIssuer = j.Issuer,
+            ValidAudience = j.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(j.Key)),
             ClockSkew = TimeSpan.FromMinutes(1),
         };
 
@@ -201,10 +234,13 @@ builder.Services.AddTransient<IPdfExtractor, MenuImportPythonClient>(sp =>
     sp.GetRequiredService<MenuImportPythonClient>());
 
 builder.Services.Configure<MenuImportOptions>(builder.Configuration.GetSection("MenuImport"));
+builder.Services.Configure<CustomerSessionOptions>(builder.Configuration.GetSection(CustomerSessionOptions.SectionName));
 builder.Services.AddSingleton<MenuImportProgressNotifier>();
 builder.Services.AddSingleton<ItemPhotoStorage>();
 builder.Services.AddScoped<MenuImportPhotoMerger>();
 builder.Services.AddHostedService<MenuImportBackgroundService>();
+
+builder.Services.AddMemoryCache();
 
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
@@ -219,6 +255,26 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy =
             System.Text.Json.JsonNamingPolicy.CamelCase;
     });
+
+// Produce a consistent, detail-free ProblemDetails body for unhandled errors
+// (paired with app.UseExceptionHandler() below in non-Development environments).
+builder.Services.AddProblemDetails();
+
+// Brute-force / abuse protection on the credential-testing auth endpoints:
+// fixed window per client IP. Applied via [EnableRateLimiting("auth")].
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -253,18 +309,29 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    // Production/Staging: turn unhandled exceptions into a detail-free ProblemDetails
+    // response instead of leaking a stack trace or emitting a bare bodyless 500.
+    // Development keeps the framework's developer exception page.
+    app.UseExceptionHandler();
+}
 
 app.UseRouting();
 app.UseCors();
+app.UseRateLimiter();
 
-// Serve uploaded files out of ContentRoot/wwwroot even when the published
-// container starts without a checked-in wwwroot directory.
-var webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "avatars"));
-Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "menu-items"));
+// Serve uploaded files at /uploads from the (possibly volume-backed) uploads
+// root, creating it on first start — the published container has no checked-in
+// wwwroot, and a freshly attached volume starts empty.
+var uploads = app.Services.GetRequiredService<UploadPaths>();
+Directory.CreateDirectory(uploads.Dir("avatars"));
+Directory.CreateDirectory(uploads.Dir("menu-items"));
+Directory.CreateDirectory(uploads.Dir("branding"));
 app.UseStaticFiles(new StaticFileOptions
 {
-    FileProvider = new PhysicalFileProvider(webRoot),
+    RequestPath = "/uploads",
+    FileProvider = new PhysicalFileProvider(uploads.Root),
 });
 
 app.UseAuthentication();

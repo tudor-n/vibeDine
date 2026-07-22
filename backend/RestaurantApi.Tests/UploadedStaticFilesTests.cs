@@ -71,11 +71,37 @@ public class UploadedStaticFilesTests : IDisposable
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(0xFF, 0xD8, 0xFF, 0xD9);
     }
 
+    // The Railway shape: Uploads__Root points at a persistent volume outside the
+    // container's ephemeral filesystem, and /uploads/* must serve from there.
+    [Fact]
+    public async Task UploadsRootOverride_ServesFilesFromConfiguredDirectory()
+    {
+        var overrideRoot = Path.Combine(_contentRoot, "volume", "uploads");
+        var restaurantId = Guid.NewGuid();
+        using var factory = new StaticFileWebApplicationFactory(_contentRoot, overrideRoot);
+        using var client = factory.CreateClient();
+
+        var filePath = Path.Combine(overrideRoot, "branding", restaurantId.ToString("N"), "logo.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        await File.WriteAllBytesAsync(filePath, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+
+        var response = await client.GetAsync($"/uploads/branding/{restaurantId:N}/logo.png");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(0x89, 0x50, 0x4E, 0x47);
+    }
+
     private sealed class StaticFileWebApplicationFactory : WebApplicationFactory<Program>
     {
         private readonly string _contentRoot;
+        private readonly string? _uploadsRoot;
 
-        public StaticFileWebApplicationFactory(string contentRoot) => _contentRoot = contentRoot;
+        public StaticFileWebApplicationFactory(string contentRoot, string? uploadsRoot = null)
+        {
+            _contentRoot = contentRoot;
+            _uploadsRoot = uploadsRoot;
+        }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -90,6 +116,7 @@ public class UploadedStaticFilesTests : IDisposable
                     ["Jwt:Key"] = "test-only-key-do-not-use-in-production!!",
                     ["Jwt:Issuer"] = "test-issuer",
                     ["Jwt:Audience"] = "test-audience",
+                    ["Uploads:Root"] = _uploadsRoot,
                 });
             });
             builder.ConfigureServices(services =>

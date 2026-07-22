@@ -58,6 +58,11 @@ public class RegistrationLinksController : ControllerBase
         if (type is null)
             return BadRequest(new { message = "type must be 'new_organization' or 'new_location'." });
 
+        // PLAT-08: require the real acting platform admin, never fall back to Guid.Empty.
+        var actorId = User.PlatformAdminId();
+        if (actorId is null)
+            return Unauthorized(new { message = "Could not resolve the acting platform admin." });
+
         string? orgName = null;
         if (type == RegistrationLinkType.NewLocation)
         {
@@ -77,7 +82,7 @@ public class RegistrationLinksController : ControllerBase
             IntendedEmail = string.IsNullOrWhiteSpace(request.IntendedEmail) ? null : request.IntendedEmail!.Trim(),
             Status = RegistrationLinkStatus.Active,
             ExpiresAt = DateTime.UtcNow.AddDays(request.ExpiresInDays is > 0 ? request.ExpiresInDays!.Value : 7),
-            CreatedByPlatformAdminId = User.PlatformAdminId() ?? Guid.Empty,
+            CreatedByPlatformAdminId = actorId.Value,
             CreatedAt = DateTime.UtcNow,
         };
 

@@ -17,7 +17,7 @@ public class ResendEmailSenderTests
     private static ResendEmailSender CreateSender(FakeHttpMessageHandler handler)
     {
         var http = new HttpClient(handler);
-        var opts = Options.Create(new SmtpOptions
+        var opts = Microsoft.Extensions.Options.Options.Create(new SmtpOptions
         {
             FromAddress = "no-reply@vibedine.ro",
             FromName = "Smart Restaurant",

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { T, TD, type ThemeTokens } from '@/design/tokens'
+import { useTheme } from '@/composables/useTheme'
 
 const props = withDefaults(
   defineProps<{
@@ -12,10 +12,10 @@ const props = withDefaults(
   { theme: 'light', flush: false },
 )
 
-const t = computed<ThemeTokens>(() => (props.theme === 'dark' ? TD : T))
+const { tokens: t, mode } = useTheme()
 
 const noiseSvg = computed(() => {
-  if (props.theme === 'dark') {
+  if (mode.value === 'dark') {
     return `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.9  0 0 0 0 0.88  0 0 0 0 0.85  0 0 0 0.06 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")`
   }
   return `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08  0 0 0 0 0.07  0 0 0 0 0.06  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")`
@@ -36,8 +36,8 @@ const noiseSvg = computed(() => {
       class="noise"
       :style="{
         backgroundImage: noiseSvg,
-        opacity: theme === 'dark' ? 0.2 : 0.28,
-        mixBlendMode: theme === 'dark' ? 'screen' : 'multiply',
+        opacity: mode === 'dark' ? 0.2 : 0.28,
+        mixBlendMode: mode === 'dark' ? 'screen' : 'multiply',
       }"
     />
     <slot />

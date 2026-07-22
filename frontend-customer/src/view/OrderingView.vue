@@ -4,24 +4,29 @@ import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/useCartStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useGuestStore } from '@/stores/useGuestStore'
-import { useFlashDealStore } from '@/stores/useFlashDealStore'
+import { useFlashDealStore, buildFlashDealFromPayload } from '@/stores/useFlashDealStore'
 import { useHappyHourStore } from '@/stores/useHappyHourStore'
 import { useOrderStatusStore } from '@/stores/useOrderStatusStore'
 import { useWebSocket } from '@/composables/useWebSocket'
+import { useLinkExpiry } from '@/composables/useLinkExpiry'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 
 import LanguageSelectView from '@/components/screens/LanguageSelectView.vue'
+import WelcomeView from '@/components/screens/WelcomeView.vue'
 import PebblesView from '@/components/screens/PebblesView.vue'
 import MenuView from '@/components/screens/MenuView.vue'
 import CartView from '@/components/screens/CartView.vue'
 import FlashDealView from '@/components/screens/FlashDealView.vue'
 import OrderSentView from '@/components/screens/OrderSentView.vue'
 import MergedView from '@/components/screens/MergedView.vue'
+import LinkExpiredView from '@/components/screens/LinkExpiredView.vue'
 import FlashDealIcon from '@/components/FlashDealIcon.vue'
 import CallWaiterButton from '@/components/CallWaiterButton.vue'
+import HappyHourPopup from '@/components/HappyHourPopup.vue'
+import BootSplash from '@/components/ui/BootSplash.vue'
 
-type Screen = 'language' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
+type Screen = 'language' | 'welcome' | 'pebbles' | 'menu' | 'cart' | 'sent' | 'merged'
 
 const route = useRoute()
 const cartStore = useCartStore()
@@ -30,10 +35,11 @@ const guestStore = useGuestStore()
 const flashDealStore = useFlashDealStore()
 const happyHourStore = useHappyHourStore()
 const orderStatusStore = useOrderStatusStore()
-const { theme, tokens: T, toggle: toggleTheme } = useTheme()
+const { theme, tokens: T, toggle: toggleTheme, isBranded, brandKnown } = useTheme()
 const { t } = useLocale()
 
-useWebSocket()
+const websocket = useWebSocket()
+const { expired: linkExpired, start: startLinkExpiry } = useLinkExpiry()
 
 // Navigation state is persisted so an accidental tab refresh keeps the diner on
 // the screen they were on instead of bouncing them back to the language picker
@@ -43,7 +49,7 @@ useWebSocket()
 const SCREEN_KEY = 'screen'
 const CATEGORY_KEY = 'activeCategoryId'
 const CART_ORIGIN_KEY = 'cartOrigin'
-const SCREENS: Screen[] = ['language', 'pebbles', 'menu', 'cart', 'sent', 'merged']
+const SCREENS: Screen[] = ['language', 'welcome', 'pebbles', 'menu', 'cart', 'sent', 'merged']
 
 function readScreen(key: string, fallback: Screen): Screen {
   const stored = sessionStorage.getItem(key)
@@ -52,6 +58,10 @@ function readScreen(key: string, fallback: Screen): Screen {
 
 const restoredCategory = sessionStorage.getItem(CATEGORY_KEY) || null
 const restoredScreen = readScreen(SCREEN_KEY, 'language')
+// A fresh session (no key written yet) is what makes a branded-with-photo
+// table land on the welcome screen; a mid-session refresh (key present, even
+// if its value fell back to the default) resumes wherever it was instead.
+const hadStoredScreen = sessionStorage.getItem(SCREEN_KEY) !== null
 // The menu screen can't render without a category, so fall back to the category
 // list if the restored category is gone.
 const screen = ref<Screen>(
@@ -61,6 +71,32 @@ const activeCategoryId = ref<string | null>(restoredCategory)
 // Screen the cart was opened from, so closing it returns there (the menu, or
 // the categories page when the cart was opened from its "Coșul meu" bar).
 const cartOrigin = ref<Screen>(readScreen(CART_ORIGIN_KEY, 'menu'))
+
+// Cover the first paint whenever this load can't yet show the FINAL starter
+// screen, because branding only fully arrives with /join. Two things are unknown
+// before join, and the splash bridges both:
+//
+//  1. The palette. `brandKnown` is true only once main.ts resolved it from cache
+//     before mount — branded (colours painted) or known-unbranded (default is
+//     correct). Genuine ignorance of the colours always splashes.
+//  2. WHICH starter screen. The cache restores colours ONLY, never the screen
+//     choice: a branded-with-photo table opens on the admin's designed WelcomeView,
+//     but that decision needs `branding.photoUrl`, which lands with join (see the
+//     screen switch in onMounted). So on a fresh session (no stored screen) of a
+//     table we already know is branded, the cache-painted palette would otherwise
+//     render LanguageSelectView immediately and join would then flip it to
+//     WelcomeView — the diner sees the language picker (right colours, wrong
+//     screen) for the whole join round-trip, then the designed welcome page.
+//     Splashing until join hides that swap so they only ever see the finished page.
+//
+// A mid-session refresh (stored screen present) resumes its own screen, so it needs
+// no bridge and renders straight from cache; a known-unbranded table has no welcome
+// screen to flip to, so it also renders its language picker immediately. Point 1
+// intentionally never trusts sessionStorage: when the cache missed but sessionStorage
+// survived (private browsing where localStorage writes throw; cleared storage; or a
+// restaurant branded after an earlier scan), keying off it skipped the splash AND
+// had no palette, flashing the default theme on every scan after the first.
+const booting = ref(!brandKnown.value || (!hadStoredScreen && isBranded.value))
 
 watch(screen, (v) => sessionStorage.setItem(SCREEN_KEY, v))
 watch(activeCategoryId, (v) => {
@@ -77,6 +113,11 @@ const lastTotal = ref(Number(sessionStorage.getItem('lastTotal')) || 0)
 const orderInProgress = ref(sessionStorage.getItem('orderInProgress') === 'true')
 watch(lastTotal, (v) => sessionStorage.setItem('lastTotal', String(v)))
 watch(orderInProgress, (v) => sessionStorage.setItem('orderInProgress', v ? 'true' : 'false'))
+// The sent screen's displayed total must self-correct when a cancellation
+// reconciles cumulativeTotal (see useWebSocket's OrderStatusUpdated handler /
+// useSessionStore.removeCancelledOrder) — mirror the store's running total
+// onto the locally-persisted one reactively instead of only at join/submit.
+watch(() => sessionStore.cumulativeTotal, (v) => { lastTotal.value = v })
 // The order is "archived to the order log" when its status flips to completed:
 // the kitchen's 45s ready-grace elapses, the order leaves the admin's active
 // list, and the customer gets that completed event (stamped as servedAt). We
@@ -131,6 +172,7 @@ onMounted(async () => {
   const tokenFromUrl = (route.params.qrToken as string) || ''
   if (!tokenFromUrl) {
     sessionError.value = 'missing'
+    booting.value = false
     return
   }
   try {
@@ -140,6 +182,40 @@ onMounted(async () => {
     // backend's persisted draft so the diner keeps the order they were building.
     cartStore.restoreFromServerIfEmpty(session.activeOrder.items)
     if (sessionStore.restaurantName) document.title = sessionStore.restaurantName
+    // A fresh session (no restored screen) on a table branded with a welcome
+    // photo starts on the branded welcome screen instead of the language
+    // picker — the welcome screen subsumes language selection. Unbranded (or
+    // no photo) tables, and any mid-session refresh, are unaffected.
+    if (!hadStoredScreen && sessionStore.branding?.enabled && sessionStore.branding?.photoUrl) {
+      screen.value = 'welcome'
+    }
+    // A fresh context (re-scan / new tab, i.e. no stored screen for this tab)
+    // that already has submitted rounds this visit skips the language/welcome
+    // picker entirely and lands on the order-status screen instead — an
+    // existing tab keeps whatever screen it already had (handled above).
+    if (!hadStoredScreen && sessionStore.sessionOrders.length > 0) {
+      screen.value = 'sent'
+      orderInProgress.value = true
+    }
+    // The join response's cumulativeTotal is authoritative (it includes every
+    // submitted round of this visit) — covers a reload/re-scan landing on the
+    // sent screen with the correct running total instead of the last round's.
+    if (sessionStore.cumulativeTotal > 0) {
+      lastTotal.value = sessionStore.cumulativeTotal
+    }
+    // Restore a still-live flash deal from the join payload (e.g. a re-scan
+    // mid-countdown) using the same payload->FlashDeal mapping the WebSocket
+    // push uses, so it renders identically. A deal whose window already
+    // elapsed is not worth restoring.
+    const pending = sessionStore.pendingDeal
+    if (pending && Date.parse(pending.expiresAt) > Date.now()) {
+      const restoredDeal = buildFlashDealFromPayload(pending)
+      flashDealStore.setActiveDeal(restoredDeal, pending.orderId, pending.quantity)
+    }
+    // Link-expiry countdown starts once the session is live; a wipe on the
+    // backend should be mirrored here by disconnecting and stopping polling
+    // (see the `linkExpired` watcher below).
+    startLinkExpiry(sessionStore.linkExpirySeconds ?? 900)
     // Poll the live happy hour app-wide (not just on the menu screen) so the bar
     // shows on the categories page and stays visible after an order is sent.
     happyHourStore.startPolling()
@@ -147,6 +223,11 @@ onMounted(async () => {
     console.error('Could not initialize session', e)
     sessionError.value = 'invalid'
     return
+  } finally {
+    // Join has settled — the palette is now known (or never will be). Drop the
+    // splash on BOTH paths: on the error path it would otherwise sit on top of
+    // the invalid-QR screen the diner needs to read.
+    booting.value = false
   }
   partyPoll = setInterval(() => guestStore.refreshParty(sessionStore.qrToken), PARTY_POLL_MS)
   document.addEventListener('visibilitychange', onVisibilityChange)
@@ -162,6 +243,30 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
+// The device-session link expired (see useLinkExpiry / the backend's
+// LinkExpirySeconds wipe window): an abandoned open tab must stop talking to
+// the server — heartbeats (party poll, the visibilitychange refocus beat) and
+// live pushes (WebSocket) — so the backend can actually wipe the session, and
+// the happy-hour poll has no reason to keep running behind a screen the diner
+// can no longer act on. Deliberately does NOT clear any store or
+// sessionStorage: re-scanning the QR (a fresh page load, fresh timer) must
+// restore everything as-is.
+watch(linkExpired, (isExpired) => {
+  if (!isExpired) return
+  websocket.disconnect()
+  if (partyPoll) {
+    clearInterval(partyPoll)
+    partyPoll = null
+  }
+  // Otherwise bringing this abandoned tab back to the foreground would still
+  // fire a fresh presence heartbeat straight past the poll's own teardown.
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  happyHourStore.stopPolling()
+  // A pending debounced cart sync has no server to reach once the link is
+  // considered expired — cancel it rather than let it fire into the void.
+  cartStore.cancelPendingSync()
+})
+
 function onLanguageSelected() {
   screen.value = 'pebbles'
 }
@@ -170,6 +275,14 @@ function openCategory(id: string) {
   screen.value = 'menu'
 }
 function backToPebbles() { screen.value = 'pebbles' }
+// Branded-with-photo tables never show the language picker — the welcome
+// screen subsumes it — so back-from-pebbles must return there instead of
+// bouncing a branded diner onto a screen they were never meant to see.
+// Unbranded (or no-photo) tables keep going back to the language picker.
+function backFromPebbles() {
+  screen.value =
+    sessionStore.branding?.enabled && sessionStore.branding?.photoUrl ? 'welcome' : 'language'
+}
 function openCart() {
   // Remember where we came from (menu or pebbles) so close returns there.
   if (screen.value === 'menu' || screen.value === 'pebbles') cartOrigin.value = screen.value
@@ -178,7 +291,14 @@ function openCart() {
 function backFromCart() { screen.value = cartOrigin.value }
 
 function handleSubmitted() {
-  lastTotal.value = cartStore.total
+  // Capture the draft's orderId BEFORE anything that could re-join — submit
+  // itself doesn't change it, but this call must never rely on that lasting
+  // past this tick. An active order always has an orderId at this point (the
+  // submit that just happened required one).
+  const submittedOrderId = sessionStore.orderId!
+  // cumulativeTotal already tracks this visit's prior rounds — the running
+  // total (not just this round's) is what the sent screen should show.
+  lastTotal.value = sessionStore.registerSubmittedRound(cartStore.total, submittedOrderId)
   cartStore.clearCart()
   // Drop the previous round's status so the timeline starts fresh instead of
   // instantly showing the last order's "completed" stage.
@@ -238,6 +358,31 @@ const flashOverlayActive = computed(
   () => Boolean(flashDealStore.activeDeal) && showFlashDealModal.value,
 )
 
+// The happy-hour offer popup + reopen banner only make sense while the diner is
+// browsing (categories or a menu), and the flash-deal modal takes precedence so
+// two offers never stack. The popup is an overlay; the reopen banner lives inline
+// on those screens. The session-error case is excluded where the popup is rendered.
+const happyHourEnabled = computed(
+  () =>
+    (screen.value === 'pebbles' || screen.value === 'menu') &&
+    !flashOverlayActive.value,
+)
+// True while the modal offer popup is actually covering the screen — used to hide
+// the floating action buttons underneath it (the theme toggle stays reachable so
+// the diner can switch themes with the popup open).
+const happyHourPopupActive = computed(
+  () => happyHourEnabled.value && happyHourStore.open && Boolean(happyHourStore.active),
+)
+// True while the return-to-happy-hour banner occupies the top of the menu. It
+// sits above the header and pushes it (and the back button the flash-deal pill
+// aligns to) down by its own footprint, so we shift that pill down to match.
+const happyHourReturnVisible = computed(
+  () => happyHourEnabled.value && !happyHourStore.open && Boolean(happyHourStore.active),
+)
+// The return banner's margin-box height (tile 34 + 22 padding + 2 border + 20
+// vertical margin ≈ 78px). Kept in sync with HappyHourBanner's own metrics.
+const happyHourBannerOffset = computed(() => (happyHourReturnVisible.value ? '78px' : '0px'))
+
 function openFlashDeal() {
   showFlashDealModal.value = true
 }
@@ -281,7 +426,8 @@ const showProgressButton = computed(
     screen.value !== 'sent' &&
     screen.value !== 'language' &&
     !showSessionError.value &&
-    !flashOverlayActive.value,
+    !flashOverlayActive.value &&
+    !happyHourPopupActive.value,
 )
 
 // Re-arm the retirement whenever the archive timestamp changes (set on the
@@ -292,7 +438,15 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
 
 <template>
   <div class="stage" :style="{ background: T.paper }">
-    <div class="phone-frame">
+    <div class="phone-frame" :style="{ '--hh-banner-offset': happyHourBannerOffset }">
+      <!-- Everything the diner could otherwise interact with while the
+           link-expired overlay covers it. `inert` drops it from the tab order
+           and blocks pointer/focus reaching it, on top of the overlay's own
+           z-index — the tree itself stays mounted (see LinkExpiredView below).
+           `.content-layer` carries height:100% so the .phone-frame (explicit
+           height) -> this wrapper -> .phone-screen (height:100%, see
+           ui/PhoneScreen.vue) chain isn't broken by this extra unstyled level. -->
+      <div class="content-layer" :inert="linkExpired">
       <div
         v-if="showSessionError"
         class="session-error"
@@ -309,18 +463,27 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
         </div>
       </div>
 
-      <Transition v-if="!showSessionError" name="fade" mode="out-in">
+      <Transition name="fade">
+        <BootSplash v-if="booting" />
+      </Transition>
+
+      <Transition v-if="!showSessionError && !booting" name="fade" mode="out-in">
         <LanguageSelectView
           v-if="screen === 'language'"
           key="language"
           @select="onLanguageSelected"
+        />
+        <WelcomeView
+          v-else-if="screen === 'welcome'"
+          key="welcome"
+          @continue="screen = 'pebbles'"
         />
         <PebblesView
           v-else-if="screen === 'pebbles'"
           key="pebbles"
           @open-category="openCategory"
           @open-cart="openCart"
-          @back="screen = 'language'"
+          @back="backFromPebbles"
         />
         <MenuView
           v-else-if="screen === 'menu' && activeCategoryId"
@@ -328,6 +491,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           :category-id="activeCategoryId"
           @back="backToPebbles"
           @open-cart="openCart"
+          @select-category="openCategory"
         />
         <CartView
           v-else-if="screen === 'cart'"
@@ -354,6 +518,10 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
         </div>
       </Transition>
 
+      <!-- Happy-hour offer popup (opens once per deal) + "added" toast. The
+           reopen banner it collapses into lives inline on the menu screens. -->
+      <HappyHourPopup v-if="!showSessionError && !booting" :enabled="happyHourEnabled" />
+
       <!-- "Someone joined your table" toast — auto-dismissed by the guest store. -->
       <Transition name="toast" mode="out-in">
         <div
@@ -371,12 +539,12 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       </Transition>
 
       <FlashDealIcon
-        v-if="flashIconVisible && !flashOverlayActive"
+        v-if="flashIconVisible && !flashOverlayActive && !happyHourPopupActive"
         @open="openFlashDeal"
       />
 
       <CallWaiterButton
-        v-if="screen !== 'language' && !showSessionError && !flashOverlayActive"
+        v-if="screen !== 'language' && screen !== 'welcome' && !showSessionError && !flashOverlayActive && !happyHourPopupActive"
       />
 
       <!-- Re-open the live order's progress timeline. Appears once an order has
@@ -384,7 +552,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       <button
         v-if="showProgressButton"
         class="progress-toggle"
-        :style="{ background: T.lime, color: '#000' }"
+        :style="{ background: T.lime, color: T.onLime }"
         :aria-label="t('sent.viewProgress')"
         @click="viewProgress"
       >
@@ -404,6 +572,7 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
       </button>
 
       <button
+        v-if="!isBranded && !booting"
         class="theme-toggle"
         :style="{
           background: T.card,
@@ -442,6 +611,13 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       </button>
+      </div>
+
+      <!-- Rendered last and on top of everything (incl. the flash-deal modal) —
+           the app tree behind it stays mounted so a re-scan (fresh page load,
+           fresh timer) resumes exactly where the diner left off. Offers no
+           button on purpose: re-scanning the QR is the only way forward. -->
+      <LinkExpiredView v-if="linkExpired" />
     </div>
   </div>
 </template>
@@ -464,6 +640,14 @@ watch(() => orderStatusStore.servedAt, evaluateProgressDismissal)
   height: 100dvh;
   position: relative;
   overflow: hidden;
+}
+/* Restores the height chain broken by inserting this wrapper between
+   .phone-frame (explicit height above) and the screens' .phone-screen root
+   (height: 100%, see ui/PhoneScreen.vue): a plain unstyled div here would
+   default to height: auto, and a percentage height resolves against an auto
+   parent as auto too, collapsing every screen behind the link-expiry overlay. */
+.content-layer {
+  height: 100%;
 }
 @media (min-width: 480px) {
   .stage {

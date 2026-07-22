@@ -32,7 +32,12 @@ async function submit() {
   try {
     if (mode.value === 'login') {
       await auth.login(email.value.trim(), password.value)
-      const redirect = (route.query.redirect as string) || '/'
+      // Only honor an in-app path — a single-leading-slash string that is not
+      // protocol-relative (`//evil`). Anything else falls back to home, which
+      // closes the open-redirect via `?redirect=`.
+      const raw = route.query.redirect
+      const redirect =
+        typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/'
       router.replace(redirect)
     } else {
       const result = await auth.register(email.value.trim(), password.value, fullName.value.trim())

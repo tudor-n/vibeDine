@@ -17,7 +17,7 @@ namespace RestaurantApi.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.0")
+                .HasAnnotation("ProductVersion", "8.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -257,6 +257,44 @@ namespace RestaurantApi.Migrations
                     b.HasIndex("RestaurantId");
 
                     b.ToTable("categories", (string)null);
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.DeviceSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DeviceId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("table_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("TableId", "DeviceId");
+
+                    b.ToTable("device_sessions", (string)null);
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.FlashDealOffer", b =>
@@ -708,6 +746,10 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
+                    b.Property<Guid?>("DeviceSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_session_id");
+
                     b.Property<Guid?>("GuestId")
                         .HasColumnType("uuid")
                         .HasColumnName("guest_id");
@@ -754,6 +796,8 @@ namespace RestaurantApi.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ClaimedByWaiterId");
+
+                    b.HasIndex("DeviceSessionId");
 
                     b.HasIndex("RestaurantId");
 
@@ -1021,6 +1065,28 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("address");
 
+                    b.Property<string>("BrandBackground")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_background");
+
+                    b.Property<string>("BrandPresetKey")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_preset_key");
+
+                    b.Property<string>("BrandPrimary")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_primary");
+
+                    b.Property<string>("BrandSecondary")
+                        .HasColumnType("text")
+                        .HasColumnName("brand_secondary");
+
+                    b.Property<bool>("BrandingEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("branding_enabled");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1041,6 +1107,26 @@ namespace RestaurantApi.Migrations
                         .HasDefaultValue("ro-RO")
                         .HasColumnName("locale");
 
+                    b.Property<string>("LogoBackground")
+                        .HasColumnType("text")
+                        .HasColumnName("logo_background");
+
+                    b.Property<bool?>("LogoIsDark")
+                        .HasColumnType("boolean")
+                        .HasColumnName("logo_is_dark");
+
+                    b.Property<string>("LogoUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("logo_url");
+
+                    b.Property<string>("MenuBackgroundStyle")
+                        .HasColumnType("text")
+                        .HasColumnName("menu_background_style");
+
+                    b.Property<string>("MenuBackgroundUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("menu_background_url");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1049,6 +1135,10 @@ namespace RestaurantApi.Migrations
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid")
                         .HasColumnName("organization_id");
+
+                    b.Property<string>("PhotoUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("photo_url");
 
                     b.Property<string>("Slug")
                         .IsRequired()
@@ -1371,6 +1461,17 @@ namespace RestaurantApi.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.DeviceSession", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
+                        .WithMany()
+                        .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Table");
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.FlashDealOffer", b =>
                 {
                     b.HasOne("RestaurantApi.Models.Order", "Order")
@@ -1477,6 +1578,11 @@ namespace RestaurantApi.Migrations
                     b.HasOne("RestaurantApi.Models.AppUser", "ClaimedByWaiter")
                         .WithMany()
                         .HasForeignKey("ClaimedByWaiterId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RestaurantApi.Models.DeviceSession", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceSessionId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")

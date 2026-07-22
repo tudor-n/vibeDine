@@ -8,6 +8,40 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <title>Smart Restaurant · Nume Restaurant</title>
+    <script>
+      // Paint the page ground BEFORE the bundle loads. Nothing in CSS sets a
+      // background, so without this the browser shows plain white until Vue mounts
+      // — and against a dark brand that white IS the "wrong theme" flash diners
+      // report. It happens on every load and no component can cover it, because it
+      // precedes the app entirely. Hence: inline, blocking, in <head>.
+      //
+      // Deliberately duplicates a few values from src/design/tokens.ts. They cannot
+      // be imported — this must run before any module does.
+      (function () {
+        var SPLASH_BG = '#1B1814' // TD.paper — matches BootSplash, which renders next
+        var LIGHT_BG = '#F4EEE2' // T.paper
+        try {
+          var scope = location.pathname.split('/')[1]
+          var raw = scope && localStorage.getItem('clarifi.brand.' + scope)
+          var bg = null
+          if (raw) {
+            var c = JSON.parse(raw)
+            if (c && c.unbranded === true) {
+              // Known to have no branding: the normal light/dark ground is correct.
+              bg = localStorage.getItem('clarifi.theme') === 'dark' ? SPLASH_BG : LIGHT_BG
+            } else if (c && /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(c.background)) {
+              bg = c.background
+            }
+          }
+          // Unknown palette -> the boot splash is what renders; match its ground so
+          // the hand-off is seamless instead of a white blink.
+          document.documentElement.style.background = bg || SPLASH_BG
+        } catch (e) {
+          /* storage blocked -> splash ground is still the safe default */
+          document.documentElement.style.background = SPLASH_BG
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

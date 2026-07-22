@@ -2,13 +2,19 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import { useBrandTheme } from '@/composables/useBrandTheme'
 import BrandLogo from '@/components/BrandLogo.vue'
+import VibeDineLockup from '@/components/VibeDineLockup.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
 import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useFloorStore } from '@/stores/useFloorStore'
+import { useBrandingStore } from '@/stores/useBrandingStore'
+import { resolveMediaUrl } from '@/services/mediaUrl'
+import { resolveLogoBackground } from '@shared/branding/derive'
+import { readCachedBrand, writeCachedBrand } from '@shared/branding/cache'
 
 const { theme, toggle: toggleTheme } = useTheme()
 const auth = useAuthStore()
@@ -18,6 +24,43 @@ const importStore = useMenuImportStore()
 const waiterCalls = useWaiterCallsStore()
 const inventory = useInventoryStore()
 const floor = useFloorStore()
+const branding = useBrandingStore()
+const brandTheme = useBrandTheme()
+
+// Plate behind the tenant logo in the sidebar (Auto/White/Transparent/Custom).
+const logoPlate = computed(() =>
+  resolveLogoBackground(branding.branding?.logoBackground ?? null, branding.branding?.logoIsDark ?? null),
+)
+
+// Re-skin the shell for a branded restaurant on bootstrap/switch (Task 9). A
+// fetch failure must never block the shell, so it falls back to the classic
+// palette rather than surfacing an error.
+//
+// The resolved colours are cached per restaurant so the NEXT boot can paint them
+// on the first frame (main.ts) instead of flashing the default palette until this
+// request lands.
+async function refreshBranding() {
+  const scope = auth.activeRestaurantId
+  try {
+    await branding.load()
+    const b = branding.branding
+    if (b?.enabled && b.primary && b.secondary && b.background) {
+      const colors = { primary: b.primary, secondary: b.secondary, background: b.background }
+      brandTheme.applyBrand(colors)
+      writeCachedBrand(scope, colors)
+    } else {
+      brandTheme.clearBrand()
+      writeCachedBrand(scope, null)
+    }
+  } catch {
+    // Fall back to this restaurant's cached palette rather than the default one:
+    // clearing here would undo what main.ts painted at boot and produce exactly
+    // the flash this cache exists to prevent. No cache -> default, as before.
+    const cached = readCachedBrand(scope)
+    if (cached) brandTheme.applyBrand(cached)
+    else brandTheme.clearBrand()
+  }
+}
 
 // Login / onboarding / org-picker / accept-invite / waiter-signup / awaiting-approval render
 // full-screen without the admin shell.
@@ -51,9 +94,12 @@ watch(
       void floor.startRealtime(rid)
       // Load stock once per restaurant so the "Inventar" nav badge can show the low-stock count.
       if (!auth.isWaiter) void inventory.fetchIngredients()
+      // Re-skin the shell to the restaurant's tenant palette, if branded.
+      void refreshBranding()
     } else {
       void waiterCalls.stop()
       void floor.stopRealtime()
+      brandTheme.clearBrand()
     }
   },
   { immediate: true },
@@ -219,6 +265,7 @@ onUnmounted(() => {
       <div class="topbar-right ml-auto">
         <span v-if="waiterCalls.count" class="nav-badge" aria-label="chemări active">{{ waiterCalls.count }}</span>
         <button
+          v-if="!branding.isEnabled"
           type="button"
           class="hamburger"
           :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
@@ -257,10 +304,26 @@ onUnmounted(() => {
 
       <!-- Brand block (desktop) -->
       <div class="hidden md:block mb-6">
-        <BrandLogo class="mb-3" />
-        <div class="display-title text-[34px] leading-[0.95]">
-          {{ auth.activeRestaurant?.name ?? 'Restaurant' }}
-        </div>
+        <template v-if="branding.isEnabled && branding.branding?.logoUrl">
+          <div
+            class="brand-logo-plate mb-2"
+            :class="{ 'is-plated': logoPlate.plate }"
+            :style="logoPlate.plate ? { background: logoPlate.background } : undefined"
+          >
+            <img
+              :src="resolveMediaUrl(branding.branding.logoUrl)"
+              alt=""
+              style="height: 72px; object-fit: contain"
+            />
+          </div>
+          <VibeDineLockup />
+        </template>
+        <template v-else>
+          <BrandLogo class="mb-3" />
+          <div class="display-title text-[34px] leading-[0.95]">
+            {{ auth.activeRestaurant?.name ?? 'Restaurant' }}
+          </div>
+        </template>
       </div>
 
       <!-- Mobile brand (leaves room for the fixed top-right toggle) -->
@@ -273,7 +336,7 @@ onUnmounted(() => {
         <div class="account-avatar">
           <img
             v-if="auth.user?.avatarUrl"
-            :src="auth.user.avatarUrl"
+            :src="resolveMediaUrl(auth.user.avatarUrl)"
             alt=""
           />
           <template v-else>{{ (auth.user?.fullName || 'A').charAt(0).toUpperCase() }}</template>
@@ -288,6 +351,7 @@ onUnmounted(() => {
         </div>
         <div class="account-actions">
           <button
+            v-if="!branding.isEnabled"
             type="button"
             class="icon-btn"
             :aria-label="theme === 'dark' ? 'Comutați la tema deschisă' : 'Comutați la tema închisă'"
@@ -439,6 +503,16 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--paperHi) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* Tenant logo plate — padded frame only when the resolver asks for a plate;
+   bare (no box) when Auto picks transparent for a light/knockout logo. */
+.brand-logo-plate {
+  display: inline-flex;
+  border-radius: 16px;
+}
+.brand-logo-plate.is-plated {
+  padding: 10px 14px;
 }
 
 /* Sidebar shell — fixed left column on desktop (stays put while the main area
@@ -861,7 +935,7 @@ button.nav-link {
   padding: 0 7px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--onAccent);
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 12px;
   font-weight: 800;
@@ -889,7 +963,7 @@ button.nav-link {
   padding: 11px 18px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--onAccent);
   text-decoration: none;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 13px;

@@ -40,6 +40,11 @@ public class TenantResolutionMiddleware
         ("GET",   new(@"^/admin/tables/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("GET",   new(@"^/help-requests/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("POST",  new(@"^/help-requests/[0-9a-fA-F-]{36}/acknowledge/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        // Branding is non-sensitive (already shown to anonymous diners) so waiters may read
+        // it — needed so the admin shell can re-skin for them — but must not write colours
+        // (PUT) or upload assets (POST .../logo, .../photo). The anchored, no-subpath regex
+        // ensures it matches only the exact branding-root GET, not the upload sub-routes.
+        ("GET",   new(@"^/admin/branding/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
     ];
 
     public TenantResolutionMiddleware(RequestDelegate next) => _next = next;

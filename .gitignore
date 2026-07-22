@@ -1,8 +1,11 @@
 node_modules/
 dist/
+.vite/
 
 bin/
 obj/
+
+backend/RestaurantApi/wwwroot/uploads/
 
 __pycache__/
 *.pyc
@@ -15,6 +18,14 @@ venv/
 .env
 .env.local
 *.log
+*.ai-logs.txt
+
+# Generated shared type declarations — hand-edit the .ts, never the compiled
+# siblings. Vite resolves .js before .ts, so a stale committed sibling silently
+# shadows the real source (this caused the /api/menu 404). Regenerate in a build
+# step if needed; never commit these.
+shared/types/*.js
+shared/types/*.d.ts
 
 .DS_Store
 Thumbs.db

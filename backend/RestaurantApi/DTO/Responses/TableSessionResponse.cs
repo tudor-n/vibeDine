@@ -10,6 +10,21 @@ public class TableSessionResponse
     public Guid TableId {get;set;}
     public string TableNumber{get;set;}=string.Empty;
     public OrderResponse? ActiveOrder {get;set;}
+    public BrandingInfo? Branding { get; set; }
+}
+
+public class BrandingInfo
+{
+    public bool Enabled { get; set; }
+    public string? Primary { get; set; }
+    public string? Secondary { get; set; }
+    public string? Background { get; set; }
+    public string? LogoUrl { get; set; }
+    public string? PhotoUrl { get; set; }
+    public string? MenuBackgroundUrl { get; set; }
+    public string? MenuBackgroundStyle { get; set; }
+    public string? LogoBackground { get; set; }
+    public bool? LogoIsDark { get; set; }
 }
 
 public class OrderResponse

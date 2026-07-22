@@ -103,3 +103,17 @@ export interface ApiError {
   code: string;
   details?: unknown;
 }
+
+
+export interface VibeyRec {
+  id: string;
+  name: string;
+  category?: string | null;
+  priceRon: number;
+  reason: string;
+}
+
+export interface VibeyRecommendationResponse {
+  summary: string;
+  recommendations: VibeyRec[];
+}

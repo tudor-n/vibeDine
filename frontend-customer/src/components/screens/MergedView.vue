@@ -24,7 +24,7 @@ const body = computed(() => t('merged.body', { name: initiatorName.value }))
     />
 
     <div class="wrap">
-      <div class="mark" :style="{ background: T.lime, color: T.ink }">
+      <div class="mark" :style="{ background: T.lime, color: T.onLime }">
         <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">
           <path
             d="M20 6 9 17l-5-5"

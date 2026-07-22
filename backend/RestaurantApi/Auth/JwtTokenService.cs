@@ -40,10 +40,24 @@ public class JwtTokenService
         return (new JwtSecurityTokenHandler().WriteToken(jwt), expires);
     }
 
-    public RefreshToken CreateRefreshToken(Guid userId) => new()
+    /// <summary>
+    /// Creates a refresh token. Returns the entity to persist (holding only the SHA-256
+    /// hash of the value) and the one-time plaintext to hand back to the client. The
+    /// plaintext is never stored, so a DB/backup leak cannot yield usable credentials.
+    /// </summary>
+    public (RefreshToken token, string plainText) CreateRefreshToken(Guid userId)
     {
-        UserId = userId,
-        Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)),
-        ExpiresAt = DateTime.UtcNow.AddDays(_opts.RefreshTokenDays),
-    };
+        var plainText = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
+        var token = new RefreshToken
+        {
+            UserId = userId,
+            Token = HashRefreshToken(plainText),
+            ExpiresAt = DateTime.UtcNow.AddDays(_opts.RefreshTokenDays),
+        };
+        return (token, plainText);
+    }
+
+    /// <summary>SHA-256 hash (base64) of a refresh token's plaintext — the only form persisted.</summary>
+    public static string HashRefreshToken(string plainText) =>
+        Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(plainText)));
 }

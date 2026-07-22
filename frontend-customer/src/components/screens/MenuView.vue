@@ -1,32 +1,31 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { toneFromKey } from '@/design/tokens'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useMenu } from '@/composables/useMenu'
 import { useCartStore } from '@/stores/useCartStore'
 import { useHappyHourStore } from '@/stores/useHappyHourStore'
-import { useRecommendations } from '@/composables/useRecommendations'
-import type { Product, Recommendation, RecipeLine } from '@shared/types/models'
+import { formatMoney } from '@/utils/money'
+import type { Product, RecipeLine } from '@shared/types/models'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import FoodTile from '@/components/ui/FoodTile.vue'
 import HappyHourBanner from '@/components/HappyHourBanner.vue'
+import MenuBackdrop from '@/components/ui/MenuBackdrop.vue'
 
 const props = defineProps<{ categoryId: string }>()
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'open-cart'): void
+  (e: 'select-category', id: string): void
 }>()
 
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const cartStore = useCartStore()
 const happyHour = useHappyHourStore()
-const { pairings, upsells } = useRecommendations()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
-type FilterKey = 'all' | 'meat' | 'fish' | 'veggie' | 'chef'
-const filter = ref<FilterKey>('all')
 const searchOpen = ref(false)
 const searchQuery = ref('')
 
@@ -48,26 +47,39 @@ function formatRecipe(recipe: RecipeLine[]): string {
     .join(' · ')
 }
 
-const FILTERS = computed<Array<{ key: FilterKey; label: string }>>(() => [
-  { key: 'all',    label: t('menu.filter.all') },
-  { key: 'meat',   label: t('menu.filter.meat') },
-  { key: 'fish',   label: t('menu.filter.fish') },
-  { key: 'veggie', label: t('menu.filter.veggie') },
-  { key: 'chef',   label: t('menu.filter.chef') },
-])
+// The chip row is a category switcher: one chip per menu category, in the same
+// order as the pebble grid. Tapping one switches the menu in place (handled by
+// the parent, which swaps `categoryId` and remounts this screen via its :key).
+const categoryChips = computed(() =>
+  categories.value.map((c) => ({ id: c.id, label: c.name })),
+)
 
-// Lightweight client-side filter — backend doesn't tag dishes by diet, so we
-// heuristically match against name + description.
-const FILTER_PATTERNS: Record<Exclude<FilterKey, 'all'>, RegExp> = {
-  meat:   /carne|vit[aă]|porc|miel|pui|chicken|beef|burger|șunc|sunc|cârn|carn/i,
-  fish:   /pe[șs]te|somon|salmon|tuna|scoici|fruct.?de.?mare|cremă.?de.?pe|caracati/i,
-  veggie: /vegetar|vegan|legum|sala[tț]|brocoli|spanac|ciuperc|paste|risotto/i,
-  chef:   /chef|signature|special|degustare|tasting|maturat/i,
+const chipsEl = ref<HTMLElement | null>(null)
+
+function selectCategory(id: string) {
+  if (id === props.categoryId) return
+  emit('select-category', id)
 }
 
-onMounted(() => {
+// Bring the active category's chip into view so the diner can always see where
+// they are. We adjust ONLY the chip row's own scrollLeft — never el.scrollIntoView(),
+// which would also scroll every scrollable ancestor (the dish list, the phone
+// frame, the page) and shift the whole screen.
+function scrollActiveChipIntoView() {
+  const row = chipsEl.value
+  const active = row?.querySelector<HTMLElement>('[aria-pressed="true"]')
+  if (!row || !active) return
+  const rowRect = row.getBoundingClientRect()
+  const activeRect = active.getBoundingClientRect()
+  const delta = activeRect.left - rowRect.left - (row.clientWidth - active.clientWidth) / 2
+  row.scrollLeft += delta // browser clamps to [0, maxScrollLeft]
+}
+
+onMounted(async () => {
   load().catch(() => undefined)
   happyHour.startPolling()
+  await nextTick()
+  scrollActiveChipIntoView()
 })
 
 const category = computed(() =>
@@ -78,10 +90,6 @@ const allItems = computed<Product[]>(() => productsByCategory(props.categoryId))
 
 const items = computed<Product[]>(() => {
   let result = allItems.value
-  if (filter.value !== 'all') {
-    const pattern = FILTER_PATTERNS[filter.value]
-    result = result.filter((p) => pattern.test(`${p.name} ${p.description ?? ''}`))
-  }
   const q = normalize(searchQuery.value.trim())
   if (q) {
     result = result.filter((p) =>
@@ -94,28 +102,11 @@ const items = computed<Product[]>(() => {
 const cartCount = computed(() =>
   cartStore.items.reduce((sum, i) => sum + i.quantity, 0),
 )
-
-const recommendations = computed<Recommendation[]>(() => [
-  ...pairings.value,
-  ...upsells.value,
-])
-
-function addRecommendation(rec: Recommendation) {
-  const product: Product = {
-    id: rec.menuItem.id,
-    categoryId: '',
-    name: rec.menuItem.name,
-    description: rec.menuItem.description ?? '',
-    price: rec.menuItem.price,
-    imageUrl: rec.menuItem.imageUrl ?? null,
-    isAvailable: true,
-  }
-  cartStore.addRecommendedItem(product)
-}
 </script>
 
 <template>
-  <PhoneScreen :theme="theme">
+  <PhoneScreen :theme="mode">
+    <MenuBackdrop />
     <div
       class="bloom bloom-accent"
       :style="{ background: `radial-gradient(circle, ${T.accent} 0%, transparent 70%)` }"
@@ -124,6 +115,10 @@ function addRecommendation(rec: Recommendation) {
       class="bloom bloom-lime"
       :style="{ background: `radial-gradient(circle, ${T.lime} 0%, transparent 70%)` }"
     />
+
+    <!-- Return-to-happy-hour banner — pinned at the very top of the screen once
+         the diner has dismissed the offer sheet; tapping it reopens the offer. -->
+    <HappyHourBanner />
 
     <div class="header">
       <button
@@ -174,19 +169,18 @@ function addRecommendation(rec: Recommendation) {
     </div>
 
     <div class="scroll">
-    <HappyHourBanner />
-    <div class="chips">
+    <div ref="chipsEl" class="chips">
       <button
-        v-for="f in FILTERS"
-        :key="f.key"
+        v-for="c in categoryChips"
+        :key="c.id"
         class="chip"
         type="button"
-        :style="filter === f.key
+        :style="c.id === props.categoryId
           ? { background: T.ink, color: T.paperHi, border: 'none' }
           : { background: T.card, color: T.ink, border: `1px solid ${T.ink12}` }"
-        :aria-pressed="filter === f.key"
-        @click="filter = f.key"
-      >{{ f.label }}</button>
+        :aria-pressed="c.id === props.categoryId"
+        @click="selectCategory(c.id)"
+      >{{ c.label }}</button>
     </div>
 
     <div
@@ -231,10 +225,10 @@ function addRecommendation(rec: Recommendation) {
         <div class="dish-foot" :style="{ borderTop: `1px solid ${T.ink06}` }">
           <div class="price">
             <template v-if="happyHour.discountedPriceFor(m.id) != null">
-              {{ happyHour.discountedPriceFor(m.id) }}
-              <span :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.78em', marginLeft: '5px', fontWeight: 500 }">{{ m.price }}</span>
+              {{ formatMoney(happyHour.discountedPriceFor(m.id)!) }}
+              <span :style="{ color: T.ink40, textDecoration: 'line-through', fontSize: '0.78em', marginLeft: '5px', fontWeight: 500 }">{{ formatMoney(m.price) }}</span>
             </template>
-            <template v-else>{{ m.price }}</template>
+            <template v-else>{{ formatMoney(m.price) }}</template>
             <span class="price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
           </div>
           <button
@@ -248,52 +242,13 @@ function addRecommendation(rec: Recommendation) {
         </div>
       </article>
     </div>
-
-    <div
-      v-if="recommendations.length > 0"
-      class="recs"
-      :style="{ background: T.paperHi, borderTop: `1px solid ${T.ink12}` }"
-    >
-      <div class="recs-pill" :style="{ background: T.lime, color: T.ink }">
-        {{ t('menu.recommendedForYou') }}
-      </div>
-      <div class="recs-strip">
-        <div
-          v-for="r in recommendations"
-          :key="r.id"
-          class="rec-card"
-          :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
-        >
-          <FoodTile
-            :tone="toneFromKey(r.menuItem.id)"
-            :image="r.menuItem.imageUrl"
-            :radius="14"
-            class="rec-tile"
-          />
-          <div class="rec-name">{{ r.menuItem.name }}</div>
-          <div class="rec-sub" :style="{ color: T.ink70 }">{{ r.reason }}</div>
-          <div class="rec-row">
-            <span class="rec-price">
-              {{ r.menuItem.price }}
-              <span class="rec-price-unit" :style="{ color: T.ink70 }">{{ t('common.ron') }}</span>
-            </span>
-            <button
-              class="rec-add"
-              :style="{ background: T.accent, color: T.onAccent }"
-              :aria-label="t('menu.addRecommendation')"
-              @click="addRecommendation(r)"
-            >+</button>
-          </div>
-        </div>
-      </div>
-    </div>
     </div>
 
     <div v-if="cartCount > 0" class="cart-bar" :style="{ background: T.ink, color: T.paperHi }">
       <div>
         <div
           class="cart-eyebrow"
-          :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
+          :style="{ color: mode === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
         >{{ t('menu.cartLabel') }}</div>
         <div class="cart-summary">
           {{ cartStore.total }} {{ t('common.ron') }} ·
@@ -534,73 +489,6 @@ function addRecommendation(rec: Recommendation) {
 }
 .plus {
   font-size: 22px;
-}
-.recs {
-  padding: 16px 16px 18px;
-}
-.recs-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 12px;
-}
-.recs-strip {
-  display: flex;
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  scrollbar-width: none;
-}
-.recs-strip::-webkit-scrollbar { display: none; }
-.rec-card {
-  min-width: clamp(146px, 44vw, 170px);
-  max-width: 200px;
-  border-radius: 20px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.rec-tile {
-  height: 80px;
-}
-.rec-name {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-.rec-sub {
-  font-size: 13px;
-}
-.rec-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 4px;
-}
-.rec-price {
-  font-size: 18px;
-  font-weight: 700;
-}
-.rec-price-unit {
-  font-size: 12px;
-  font-weight: 500;
-}
-.rec-add {
-  border: none;
-  border-radius: 999px;
-  width: 40px;
-  height: 40px;
-  font-size: 22px;
-  font-weight: 700;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  font-family: inherit;
 }
 .cart-bar {
   position: absolute;

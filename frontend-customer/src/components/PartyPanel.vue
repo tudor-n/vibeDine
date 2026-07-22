@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useGuestStore } from '@/stores/useGuestStore'
+import { formatMoney } from '@/utils/money'
 import type { PartyMember } from '@/services/api-client'
 
 const emit = defineEmits<{ (e: 'merge'): void }>()
@@ -23,7 +24,7 @@ function summary(m: PartyMember): string {
   if (m.status !== 'draft') return t('party.statusSubmitted')
   if (m.itemCount <= 0) return t('party.empty')
   const label = m.itemCount === 1 ? t('party.itemOne') : t('party.items', { count: m.itemCount })
-  return `${label} · ${m.total} ${t('common.ron')}`
+  return `${label} · ${formatMoney(m.total)} ${t('common.ron')}`
 }
 </script>
 
@@ -40,12 +41,12 @@ function summary(m: PartyMember): string {
           class="avatar"
           :style="{
             background: isYou(m) ? T.accent : T.lime,
-            color: isYou(m) ? '#fff' : T.ink,
+            color: isYou(m) ? T.onAccent : T.onLime,
           }"
         >{{ (m.displayName || 'G').replace(/[^0-9]/g, '') || 'G' }}</span>
         <span class="party-name">
           {{ m.displayName }}
-          <span v-if="isYou(m)" class="you-badge" :style="{ background: T.accent, color: '#fff' }">{{ t('party.you') }}</span>
+          <span v-if="isYou(m)" class="you-badge" :style="{ background: T.accent, color: T.onAccent }">{{ t('party.you') }}</span>
         </span>
         <span class="party-summary" :style="{ color: T.ink70 }">{{ summary(m) }}</span>
       </li>

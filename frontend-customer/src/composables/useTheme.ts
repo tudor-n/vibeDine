@@ -1,5 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { T, TD, type ThemeTokens } from '@/design/tokens'
+import { deriveBrandPalette, type BrandInput } from '@shared/branding/derive'
+import { readCachedBrandEntry } from '@shared/branding/cache'
 
 export type ThemeMode = 'light' | 'dark'
 
@@ -13,24 +15,80 @@ function readInitial(): ThemeMode {
 }
 
 const theme = ref<ThemeMode>(readInitial())
-const tokens = computed<ThemeTokens>(() => (theme.value === 'dark' ? TD : T))
+const brandTokens = ref<ThemeTokens | null>(null)
+const brandMode = ref<ThemeMode | null>(null)
+// Whether this table's branding has been RESOLVED yet — which is not the same as
+// "is branded": a restaurant with no branding is resolved and has no colours.
+// Anything that must not render a palette on a guess (the boot splash) keys off
+// this, never off isBranded, and never off unrelated state like sessionStorage.
+const brandKnown = ref(false)
+
+const tokens = computed<ThemeTokens>(() =>
+  brandTokens.value ?? (theme.value === 'dark' ? TD : T),
+)
+const mode = computed<ThemeMode>(() => brandMode.value ?? theme.value)
+const isBranded = computed(() => brandTokens.value !== null)
 
 watch(theme, (v) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, v)
-  } catch {
-    // ignore — private mode / disabled storage
-  }
+  try { localStorage.setItem(STORAGE_KEY, v) } catch { /* ignore — private mode / disabled storage */ }
 })
 
 function toggle() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
 }
+function setTheme(m: ThemeMode) {
+  theme.value = m
+}
 
-function setTheme(mode: ThemeMode) {
-  theme.value = mode
+/**
+ * Enable branded tokens from 3 colours, or pass null to fall back to light/dark.
+ * Either way the branding is now resolved — this is what join calls once it knows.
+ */
+function applyBrand(colors: BrandInput | null) {
+  brandKnown.value = true
+  if (!colors) {
+    brandTokens.value = null
+    brandMode.value = null
+    return
+  }
+  const p = deriveBrandPalette(colors)
+  const base = p.mode === 'dark' ? TD : T
+  brandTokens.value = {
+    ...base, // keeps sans/display/mono/statusClear/blue
+    paper: p.paper,
+    paperHi: p.paperHi,
+    card: p.card,
+    ink: p.ink,
+    ink70: p.ink70,
+    ink40: p.ink40,
+    ink12: p.ink12,
+    ink06: p.ink06,
+    accent: p.accent,
+    accentDk: p.accentDk,
+    lime: p.lime,
+    onAccent: p.onAccent,
+    onLime: p.onLime,
+  }
+  brandMode.value = p.mode
+}
+
+/**
+ * Paint the last-known palette for `scope` (the table's qrToken) before the app
+ * mounts, so a branded restaurant doesn't flash the default tokens while the join
+ * request is in flight — on a deployed split-origin setup that POST is slow enough
+ * to see. useSessionStore then applies the authoritative colours when join lands.
+ *
+ * A cache MISS leaves brandKnown false, which is what puts the boot splash up. That
+ * matters beyond a first-ever scan: if storage is unavailable (private browsing) or
+ * was cleared, every load is a miss, and the splash has to cover each one.
+ */
+export function hydrateBrandFromCache(scope: string | null | undefined): void {
+  const { known, colors } = readCachedBrandEntry(scope)
+  if (!known) return
+  // Known-unbranded resolves the palette without painting one: the default is right.
+  applyBrand(colors)
 }
 
 export function useTheme() {
-  return { theme, tokens, toggle, setTheme }
+  return { theme, tokens, mode, isBranded, brandKnown, toggle, setTheme, applyBrand }
 }

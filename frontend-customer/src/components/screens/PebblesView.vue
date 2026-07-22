@@ -8,6 +8,7 @@ import { useCartStore } from '@/stores/useCartStore'
 import PhoneScreen from '@/components/ui/PhoneScreen.vue'
 import Pebble from '@/components/ui/Pebble.vue'
 import HappyHourBanner from '@/components/HappyHourBanner.vue'
+import MenuBackdrop from '@/components/ui/MenuBackdrop.vue'
 
 const emit = defineEmits<{
   (e: 'open-category', id: string): void
@@ -18,7 +19,7 @@ const emit = defineEmits<{
 const { categories, isLoading, error, load, productsByCategory } = useMenu()
 const sessionStore = useSessionStore()
 const cartStore = useCartStore()
-const { tokens: T, theme } = useTheme()
+const { tokens: T, mode } = useTheme()
 const { t } = useLocale()
 
 // "Coșul meu" bar mirrors the one on the menu screen: surfaced here too so the
@@ -76,15 +77,42 @@ function imageFor(name: string): string {
   return FALLBACK_IMAGE
 }
 
-const pebbles = computed(() =>
-  categories.value.map((cat, i) => ({
-    id: cat.id,
-    label: cat.name,
-    count: productsByCategory(cat.id).length,
-    pathIndex: i % 6,
-    image: imageFor(cat.name),
-  })),
-)
+// Search across categories AND their dishes: a category shows if its own name
+// matches, or if any dish inside it matches. Diacritic-insensitive so "peste"
+// finds "pește".
+const searchQuery = ref('')
+const searchOpen = ref(false)
+function toggleSearch() {
+  searchOpen.value = !searchOpen.value
+  if (!searchOpen.value) searchQuery.value = ''
+}
+function normalize(s: string) {
+  return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+}
+
+const pebbles = computed(() => {
+  const q = normalize(searchQuery.value.trim())
+  return categories.value
+    .map((cat, i) => ({
+      id: cat.id,
+      label: cat.name,
+      items: productsByCategory(cat.id),
+      pathIndex: i % 6,
+      image: imageFor(cat.name),
+    }))
+    .filter((cat) => {
+      if (!q) return true
+      if (normalize(cat.label).includes(q)) return true
+      return cat.items.some((it) => normalize(`${it.name} ${it.description ?? ''}`).includes(q))
+    })
+    .map((cat) => ({
+      id: cat.id,
+      label: cat.label,
+      count: cat.items.length,
+      pathIndex: cat.pathIndex,
+      image: cat.image,
+    }))
+})
 
 type PebbleVm = (typeof pebbles)['value'][number]
 
@@ -98,14 +126,14 @@ const pebbleGroups = computed<PebbleVm[][]>(() => {
 })
 
 const panelStyle = computed(() => {
-  // Slightly translucent accent wash matching the handoff: rgba(accent, 0.13/0.16) bg,
-  // rgba(accent, 0.22/0.28) border. Tinted per theme.
-  const rgb = theme.value === 'dark' ? '232,37,90' : '255,74,28'
-  const bgAlpha = theme.value === 'dark' ? 0.16 : 0.13
-  const borderAlpha = theme.value === 'dark' ? 0.28 : 0.22
+  // Translucent wash of the *branded* accent (8-digit hex alpha), slightly
+  // stronger in dark mode. Was hardcoded to vibeDine orange, so it ignored the
+  // tenant palette entirely.
+  const accent = T.value.accent
+  const dark = mode.value === 'dark'
   return {
-    background: `rgba(${rgb},${bgAlpha})`,
-    border: `1px solid rgba(${rgb},${borderAlpha})`,
+    background: `${accent}${dark ? '29' : '21'}`,
+    border: `1px solid ${accent}${dark ? '47' : '38'}`,
   }
 })
 
@@ -140,7 +168,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PhoneScreen :theme="theme">
+  <PhoneScreen :theme="mode">
+    <MenuBackdrop />
+    <!-- Return-to-happy-hour banner — pinned at the very top of the screen once
+         the diner has dismissed the offer sheet; tapping it reopens the offer. -->
+    <HappyHourBanner />
+
     <div class="header">
       <button
         class="circle-btn"
@@ -156,15 +189,44 @@ onBeforeUnmount(() => {
       <h2 class="title">
         {{ t('pebbles.title1') }} <span :style="{ color: T.accent }">{{ t('pebbles.title2') }}</span>
       </h2>
-      <p class="lede" :style="{ color: T.ink70 }">
-        {{ t('pebbles.subtitle') }}
-      </p>
-    </div>
-
-    <!-- Happy hour bar — surfaced on the categories page too (mirrors the menu),
-         with its own add-to-cart button and live the whole session. -->
-    <div class="hh-slot">
-      <HappyHourBanner />
+      <div class="lede-row">
+        <p class="lede" :style="{ color: T.ink70 }">
+          {{ t('pebbles.subtitle') }}
+        </p>
+        <button
+          class="search-toggle"
+          type="button"
+          :style="searchOpen
+            ? { background: T.ink, border: 'none', color: T.paperHi }
+            : { background: T.card, border: `1px solid ${T.ink12}`, color: T.ink70 }"
+          :aria-label="searchOpen ? t('menu.closeSearch') : t('menu.openSearch')"
+          :aria-pressed="searchOpen"
+          @click="toggleSearch"
+        >{{ searchOpen ? '×' : '⌕' }}</button>
+      </div>
+      <div
+        v-if="searchOpen"
+        class="search-box"
+        :style="{ background: T.card, border: `1px solid ${T.ink12}` }"
+      >
+        <span class="search-icon" :style="{ color: T.ink70 }">⌕</span>
+        <input
+          v-model="searchQuery"
+          class="search-input"
+          type="search"
+          :placeholder="t('pebbles.searchPlaceholder')"
+          :style="{ color: T.ink }"
+          autofocus
+        />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="search-clear"
+          :style="{ color: T.ink70 }"
+          :aria-label="t('menu.clearSearch')"
+          @click="searchQuery = ''"
+        >×</button>
+      </div>
     </div>
 
     <div v-if="isLoading" class="state" :style="{ color: T.ink70 }">
@@ -172,6 +234,13 @@ onBeforeUnmount(() => {
     </div>
     <div v-else-if="error" class="state" :style="{ color: T.accent }">
       {{ error }}
+    </div>
+    <div
+      v-else-if="searchQuery.trim() && pebbles.length === 0"
+      class="state"
+      :style="{ color: T.ink70 }"
+    >
+      {{ t('pebbles.noResults', { query: searchQuery }) }}
     </div>
 
     <div v-else class="grid-wrap" :class="{ 'has-cart-bar': cartCount > 0 }">
@@ -201,7 +270,7 @@ onBeforeUnmount(() => {
               :path-index="pb.pathIndex"
               :image="pb.image"
               :active="pb.id === active"
-              :theme="theme"
+              :theme="mode"
               @click="(ev) => handlePebbleClick(pb.id, ev)"
             />
           </div>
@@ -214,7 +283,7 @@ onBeforeUnmount(() => {
       <div>
         <div
           class="cart-eyebrow"
-          :style="{ color: theme === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
+          :style="{ color: mode === 'dark' ? 'rgba(34,31,26,0.6)' : 'rgba(251,247,236,0.55)' }"
         >{{ t('menu.cartLabel') }}</div>
         <div class="cart-summary">
           {{ cartStore.total }} {{ t('common.ron') }} ·
@@ -277,27 +346,63 @@ onBeforeUnmount(() => {
   letter-spacing: -0.03em;
   margin: 0;
 }
+.lede-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
 .lede {
   font-size: clamp(14px, 4.1vw, 16px);
-  margin: 8px 0 0;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
 }
-/* Holds the happy hour bar between the heading and the scrolling category grid
-   so it stays pinned and visible while the diner browses. */
-.hh-slot {
-  position: relative;
-  z-index: 2;
+.search-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  cursor: pointer;
+  font-family: inherit;
   flex-shrink: 0;
-  padding: 12px clamp(14px, 5vw, 20px) 0;
 }
-/* No active happy hour → the banner's v-if leaves only a comment, so drop the
-   slot entirely instead of showing an empty padded gap above the categories. */
-.hh-slot:empty {
-  display: none;
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  border-radius: 999px;
+  padding: 0 16px;
+  margin-top: 14px;
 }
-/* The banner carries its own bottom margin; drop it here so spacing to the grid
-   matches the heading's rhythm. */
-.hh-slot :deep(.hh-banner) {
-  margin-bottom: 0;
+.search-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 0;
+}
+.search-input::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
 }
 .state {
   padding: 32px 24px;

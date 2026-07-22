@@ -86,19 +86,26 @@ export const useCartStore = defineStore('cart', () => {
   let syncTimeout: ReturnType<typeof setTimeout> | null = null;
   const lastSyncPromise = ref<Promise<void> | null>(null)
 
-  async function syncCartWithBackend() {
-    if (frozen.value) return
-    if(!sessionStore.orderId){
-      console.warn('Nu există o comandă activă (orderId lipsește).')
-      return
-    }
-    const payload: UpdateOrderItemsRequest = {
+  // Build the wire payload for the backend draft from the current cart state.
+  // Shared by the debounced sync and the immediate flush() so both send an
+  // identical shape.
+  function buildPayload(): UpdateOrderItemsRequest {
+    return {
       items: items.value.map((item) => ({
         productId: item.id,
         quantity: item.quantity,
         wasAiRecommended: recommendedItemIds.value.has(item.id)
       }))
     }
+  }
+
+  async function syncCartWithBackend() {
+    if (frozen.value) return
+    if(!sessionStore.orderId){
+      console.warn('Nu există o comandă activă (orderId lipsește).')
+      return
+    }
+    const payload: UpdateOrderItemsRequest = buildPayload()
 
     if (syncTimeout) clearTimeout(syncTimeout)
 
@@ -113,6 +120,22 @@ export const useCartStore = defineStore('cart', () => {
         }
       }, 500)
     })
+  }
+
+  // Immediately push the current cart to the backend draft, cancelling any
+  // pending debounced sync. Called right before submit so the order the kitchen
+  // receives always includes the last edit — awaiting lastSyncPromise is not
+  // enough (it only resolves after the 500 ms timer, and rapid edits orphan
+  // earlier promises so they never resolve). Rejects on failure so submit aborts
+  // rather than dispatch a stale draft.
+  async function flush() {
+    if (syncTimeout) {
+      clearTimeout(syncTimeout)
+      syncTimeout = null
+    }
+    if (frozen.value) return
+    if (!sessionStore.orderId) return
+    await apiClient.updateCartItems(sessionStore.orderId, buildPayload())
   }
 
   async function addItem(product: Product){
@@ -224,12 +247,24 @@ export const useCartStore = defineStore('cart', () => {
     return recommendedItemIds.value.has(productId)
   }
 
+  // Tear down any pending debounced sync without touching the cart itself —
+  // used on link expiry (see OrderingView's `watch(linkExpired…)` teardown),
+  // where an abandoned tab must stop talking to the backend but the cart
+  // stays intact for a re-scan.
+  function cancelPendingSync() {
+    if (syncTimeout) {
+      clearTimeout(syncTimeout)
+      syncTimeout = null
+    }
+  }
+
   return {
     items,
     total,
     effectivePrice,
     frozen,
     lastSyncPromise,
+    flush,
     addItem,
     addRecommendedItem,
     removeItem,
@@ -240,5 +275,6 @@ export const useCartStore = defineStore('cart', () => {
     abandonForMerge,
     resetForNewOrder,
     wasRecommended,
+    cancelPendingSync,
   }
 })

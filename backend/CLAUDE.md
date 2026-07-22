@@ -57,7 +57,7 @@ xUnit + FluentAssertions. Integration tests boot the real app via `Helpers/TestW
 ### Email, storage, internal callbacks
 
 - Email: `Services/Email/IEmailSender.cs` — `SmtpEmailSender` (MailKit; dev → mailpit, UI http://localhost:8025) or `ResendEmailSender` (prod; Railway blocks SMTP ports — see `docs/email-deliverability-setup.md`). Selected by `Email:Provider`.
-- Files: `Storage/LocalDiskFileStorage.cs`; uploads under `wwwroot/uploads/{avatars,menu-items}`; menu-import staging under `MenuImport:StorageRoot` (compose volume `menu_imports`, shared with ai-service).
+- Files: user uploads (branding/avatars/menu-items) under the `Storage/UploadPaths.cs` root — default `wwwroot/uploads`, overridable via `Uploads__Root` (prod MUST point it at a Railway volume or every redeploy wipes them; see `docs/railway-persistent-uploads.md`); menu-import staging via `Storage/LocalDiskFileStorage.cs` under `MenuImport:StorageRoot` (compose volume `menu_imports`, shared with ai-service).
 - Python→.NET progress callback: `POST api/internal/menu-imports/{jobId}/progress` is `[AllowAnonymous]` but HMAC-SHA256-validated (`Security/HmacRequestValidator.cs`, header `X-Hmac-Signature`, secret `MenuImport:HmacSecret`); Python signs in `ai-scripts/services/progress_reporter.py`.
 
 ## ai-scripts (Python 3.11 / FastAPI)

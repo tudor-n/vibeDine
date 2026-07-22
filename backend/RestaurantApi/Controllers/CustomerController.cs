@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RestaurantApi.Data;
 using RestaurantApi.DTOs.Responses;
 using RestaurantApi.Hubs;
@@ -20,6 +21,8 @@ public class CustomerController : ControllerBase
     private readonly RecommendationService _recommendationService;
     private readonly IHubContext<StaffHub> _staffHub;
     private readonly IHubContext<CustomerHub> _customerHub;
+    private readonly IMemoryCache _memoryCache;
+    private readonly ILogger<CustomerController> _logger;
 
     public CustomerController(
         AppDbContext context,
@@ -27,7 +30,9 @@ public class CustomerController : ControllerBase
         IHappyHourService happyHourService,
         RecommendationService recommendationService,
         IHubContext<StaffHub> staffHub,
-        IHubContext<CustomerHub> customerHub)
+        IHubContext<CustomerHub> customerHub,
+        IMemoryCache memoryCache,
+        ILogger<CustomerController> logger)
     {
         _context = context;
         _flashDealService = flashDealService;
@@ -35,7 +40,16 @@ public class CustomerController : ControllerBase
         _recommendationService = recommendationService;
         _staffHub = staffHub;
         _customerHub = customerHub;
+        _memoryCache = memoryCache;
+        _logger = logger;
     }
+
+    // Order-write input caps. These endpoints are anonymous (tenant-scoped only by
+    // the route), so a negative/oversized quantity would corrupt the bill and stock
+    // at dispatch, and an unbounded item list is a memory/DB DoS. Cart removal is by
+    // omission from the list, never a quantity of 0, so a hard [1, 99] floor is safe.
+    private const int MaxOrderItems = 100;
+    private const int MaxLineQuantity = 99;
 
     [HttpPost("restaurants/{restaurantId:guid}/orders/{orderId:guid}/submit")]
     public async Task<IActionResult> SubmitOrder(Guid restaurantId, Guid orderId)
@@ -49,6 +63,16 @@ public class CustomerController : ControllerBase
 
         if (order.Items == null || order.Items.Count == 0)
             return BadRequest(new { message = "Cannot submit an empty order. Please add items to your cart first." });
+
+        // A submit proves the diner is still at the table — extend their device
+        // session's wipe window so the visit (and its running total) survives
+        // through the kitchen wait instead of expiring mid-order.
+        if (order.DeviceSessionId is Guid deviceSessionId)
+        {
+            await _context.DeviceSessions
+                .Where(d => d.Id == deviceSessionId)
+                .ExecuteUpdateAsync(s => s.SetProperty(d => d.LastSeenAt, DateTime.UtcNow));
+        }
 
         order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         // Hold the order in pending_dispatch until the 2-minute flash deal window
@@ -128,6 +152,15 @@ public class CustomerController : ControllerBase
     [HttpPost("restaurants/{restaurantId:guid}/orders")]
     public async Task<IActionResult> CreateOrder(Guid restaurantId, [FromBody] CreateOrderRequest request)
     {
+        // Guard the anonymous write surface: bound the payload size and every line
+        // quantity before touching the DB. Reject the whole request on any bad line
+        // rather than silently dropping it, so the bill/stock can't be steered.
+        if (request.Items.Count > MaxOrderItems)
+            return BadRequest(new { message = $"An order cannot contain more than {MaxOrderItems} items." });
+
+        if (request.Items.Any(i => i.Quantity < 1 || i.Quantity > MaxLineQuantity))
+            return BadRequest(new { message = $"Each item quantity must be between 1 and {MaxLineQuantity}." });
+
         var table = await _context.Tables.FindAsync(request.TableId);
         if (table is null)
             return NotFound(new { message = "Table not found." });
@@ -135,6 +168,13 @@ public class CustomerController : ControllerBase
         // Happy hour: if the configured product is inside its daily window now, it
         // sells at the discounted price. The server is authoritative for the bill.
         var happyHour = await _happyHourService.GetActiveDealAsync(restaurantId);
+
+        // Batch-load every referenced product in a single round-trip (was a per-item
+        // FindAsync). The tenant query filter still scopes these to this restaurant.
+        var requestedIds = request.Items.Select(i => i.ProductId).Distinct().ToList();
+        var productsById = await _context.Products
+            .Where(p => requestedIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id);
 
         var order = new Order
         {
@@ -144,15 +184,15 @@ public class CustomerController : ControllerBase
             TotalAmount = 0
         };
 
-        var fetchedProducts = new List<Product>();
-
         foreach (var item in request.Items)
         {
-            var product = await _context.Products.FindAsync(item.ProductId);
-            if (product is null)
+            if (!productsById.TryGetValue(item.ProductId, out var product))
                 return BadRequest(new { message = $"Product {item.ProductId} not found." });
 
-            fetchedProducts.Add(product);
+            // Don't let a diner order a staff-hidden item; the menu only hides these
+            // for display, the write path must reject them.
+            if (product.IsAvailable == false)
+                return BadRequest(new { message = $"Product '{product.Name}' is not available." });
 
             order.Items.Add(new OrderItem
             {
@@ -169,7 +209,7 @@ public class CustomerController : ControllerBase
         var itemsForResponse = order.Items.Select(i => new OrderItemResponse
         {
             ProductId = i.ProductId,
-            ProductName = fetchedProducts.FirstOrDefault(p => p.Id == i.ProductId)?.Name ?? "Unknown Item",
+            ProductName = productsById.TryGetValue(i.ProductId, out var p) ? p.Name : "Unknown Item",
             Quantity = i.Quantity,
             UnitPrice = i.UnitPriceAtPurchase,
             IsFlashDealItem = false
@@ -200,8 +240,21 @@ public class CustomerController : ControllerBase
         order.Items ??= new List<OrderItem>();
         if (request?.Items == null) return BadRequest(new { message = "Invalid request payload." });
 
+        // Same anonymous-write caps as CreateOrder: bound the payload and reject the
+        // whole request on any out-of-range line rather than silently dropping it.
+        if (request.Items.Count > MaxOrderItems)
+            return BadRequest(new { message = $"An order cannot contain more than {MaxOrderItems} items." });
+
+        if (request.Items.Any(i => i.Quantity < 1 || i.Quantity > MaxLineQuantity))
+            return BadRequest(new { message = $"Each item quantity must be between 1 and {MaxLineQuantity}." });
+
         var producIds = request.Items.Select(i => i.ProductId).ToList();
         var products = await _context.Products.Where(p => producIds.Contains(p.Id)).ToListAsync();
+
+        // Reject staff-hidden items on the write path (the menu only hides them for display).
+        var unavailable = products.FirstOrDefault(p => p.IsAvailable == false);
+        if (unavailable is not null)
+            return BadRequest(new { message = $"Product '{unavailable.Name}' is not available." });
 
         // Happy-hour pricing for this restaurant right now (null outside the window).
         var happyHour = await _happyHourService.GetActiveDealAsync(order.RestaurantId);
@@ -348,6 +401,19 @@ public class CustomerController : ControllerBase
             OrganizationName = restaurant?.Organization?.Name ?? string.Empty,
             TableId = table.Id,
             TableNumber = table.TableNumber ?? "Unknown Table",
+            Branding = new BrandingInfo
+            {
+                Enabled = restaurant?.BrandingEnabled ?? false,
+                Primary = restaurant?.BrandPrimary,
+                Secondary = restaurant?.BrandSecondary,
+                Background = restaurant?.BrandBackground,
+                LogoUrl = restaurant?.LogoUrl,
+                PhotoUrl = restaurant?.PhotoUrl,
+                MenuBackgroundUrl = restaurant?.MenuBackgroundUrl,
+                MenuBackgroundStyle = restaurant?.MenuBackgroundStyle,
+                LogoBackground = restaurant?.LogoBackground,
+                LogoIsDark = restaurant?.LogoIsDark,
+            },
             ActiveOrder = new OrderResponse
             {
                 Id = draftOrder.Id,
@@ -383,90 +449,53 @@ public class CustomerController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { message = $"Internal error claiming deal: {ex.Message}" });
+            // Anonymous endpoint: log the detail server-side, never echo ex.Message.
+            _logger.LogError(ex, "Error claiming flash deal {DealId} for order {OrderId}", dealId, orderId);
+            return StatusCode(500, new { message = "A apărut o eroare la revendicarea ofertei." });
         }
     }
    
-    [HttpGet("restaurants/{restaurantId:guid}/orders/{id:guid}/recommendations")]
-    public async Task<IActionResult> GetRecommendation(Guid id, [FromQuery] string? language)
+    // Vibey: lazy, tap-triggered in-cart recommendations. Anonymous customer
+    // endpoint, tenant-scoped by the restaurantId ROUTE param only (resolved by
+    // TenantResolutionMiddleware) — the request body's cart is never trusted for
+    // tenancy. Cached briefly per (restaurant, locale, cart) so re-opening the
+    // Vibey sheet on an unchanged cart never re-hits the model.
+    // A real diner cart never approaches this; an oversized payload is abusive.
+    // Since this endpoint is anonymous and a cache miss triggers a paid model
+    // call that forwards the whole cart, cap the input defensively.
+    private const int MaxCartItems = 50;
+
+    [HttpPost("restaurants/{restaurantId:guid}/recommendations")]
+    public async Task<IActionResult> GetVibeyRecommendations(
+        Guid restaurantId, [FromBody] VibeyRecommendationRequest request)
     {
-        var order = await _context.Orders.FindAsync(id);
-
-        if (order == null)
+        if (request?.Items == null || request.Items.Count == 0 || request.Items.Count > MaxCartItems)
         {
-            return NotFound(new { message = "Order not found." });
+            return Ok(new VibeyRecommendationResponse("", []));
         }
 
-        var rawRecommendations = await _recommendationService.GetRecommendationsAsync(id, language ?? "ro");
+        var locale = request.Locale ?? "ro";
+        var sortedIds = string.Join(',', request.Items.Select(i => i.Id).OrderBy(id => id, StringComparer.Ordinal));
+        var cacheKey = $"vibey:{restaurantId}:{locale}:{sortedIds}";
 
-        if (rawRecommendations == null || !rawRecommendations.Any())
+        if (_memoryCache.TryGetValue(cacheKey, out VibeyRecommendationResponse? cached) && cached is not null)
         {
-            return Ok(new { pairings = new List<object>(), upsells = new List<object>(), flashDeal = (object?)null });        
+            return Ok(cached);
         }
 
-        // Safely convert string ProductIds from AI into valid Guids for the database query
-        var recommendedProductIds = rawRecommendations
-            .Select(r => Guid.TryParse(r.ProductId, out var guid) ? guid : Guid.Empty)
-            .Where(g => g != Guid.Empty)
-            .ToList();
+        var response = await _recommendationService.GetVibeyRecommendationsAsync(request.Items, locale);
 
-        var products = await _context.Products
-            .Where(p => recommendedProductIds.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id);
-
-        var mappedItems = rawRecommendations
-            .Where(r => Guid.TryParse(r.ProductId, out var g) && products.ContainsKey(g))
-            .Select(r => 
+        // Never cache a graceful-empty result (transient AI outage, exhausted
+        // candidate pool) — that would poison this cart's cache with a false
+        // "nothing to suggest" for up to the full sliding expiration.
+        if (response.Recommendations.Count > 0)
+        {
+            _memoryCache.Set(cacheKey, response, new MemoryCacheEntryOptions
             {
-                var pId = Guid.Parse(r.ProductId);
-                return new
-                {
-                    reason = r.Reason,
-                    confidence = r.Confidence,
-                    menuItem = new
-                    {
-                        id = products[pId].Id,
-                        name = products[pId].Name,
-                        price = products[pId].Price,
-                        imageUrl = products[pId].ImageUrl 
-                    }
-                };
-            })
-            .OrderByDescending(r => r.confidence)
-            .ToList();
-            
-        var splitIndex = mappedItems.Count / 2;
-        var pairings = mappedItems.Take(splitIndex).ToList();
-        var upsells = mappedItems.Skip(splitIndex).ToList();
-
-        var activeFlashDeal = await _context.FlashDealOffers
-            .Include(d => d.Product)
-            .Where(d => d.OrderId == id && d.Status == "pending" && d.ExpiresAt > DateTime.UtcNow)
-            .FirstOrDefaultAsync();
-
-        object? flashDealResponse = null;
-        if (activeFlashDeal != null && activeFlashDeal.Product != null)
-        {
-            flashDealResponse = new 
-            {
-                id = activeFlashDeal.Id,
-                discountPrice = activeFlashDeal.DiscountPrice,
-                expiresAt = activeFlashDeal.ExpiresAt,
-                menuItem = new 
-                {
-                    id = activeFlashDeal.Product.Id,
-                    name = activeFlashDeal.Product.Name,
-                    price = activeFlashDeal.Product.Price,
-                    imageUrl = activeFlashDeal.Product.ImageUrl
-                }
-            };
+                SlidingExpiration = TimeSpan.FromMinutes(2)
+            });
         }
 
-        return Ok(new
-        {
-            pairings = pairings,
-            upsells = upsells,
-            flashDeal = flashDealResponse
-        });
+        return Ok(response);
     }
 }

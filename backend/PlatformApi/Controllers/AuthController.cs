@@ -23,6 +23,7 @@ public class AuthController : ControllerBase
         _tokens = tokens;
     }
 
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {

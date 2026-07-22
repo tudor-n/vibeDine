@@ -42,6 +42,12 @@ const tiles = computed<Tile[]>(() => {
         label: 'Colaboratori',
         description: 'Locații și invitații pentru co-proprietari (RestaurantAdmin).',
       },
+      {
+        name: 'settings-brand',
+        to: '/settings/brand',
+        label: 'Brand',
+        description: 'Personalizează culorile, logo-ul și fotografia',
+      },
     )
   }
   return base

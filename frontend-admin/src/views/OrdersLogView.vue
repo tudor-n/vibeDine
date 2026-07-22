@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { apiClient } from '@/services/api-client'
+import { formatMoney } from '@/utils/money'
 
 interface OrderItem {
   id: string
@@ -194,7 +195,7 @@ onMounted(fetchOrders)
           type="button"
           :aria-expanded="expandedOrderId === order.id"
           :aria-controls="`order-detail-${order.id}`"
-          :aria-label="`Comandă masa ${order.tableNumber ?? 'necunoscută'}, ${STATUS_LABELS[order.status]?.label ?? order.status}, ${order.items.length} preparate, total ${order.totalAmount.toFixed(2)} RON`"
+          :aria-label="`Comandă masa ${order.tableNumber ?? 'necunoscută'}, ${STATUS_LABELS[order.status]?.label ?? order.status}, ${order.items.length} preparate, total ${formatMoney(order.totalAmount)} RON`"
           @click="toggleExpand(order.id)"
         >
           <span class="order-arrow" :class="{ 'rotate-90': expandedOrderId === order.id }" aria-hidden="true">›</span>
@@ -236,7 +237,7 @@ onMounted(fetchOrders)
           <div class="text-right flex-shrink-0" aria-hidden="true">
             <div class="font-mono text-[11px] uppercase tracking-[0.06em] text-ink font-semibold">total</div>
             <div class="font-display text-xl font-bold text-ink leading-tight">
-              {{ order.totalAmount.toFixed(2) }}
+              {{ formatMoney(order.totalAmount) }}
               <span class="text-sm font-semibold text-ink">RON</span>
             </div>
           </div>
@@ -268,13 +269,13 @@ onMounted(fetchOrders)
                 >{{ itemLabel(item)!.icon }} {{ itemLabel(item)!.text }}</span>
               </div>
               <div class="oi-qty text-center text-ink font-mono text-[15px]">× {{ item.quantity }}</div>
-              <div class="oi-price text-right text-ink">{{ item.unitPrice.toFixed(2) }} RON</div>
-              <div class="oi-sub text-right font-semibold text-ink">{{ item.subtotal.toFixed(2) }} RON</div>
+              <div class="oi-price text-right text-ink">{{ formatMoney(item.unitPrice) }} RON</div>
+              <div class="oi-sub text-right font-semibold text-ink">{{ formatMoney(item.subtotal) }} RON</div>
             </div>
             <div class="order-total-row">
               <span class="eyebrow">Total comandă</span>
               <span class="font-display text-2xl font-bold text-accent">
-                {{ order.totalAmount.toFixed(2) }}
+                {{ formatMoney(order.totalAmount) }}
                 <span class="text-base text-ink font-semibold">RON</span>
               </span>
             </div>
