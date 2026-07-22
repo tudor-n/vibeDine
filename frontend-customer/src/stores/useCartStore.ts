@@ -247,6 +247,17 @@ export const useCartStore = defineStore('cart', () => {
     return recommendedItemIds.value.has(productId)
   }
 
+  // Tear down any pending debounced sync without touching the cart itself —
+  // used on link expiry (see OrderingView's `watch(linkExpired…)` teardown),
+  // where an abandoned tab must stop talking to the backend but the cart
+  // stays intact for a re-scan.
+  function cancelPendingSync() {
+    if (syncTimeout) {
+      clearTimeout(syncTimeout)
+      syncTimeout = null
+    }
+  }
+
   return {
     items,
     total,
@@ -264,5 +275,6 @@ export const useCartStore = defineStore('cart', () => {
     abandonForMerge,
     resetForNewOrder,
     wasRecommended,
+    cancelPendingSync,
   }
 })

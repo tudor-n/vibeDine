@@ -440,7 +440,7 @@ public class PartyController : ControllerBase
             var originalPrice = dealProduct?.Price ?? 0m;
             var discountPriceValue = deal.DiscountPrice ?? 0m;
             int? derivedPercent = originalPrice > 0m
-                ? (int)Math.Round((1 - discountPriceValue / originalPrice) * 100m)
+                ? Math.Clamp((int)Math.Round((1 - discountPriceValue / originalPrice) * 100m), 0, 100)
                 : null;
             var discountPercent = derivedPercent
                 ?? (await _db.FlashDealRules.FirstOrDefaultAsync(r => r.ProductId == deal.ProductId))?.DiscountPercent

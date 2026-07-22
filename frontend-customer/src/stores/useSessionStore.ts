@@ -137,10 +137,36 @@ export const useSessionStore = defineStore('session' , () => {
   // Adds roundTotal to cumulativeTotal (persisting immediately) and returns the
   // new running total. This is a local, optimistic bump only — the next join's
   // `session.cumulativeTotal` is the authoritative value and will overwrite it.
-  function registerSubmittedRound(roundTotal: number): number {
+  // Also appends a minimal round entry to sessionOrders so a later cancellation
+  // of THIS round (before the next join lands) can be reconciled locally — see
+  // removeCancelledOrder. Join still overwrites sessionOrders authoritatively.
+  function registerSubmittedRound(roundTotal: number, orderId: string): number {
     cumulativeTotal.value = roundMoney(cumulativeTotal.value + roundTotal)
     sessionStorage.setItem('cumulativeTotal', String(cumulativeTotal.value))
+    sessionOrders.value = [
+      ...sessionOrders.value,
+      { id: orderId, status: 'submitted', totalAmount: roundTotal, items: [] },
+    ]
+    sessionStorage.setItem('sessionOrders', JSON.stringify(sessionOrders.value))
     return cumulativeTotal.value
+  }
+
+  // Kitchen-side cancellation of an in-flight round: the diner's running total
+  // must self-correct instead of staying overstated until the next join
+  // overwrites it. Case-insensitive id match (order ids are GUIDs, casing can
+  // differ between what the socket echoes and what's stored); no-op if the id
+  // isn't one of this visit's known rounds — a stale/unrelated cancel event
+  // must never touch cumulativeTotal.
+  function removeCancelledOrder(orderId: string): void {
+    const needle = orderId.toLowerCase()
+    const match = sessionOrders.value.find((o) => o.id.toLowerCase() === needle)
+    if (!match) return
+
+    cumulativeTotal.value = Math.max(0, roundMoney(cumulativeTotal.value - match.totalAmount))
+    sessionOrders.value = sessionOrders.value.filter((o) => o.id.toLowerCase() !== needle)
+
+    sessionStorage.setItem('cumulativeTotal', String(cumulativeTotal.value))
+    sessionStorage.setItem('sessionOrders', JSON.stringify(sessionOrders.value))
   }
 
   function clearSession() {
@@ -180,6 +206,7 @@ export const useSessionStore = defineStore('session' , () => {
     pendingDeal,
     initializeSession,
     registerSubmittedRound,
+    removeCancelledOrder,
     clearSession,
   }
 })

@@ -31,7 +31,7 @@ export function buildFlashDealFromPayload(raw: FlashDealPayloadLike): FlashDeal 
   // originalPrice, which would otherwise divide by zero.
   const derivedPercent =
     raw.originalPrice > 0
-      ? Math.round((1 - raw.discountPrice / raw.originalPrice) * 100)
+      ? Math.min(100, Math.max(0, Math.round((1 - raw.discountPrice / raw.originalPrice) * 100)))
       : 0
   const discountPercent = raw.discountPercent || derivedPercent
 

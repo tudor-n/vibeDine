@@ -113,6 +113,11 @@ const lastTotal = ref(Number(sessionStorage.getItem('lastTotal')) || 0)
 const orderInProgress = ref(sessionStorage.getItem('orderInProgress') === 'true')
 watch(lastTotal, (v) => sessionStorage.setItem('lastTotal', String(v)))
 watch(orderInProgress, (v) => sessionStorage.setItem('orderInProgress', v ? 'true' : 'false'))
+// The sent screen's displayed total must self-correct when a cancellation
+// reconciles cumulativeTotal (see useWebSocket's OrderStatusUpdated handler /
+// useSessionStore.removeCancelledOrder) — mirror the store's running total
+// onto the locally-persisted one reactively instead of only at join/submit.
+watch(() => sessionStore.cumulativeTotal, (v) => { lastTotal.value = v })
 // The order is "archived to the order log" when its status flips to completed:
 // the kitchen's 45s ready-grace elapses, the order leaves the admin's active
 // list, and the customer gets that completed event (stamped as servedAt). We
@@ -257,6 +262,9 @@ watch(linkExpired, (isExpired) => {
   // fire a fresh presence heartbeat straight past the poll's own teardown.
   document.removeEventListener('visibilitychange', onVisibilityChange)
   happyHourStore.stopPolling()
+  // A pending debounced cart sync has no server to reach once the link is
+  // considered expired — cancel it rather than let it fire into the void.
+  cartStore.cancelPendingSync()
 })
 
 function onLanguageSelected() {
@@ -283,9 +291,14 @@ function openCart() {
 function backFromCart() { screen.value = cartOrigin.value }
 
 function handleSubmitted() {
+  // Capture the draft's orderId BEFORE anything that could re-join — submit
+  // itself doesn't change it, but this call must never rely on that lasting
+  // past this tick. An active order always has an orderId at this point (the
+  // submit that just happened required one).
+  const submittedOrderId = sessionStore.orderId!
   // cumulativeTotal already tracks this visit's prior rounds — the running
   // total (not just this round's) is what the sent screen should show.
-  lastTotal.value = sessionStore.registerSubmittedRound(cartStore.total)
+  lastTotal.value = sessionStore.registerSubmittedRound(cartStore.total, submittedOrderId)
   cartStore.clearCart()
   // Drop the previous round's status so the timeline starts fresh instead of
   // instantly showing the last order's "completed" stage.

@@ -150,6 +150,14 @@ export function useWebSocket() {
               if (isMyOrder && payload?.status) {
                 orderStatusStore.setStatus(payload.orderId, payload.status)
               }
+              // A cancellation must self-correct the visit's running total no
+              // matter which round it hit — a diner can be looking at the
+              // "sent" screen for round 2 while the kitchen cancels round 1.
+              // Reconcile against every known session order, not just this
+              // phone's current draft.
+              if (payload?.status === 'cancelled' && payload?.orderId) {
+                sessionStore.removeCancelledOrder(payload.orderId)
+              }
             }
 
             // Live stock availability: an item went out of / back into stock — blur or un-blur it.
