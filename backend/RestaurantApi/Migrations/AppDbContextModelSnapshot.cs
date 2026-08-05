@@ -766,6 +766,10 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("text")
                         .HasColumnName("payment_status");
 
+                    b.Property<Guid?>("PlacedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("placed_by_user_id");
+
                     b.Property<DateTime?>("ReadyAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("ready_at");
@@ -773,6 +777,13 @@ namespace RestaurantApi.Migrations
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid")
                         .HasColumnName("restaurant_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("qr")
+                        .HasColumnName("source");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -789,6 +800,10 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("table_id");
 
+                    b.Property<Guid?>("TableServiceSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("table_service_session_id");
+
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(10,2)")
                         .HasColumnName("total_amount");
@@ -799,13 +814,79 @@ namespace RestaurantApi.Migrations
 
                     b.HasIndex("DeviceSessionId");
 
+                    b.HasIndex("PlacedByUserId");
+
                     b.HasIndex("RestaurantId");
+
+                    b.HasIndex("TableServiceSessionId")
+                        .HasDatabaseName("ix_orders_table_service_session_id");
 
                     b.HasIndex("RestaurantId", "OrderNumber");
 
                     b.HasIndex("TableId", "GuestId", "Status");
 
                     b.ToTable("orders", (string)null);
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.OrderEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_order_events_unprocessed")
+                        .HasFilter("processed_at IS NULL");
+
+                    b.HasIndex("RestaurantId", "CreatedAt")
+                        .HasDatabaseName("ix_order_events_restaurant_id_created_at");
+
+                    b.ToTable("order_events", (string)null);
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.OrderItem", b =>
@@ -818,6 +899,10 @@ namespace RestaurantApi.Migrations
                     b.Property<bool?>("IsFlashDealItem")
                         .HasColumnType("boolean")
                         .HasColumnName("is_flash_deal_item");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid")
@@ -1336,6 +1421,91 @@ namespace RestaurantApi.Migrations
                     b.ToTable("table_guests", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.TableServiceSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal?>("CardAmount")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("card_amount");
+
+                    b.Property<decimal?>("CashAmount")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("cash_amount");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<string>("ClosedByName")
+                        .HasColumnType("text")
+                        .HasColumnName("closed_by_name");
+
+                    b.Property<Guid?>("ClosedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("closed_by_user_id");
+
+                    b.Property<string>("ClosedReason")
+                        .HasColumnType("text")
+                        .HasColumnName("closed_reason");
+
+                    b.Property<DateTime>("OpenedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("opened_at");
+
+                    b.Property<string>("PaymentMethod")
+                        .HasColumnType("text")
+                        .HasColumnName("payment_method");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("open")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("table_id");
+
+                    b.Property<decimal?>("TotalAmount")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("total_amount");
+
+                    b.Property<string>("WaiterName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("waiter_name");
+
+                    b.Property<Guid?>("WaiterUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("waiter_user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId")
+                        .HasDatabaseName("ix_table_service_sessions_restaurant_id");
+
+                    b.HasIndex("TableId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_table_service_sessions_open_table")
+                        .HasFilter("status = 'open'");
+
+                    b.HasIndex("WaiterUserId");
+
+                    b.HasIndex("RestaurantId", "Status")
+                        .HasDatabaseName("ix_table_service_sessions_restaurant_id_status");
+
+                    b.ToTable("table_service_sessions", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.TableZone", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1585,13 +1755,25 @@ namespace RestaurantApi.Migrations
                         .HasForeignKey("DeviceSessionId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("RestaurantApi.Models.AppUser", "PlacedByUser")
+                        .WithMany()
+                        .HasForeignKey("PlacedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
                         .WithMany("Orders")
                         .HasForeignKey("TableId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("RestaurantApi.Models.TableServiceSession", null)
+                        .WithMany()
+                        .HasForeignKey("TableServiceSessionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("ClaimedByWaiter");
+
+                    b.Navigation("PlacedByUser");
 
                     b.Navigation("Table");
                 });
@@ -1721,6 +1903,24 @@ namespace RestaurantApi.Migrations
                         .IsRequired();
 
                     b.Navigation("Table");
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.TableServiceSession", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
+                        .WithMany()
+                        .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RestaurantApi.Models.AppUser", "WaiterUser")
+                        .WithMany()
+                        .HasForeignKey("WaiterUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Table");
+
+                    b.Navigation("WaiterUser");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.WaiterSignupLink", b =>
