@@ -103,6 +103,24 @@ const router = createRouter({
             name: 'floor',
             component: () => import('@/views/FloorPlanView.vue')
         },
+        // ── Waiter Mode ───────────────────────────────────────────────────────
+        // These three names (and only these) render inside WaiterShell — App.vue
+        // matches on the exact set, never on a 'waiter' prefix.
+        {
+            path: '/waiter',
+            name: 'waiter-floor',
+            component: () => import('@/views/waiter/WaiterFloorView.vue')
+        },
+        {
+            path: '/waiter/table/:tableId',
+            name: 'waiter-table',
+            component: () => import('@/views/waiter/WaiterTableView.vue')
+        },
+        {
+            path: '/waiter/table/:tableId/order',
+            name: 'waiter-order',
+            component: () => import('@/views/waiter/WaiterOrderView.vue')
+        },
         {
             path: '/tables',
             name: 'tables',
@@ -205,11 +223,16 @@ router.beforeEach(async (to) => {
         return to.name === 'org-picker' ? true : { name: 'org-picker' }
     }
 
-    // Waiters have access to active orders, the orders log, waiter calls, the floor
-    // plan (claim-only — to take orders via "Preia comanda"), the picker, and the
-    // settings profile tab. Anything else (menu, AI config, rules, tables,
-    // organization, waiter management, dashboard) is rerouted to the active orders board.
+    // Waiters have access to Waiter Mode (their default home), active orders, the
+    // orders log, waiter calls, the floor plan (claim-only — to take orders via
+    // "Preia comanda"), the picker, and the settings profile tab. Anything else
+    // (menu, AI config, rules, tables, organization, waiter management, dashboard)
+    // is rerouted into Waiter Mode. This set is gating place ① of three (the others
+    // are App.vue's visibility flags and the per-view computeds).
     const WAITER_ALLOWED = new Set([
+        'waiter-floor',
+        'waiter-table',
+        'waiter-order',
         'orders-active',
         'orders',
         'waiter-calls',
@@ -218,7 +241,7 @@ router.beforeEach(async (to) => {
         'settings-profile',
     ])
     if (auth.isWaiter && !WAITER_ALLOWED.has(String(to.name))) {
-        return { name: 'orders-active' }
+        return { name: 'waiter-floor' }
     }
 
     // Active org selected — the picker is still allowed (the user clicked "Switch organization").

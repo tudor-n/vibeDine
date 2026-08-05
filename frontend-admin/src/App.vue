@@ -6,11 +6,13 @@ import { useBrandTheme } from '@/composables/useBrandTheme'
 import BrandLogo from '@/components/BrandLogo.vue'
 import VibeDineLockup from '@/components/VibeDineLockup.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
+import WaiterShell from '@/components/waiter/WaiterShell.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useMenuImportStore } from '@/stores/useMenuImportStore'
 import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
 import { useInventoryStore } from '@/stores/useInventoryStore'
 import { useFloorStore } from '@/stores/useFloorStore'
+import { useWaiterRealtimeStore } from '@/stores/useWaiterRealtimeStore'
 import { useBrandingStore } from '@/stores/useBrandingStore'
 import { resolveMediaUrl } from '@/services/mediaUrl'
 import { resolveLogoBackground } from '@shared/branding/derive'
@@ -24,6 +26,7 @@ const importStore = useMenuImportStore()
 const waiterCalls = useWaiterCallsStore()
 const inventory = useInventoryStore()
 const floor = useFloorStore()
+const waiterRealtime = useWaiterRealtimeStore()
 const branding = useBrandingStore()
 const brandTheme = useBrandTheme()
 
@@ -71,6 +74,20 @@ const bareLayout = computed(() =>
 )
 const showShell = computed(() => auth.isAuthenticated && !bareLayout.value)
 
+// Waiter Mode replaces the sidebar console with the phone-first WaiterShell.
+// Membership is an explicit route-name set, never a `startsWith('waiter')` test —
+// `waiter-calls`, `waiter-signup` and `waiters` are admin-console routes and must
+// keep rendering in the normal shell.
+const WAITER_MODE_ROUTES = new Set(['waiter-floor', 'waiter-table', 'waiter-order'])
+const waiterMode = computed(() => WAITER_MODE_ROUTES.has(String(route.name)))
+
+// Every role may flip into Waiter Mode from the console (gating place ②; the
+// other two are the router's WAITER_ALLOWED set and the per-view computeds).
+function enterWaiterMode() {
+  mobileNavOpen.value = false
+  router.push({ name: 'waiter-floor' })
+}
+
 // Try resuming any in-flight import as soon as the shell mounts for an authenticated user.
 onMounted(() => {
   if (auth.isAuthenticated) void importStore.tryResume()
@@ -92,6 +109,9 @@ watch(
       // Keep the active-order feed alive app-wide so the sidebar "Sala" dot and
       // the Comenzi board stay live regardless of which page is open.
       void floor.startRealtime(rid)
+      // Waiter Mode's floor data source — same lifecycle as useFloorStore so the
+      // table/session state is already warm when the mode switch is tapped.
+      void waiterRealtime.start(rid)
       // Load stock once per restaurant so the "Inventar" nav badge can show the low-stock count.
       if (!auth.isWaiter) void inventory.fetchIngredients()
       // Re-skin the shell to the restaurant's tenant palette, if branded.
@@ -99,6 +119,7 @@ watch(
     } else {
       void waiterCalls.stop()
       void floor.stopRealtime()
+      void waiterRealtime.stop()
       brandTheme.clearBrand()
     }
   },
@@ -241,6 +262,15 @@ onUnmounted(() => {
 
 <template>
   <RouterView v-if="!showShell" />
+
+  <!-- Waiter Mode: the phone-first frame takes over the whole viewport. -->
+  <template v-else-if="waiterMode">
+    <WaiterShell>
+      <RouterView />
+    </WaiterShell>
+    <ToastContainer />
+  </template>
+
   <div v-else class="min-h-screen md:h-screen bg-paper text-ink flex flex-col md:flex-row relative overflow-hidden">
     <!-- Background blooms -->
     <div class="bloom bloom-accent" style="top: -120px; right: -140px; width: 420px; height: 420px;" />
@@ -264,6 +294,18 @@ onUnmounted(() => {
       <div class="display-title text-xl">Smart Restaurant</div>
       <div class="topbar-right ml-auto">
         <span v-if="waiterCalls.count" class="nav-badge" aria-label="chemări active">{{ waiterCalls.count }}</span>
+        <button
+          type="button"
+          class="hamburger"
+          title="Mod ospătar"
+          aria-label="Mod ospătar"
+          @click="enterWaiterMode"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="6" y="2" width="12" height="20" rx="2.5" />
+            <line x1="10.5" y1="18.5" x2="13.5" y2="18.5" />
+          </svg>
+        </button>
         <button
           v-if="!branding.isEnabled"
           type="button"
@@ -350,6 +392,18 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="account-actions">
+          <button
+            type="button"
+            class="icon-btn"
+            title="Mod ospătar"
+            aria-label="Mod ospătar"
+            @click="enterWaiterMode"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="6" y="2" width="12" height="20" rx="2.5" />
+              <line x1="10.5" y1="18.5" x2="13.5" y2="18.5" />
+            </svg>
+          </button>
           <button
             v-if="!branding.isEnabled"
             type="button"

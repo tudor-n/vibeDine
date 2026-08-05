@@ -825,3 +825,9 @@ export const brandingApi = {
     remove: (kind: BrandingAssetKind) =>
         authedFetcher<void>(scoped(`/admin/branding/${kind}`), { method: 'DELETE' }),
 };
+
+// ── Shared request primitives ────────────────────────────────────────────────
+// Additive re-export only. Feature-scoped API modules (e.g. `services/waiterApi.ts`)
+// build their requests with the same bearer/refresh + tenant-scoping helpers rather
+// than hand-rolling another fetch wrapper. Nothing above this line changed.
+export { fetcher, authedFetcher, scoped };
