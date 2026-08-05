@@ -13,3 +13,22 @@ public class WaiterSignupRequest
     [Required]
     public string FullName { get; set; } = string.Empty;
 }
+
+// ── Waiter mode (table service sessions) ─────────────────────────────────────
+// None of these carry a restaurantId / session id / order id: those always come
+// from the route and are verified against the tenant filter, never bound from a
+// body an authenticated waiter controls.
+
+public record TransferSessionRequest(Guid ToUserId);
+
+/// <summary>
+/// Payment is physical at the table — this only records how it was taken.
+/// <c>"cash"</c> | <c>"card"</c> | <c>"mixed"</c>; the two amounts are required
+/// (and must add up to the bill) only for <c>"mixed"</c>.
+/// </summary>
+public record CloseSessionRequest(string? PaymentMethod, decimal? CashAmount, decimal? CardAmount);
+
+public record WaiterOrderItemRequest(Guid ProductId, int Quantity, string? Notes);
+
+/// <summary>Full-replace cart semantics, like the customer PATCH: omission removes the line.</summary>
+public record UpdateWaiterOrderItemsRequest(List<WaiterOrderItemRequest>? Items);
