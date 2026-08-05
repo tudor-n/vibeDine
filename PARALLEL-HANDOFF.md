@@ -13,8 +13,83 @@ outbox, the migration.)_
 
 ## W2
 
-_(Waiter mode frontend: WaiterShell, mode switch, `/waiter/*` views, cart,
-`services/waiterApi.ts`.)_
+Branch: `feature/waiter-mode-frontend`. Landed in five commits, one per task.
+`npm run type-check` is clean; `npm test` is unchanged from the pre-branch baseline
+(see "Pre-existing failure" below).
+
+### Delivered
+
+| File | Note |
+|---|---|
+| `frontend-admin/src/services/waiterApi.ts` | all twelve B.4 endpoints + `getMenu()`; exports `WAITER_CAPS` |
+| `frontend-admin/src/components/waiter/WaiterShell.vue` | phone-first frame, 3-tab bottom bar |
+| `frontend-admin/src/views/waiter/WaiterFloorView.vue` | floor plan, claim + 409 UX |
+| `frontend-admin/src/views/waiter/WaiterTableView.vue` | rounds, transfer, bill/close, force-release |
+| `frontend-admin/src/views/waiter/WaiterOrderView.vue` | menu + cart + kitchen notes + submit chain |
+| `frontend-admin/src/stores/useWaiterCartStore.ts` | `defineStore('waiterCart', …)`, sessionStorage-persisted |
+| `frontend-admin/src/App.vue` | `WAITER_MODE_ROUTES`, WaiterShell branch, mode switch ×2, realtime lifecycle |
+| `frontend-admin/src/router/index.ts` | 3 lazy routes, `WAITER_ALLOWED`, waiter fallback → `waiter-floor` |
+| `frontend-admin/src/views/ActiveOrdersBoardView.vue` | the one bounded change (item notes + "Ospătar" tag) |
+
+### The api-client export W1/W3 asked for
+
+`services/api-client.ts` now ends with an **additive** `export { fetcher, authedFetcher, scoped }`
+(no existing line changed). This resolves the `TODO(W2 landing)` in
+`stores/useWaiterRealtimeStore.ts`: its private `fetchFloor()` can be replaced with
+`waiterApi.getFloor()`. **Not done here** — that file is W3-owned.
+
+### Needed from W3 at integration
+
+1. **Drop the `.skip`s** in `src/__tests__/waiterApi.spec.ts` (4) and
+   `src/__tests__/useWaiterCartStore.spec.ts` (3). Both suites were run locally against
+   the landed files via throwaway un-skipped copies: **16/16 and 9/9 green.**
+2. **`waiterApi.spec.ts` needs a one-line fix** or it fails once un-skipped. Line 37 sets
+   `import.meta.env.VITE_API_URL = baseUrl` in the spec *body*, but the static
+   `import { useAuthStore } from '@/stores/useAuthStore'` on line 7 pulls in `api-client.ts`
+   first, and that module freezes `BASE_URL` at evaluation time — so requests go to
+   `http://localhost:5005` and MSW 'error'-strategy rejects them. Either set `baseUrl`
+   to `'http://localhost:5005'` or stub the env before the module graph loads
+   (`vi.stubEnv` in a setup file). Verified: with that single change all 16 pass.
+3. `useWaiterCartStore` exposes **both** naming sets so the W3 suite and the W2 prompt's
+   API are satisfied: `items`/`lines`, `itemCount`/`count`, `setTable`/`open`, plus
+   `add(product, qty = 1)`, `setQuantity`, `increment`, `decrement`, `remove`, `setNotes`,
+   `clear(tableId?)`. Prefer one set when the docs are written.
+
+### Decisions taken under Appendix B ambiguity
+
+- **"Mesele mele" is not a fourth route.** The bottom tab points at `waiter-floor` with
+  `?filtru=ale-mele` and the floor view filters to `store.myTables`. `WAITER_MODE_ROUTES`
+  stays exactly the three frozen names.
+- **`MaxOrderItems` read as *distinct product lines*** (not summed quantity) on the client.
+  If W1's validator counts something else, the client cap is the one to change.
+- **No `.text-muted` class exists in frontend-admin** (the prompt's example is from the
+  ops-console design system). The kanban note uses a local `.kc-note` in the file's own
+  `kc-*` idiom, muted via `var(--ink40)`.
+- **`ActiveOrder` / `ActiveOrderItem` gained `source` / `notes` as local type aliases**
+  (`BoardOrder` / `BoardOrderItem`) inside `ActiveOrdersBoardView.vue`, because
+  `api-client.ts` is additive-exports-only for W2. Fold them into the real interfaces in
+  `api-client.ts` and delete the aliases.
+- **The waiter top bar carries a theme toggle.** A `Waiter`-role login has no admin console,
+  so without it that role could never switch theme. Hidden for branded tenants, exactly
+  like the console's.
+- **Claim 409 is surfaced via the error message only.** `parseOrThrow` collapses the body
+  to `Error(message)`, and the contract guarantees the 409 message names the owner, so the
+  `session` object in that body is currently unused by the UI.
+
+### Conflict recorded (rule 10)
+
+Non-negotiable rule 10 forbids state-changing git. The repo owner explicitly instructed,
+in-session, to create a branch and commit each step — so this stream ran `git checkout -b`
+and five `git commit`s, staging only W2-owned paths. Nothing was pushed. Note that all three
+streams share one working tree, so `feature/waiter-mode-frontend` now carries W1's and W3's
+commits too.
+
+### Pre-existing failure (not from this stream)
+
+`src/__tests__/brandCache.spec.ts` — 15 failures, `localStorage` undefined under the
+Node version in use ("localStorage is not available because --localstorage-file was not
+provided"). It fails in isolation, nothing on this branch touches `@shared/branding/cache`
+or `useBrandTheme`, and `brandCache.spec.ts` is untouched since `8b5503a`.
 
 ## W3
 
