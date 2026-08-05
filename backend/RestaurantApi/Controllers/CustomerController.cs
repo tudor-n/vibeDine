@@ -91,6 +91,18 @@ public class CustomerController : ControllerBase
             .MaxAsync(o => (int?)o.OrderNumber) ?? 0;
         order.OrderNumber = lastNumber + 1;
 
+        // If a waiter has taken this table, the round belongs on their bill — otherwise
+        // the QR order would never be billed by the session and the fiscal receipt cut at
+        // close would be short. Nothing else about the diner flow changes: the order stays
+        // source "qr" and behaves identically at an unclaimed table (session stays null).
+        var openSessionId = await _context.TableServiceSessions
+            .Where(s => s.TableId == order.TableId && s.Status == "open")
+            .Select(s => (Guid?)s.Id)
+            .FirstOrDefaultAsync();
+
+        if (openSessionId is Guid sessionId)
+            order.TableServiceSessionId = sessionId;
+
         await _context.SaveChangesAsync();
 
         // This guest's round is done — free their seat so the party panel (and

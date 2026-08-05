@@ -40,12 +40,18 @@ public class StockService : IStockService
 {
     private readonly AppDbContext _db;
     private readonly IHubContext<CustomerHub> _customerHub;
+    private readonly IHubContext<StaffHub> _staffHub;
     private readonly ILogger<StockService> _logger;
 
-    public StockService(AppDbContext db, IHubContext<CustomerHub> customerHub, ILogger<StockService> logger)
+    public StockService(
+        AppDbContext db,
+        IHubContext<CustomerHub> customerHub,
+        IHubContext<StaffHub> staffHub,
+        ILogger<StockService> logger)
     {
         _db = db;
         _customerHub = customerHub;
+        _staffHub = staffHub;
         _logger = logger;
     }
 
@@ -209,9 +215,21 @@ public class StockService : IStockService
             outOfStock = outOfStock.Contains(pid),
         }).ToList();
 
+        var payload = new { items };
+
         await _customerHub.Clients
             .Group(TenantGroups.Menu(restaurantId))
-            .SendAsync("MenuItemAvailabilityChanged", new { items });
+            .SendAsync("MenuItemAvailabilityChanged", payload);
+
+        // The same payload also reaches the staff consoles, so the waiter's order screen
+        // greys out an item the moment it runs out — previously this only reached the
+        // anonymous customer menu group. The customer broadcast above is untouched.
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(restaurantId, "admin"))
+            .SendAsync("MenuItemAvailabilityChanged", payload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(restaurantId, "WaitStaff"))
+            .SendAsync("MenuItemAvailabilityChanged", payload);
     }
 
     public async Task BroadcastAvailabilityForIngredientsAsync(Guid restaurantId, IReadOnlyCollection<Guid> ingredientIds)
