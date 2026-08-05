@@ -33,7 +33,7 @@ public sealed class OrderFinalizationService : BackgroundService
         {
             try
             {
-                await FinalizeDueOrdersAsync(stoppingToken);
+                await RunOnceForTestAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -54,6 +54,12 @@ public sealed class OrderFinalizationService : BackgroundService
             }
         }
     }
+
+    /// <summary>
+    /// Exposed for unit-testing: runs exactly one poll iteration synchronously
+    /// (mirrors MenuImportBackgroundService.RunOnceForTestAsync).
+    /// </summary>
+    public Task RunOnceForTestAsync(CancellationToken ct) => FinalizeDueOrdersAsync(ct);
 
     private async Task FinalizeDueOrdersAsync(CancellationToken ct)
     {
