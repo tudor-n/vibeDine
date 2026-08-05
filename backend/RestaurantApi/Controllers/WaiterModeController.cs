@@ -314,6 +314,10 @@ public class WaiterModeController : ControllerBase
         foreach (var stale in order.Items.Where(i => !incomingIds.Contains(i.ProductId) && i.IsFlashDealItem != true).ToList())
             _db.OrderItems.Remove(stale);
 
+        // A flash-deal line was claimed by the diner, not composed here — it survives every
+        // sync untouched and is never in the incoming list.
+        var surviving = order.Items.Where(i => i.IsFlashDealItem == true).ToList();
+
         foreach (var line in request.Items)
         {
             var product = products[line.ProductId];
@@ -325,6 +329,7 @@ public class WaiterModeController : ControllerBase
                 existing.Quantity = line.Quantity;
                 existing.UnitPriceAtPurchase = _happyHour.EffectiveUnitPrice(product, happyHour);
                 existing.Notes = notes;
+                surviving.Add(existing);
             }
             else
             {
@@ -338,15 +343,19 @@ public class WaiterModeController : ControllerBase
                     WasAiRecommended = false,
                     Notes = notes,
                 };
+                // Add to the set only — EF's relationship fixup puts it into order.Items for
+                // us, and adding it there by hand would list (and bill) the line twice.
                 _db.OrderItems.Add(item);
-                order.Items.Add(item);
+                surviving.Add(item);
             }
         }
 
-        order.TotalAmount = order.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
+        // Totalled from the lines this sync decided on, not from order.Items: that collection
+        // still holds the rows queued for deletion until SaveChanges runs.
+        order.TotalAmount = surviving.Sum(i => i.Quantity * i.UnitPriceAtPurchase);
         await _db.SaveChangesAsync();
 
-        return Ok(ToOrderDto(order, BuildItemDtos(order.Items, products)));
+        return Ok(ToOrderDto(order, BuildItemDtos(surviving, products)));
     }
 
     /// <summary>

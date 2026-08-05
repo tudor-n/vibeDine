@@ -120,37 +120,39 @@ is untouched and still contains everything.
 
 ### Suite status at handoff
 
-```bash
-dotnet build backend/RestaurantApi                                        # 0 errors, 1 pre-existing warning
-dotnet build backend/RestaurantApi.Tests/RestaurantApi.Tests.csproj       # 0 errors, 0 warnings
-DOTNET_ROLL_FORWARD=LatestMajor dotnet test backend/RestaurantApi.Tests   # blocked locally — see below
+```
+Passed! - Failed: 0, Passed: 234, Skipped: 0, Total: 234, Duration: 2m38s
 ```
 
-**The 38 new tests have not been observed passing**, because every HTTP-level integration
-test in this repo currently fails on this machine before reaching any assertion — including
-pre-existing ones untouched by Waiter Mode:
+Full backend suite green, including the 38 new Waiter Mode tests and the customer /
+device-session suites that are the canary for the B.3-2 QR attach. Build: 0 errors, 1
+pre-existing warning (`MenuManagementController.cs:441`), none added.
+
+**Run them with the .NET 8 SDK, not the system one.** The projects target `net8.0` and this
+machine's system dotnet only carries the 9.0.15 and 10.0.8 runtimes, which forces
+`DOTNET_ROLL_FORWARD` — and that breaks every HTTP-level integration test in the repo,
+pre-existing ones included:
 
 ```
 System.InvalidOperationException : The PipeWriter 'ResponseBodyPipeWriter'
 does not implement PipeWriter.UnflushedBytes.
-  at System.Text.Json.Serialization.Metadata.JsonTypeInfo`1.SerializeAsync(PipeWriter …)
-  at Microsoft.AspNetCore.Mvc.Formatters.SystemTextJsonOutputFormatter.WriteResponseBodyAsync(…)
 ```
 
-Cause: the projects target `net8.0`, only the 9.0.15 and 10.0.8 runtimes are installed, so
-`DOTNET_ROLL_FORWARD` is mandatory — but `Microsoft.AspNetCore.Mvc.Testing 8.0.8` is a NuGet
-package and is *not* rolled forward with the shared framework. The rolled-forward
-`System.Text.Json` then serialises into TestHost 8's `ResponseBodyPipeWriter`, which predates
-`UnflushedBytes`. Reproduced identically on both `Major` (→9) and `LatestMajor` (→10), and
-identically on `FloorPlanTests.Zone_create_rejects_empty_name_with_400`, which no stream
-touched. Docker was running; Testcontainers started Postgres fine and the migration applied.
+`Microsoft.AspNetCore.Mvc.Testing 8.0.8` is a NuGet package, so it is *not* rolled forward
+with the shared framework; the rolled-forward `System.Text.Json` then serialises into
+TestHost 8's `ResponseBodyPipeWriter`, which predates `UnflushedBytes`. Identical on `Major`
+(→9) and `LatestMajor` (→10), and identical on `FloorPlanTests`, which no stream touched.
 
-Unblocking it is an environment decision for the repo owner — **install the .NET 8 runtime**
-locally (`dotnet-install.sh --channel 8.0 --runtime aspnetcore`), after which no
-`DOTNET_ROLL_FORWARD` is needed. Bumping the `Mvc.Testing` package instead would break CI,
-which pins `dotnet-version: '8.0.x'`. **CI is unaffected by this** — on an 8.0.x runner the
-package and runtime match, so W1's suites run there as written (W3 confirmed `backend.yml`
-already targets `RestaurantApi.Tests.csproj` with a `backend/**` path filter).
+Fixed by installing the .NET 8 SDK side-by-side (no sudo, nothing in the repo changed):
+
+```bash
+curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir "$HOME/.dotnet"
+~/.dotnet/dotnet test backend/RestaurantApi.Tests/RestaurantApi.Tests.csproj   # Docker required
+```
+
+Bumping the `Mvc.Testing` package instead would have broken CI, which pins
+`dotnet-version: '8.0.x'`. **CI was never affected** — on an 8.0.x runner the package and
+runtime already match, so W1's suites run there as written.
 
 ## W2
 
