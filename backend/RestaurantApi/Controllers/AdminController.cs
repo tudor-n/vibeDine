@@ -24,6 +24,7 @@ public class AdminController : ControllerBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IFlashDealService _flashDealService;
     private readonly IStockService _stockService;
+    private readonly IOrderEventWriter _events;
     private readonly IHubContext<CustomerHub> _customerHub;
     private readonly IHubContext<StaffHub> _staffHub;
     private readonly ITenantAccess _access;
@@ -44,6 +45,7 @@ public class AdminController : ControllerBase
         IHttpClientFactory httpClientFactory,
         IFlashDealService flashDealService,
         IStockService stockService,
+        IOrderEventWriter events,
         IHubContext<CustomerHub> customerHub,
         IHubContext<StaffHub> staffHub,
         ITenantAccess access,
@@ -53,6 +55,7 @@ public class AdminController : ControllerBase
         _httpClientFactory = httpClientFactory;
         _flashDealService = flashDealService;
         _stockService = stockService;
+        _events = events;
         _customerHub = customerHub;
         _staffHub = staffHub;
         _access = access;
@@ -575,6 +578,17 @@ public class AdminController : ControllerBase
 
         order.Status = "cancelled";
         order.DeletedAt = DateTime.UtcNow;
+
+        // Logistic reverses this order's consumption/valuation off the same event stream
+        // that announced the dispatch. Enqueued before the save so the event can only
+        // exist if the cancellation itself committed.
+        _events.Enqueue(
+            _dbContext,
+            OrderEventTypes.OrderCancelled,
+            order.RestaurantId,
+            order.Id,
+            await OrderEventPayloads.BuildOrderPayloadAsync(_dbContext, order));
+
         await _dbContext.SaveChangesAsync();
 
         // Put the ingredients back (idempotent via Order.StockDecremented) — this also broadcasts

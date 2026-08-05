@@ -245,6 +245,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<SimilarityService>();
 builder.Services.AddScoped<IStockService, StockService>();
+builder.Services.AddScoped<IOrderEventWriter, OrderEventWriter>();
 builder.Services.AddScoped<IFlashDealService, FlashDealService>();
 builder.Services.AddScoped<IHappyHourService, HappyHourService>();
 builder.Services.AddHostedService<OrderFinalizationService>();
