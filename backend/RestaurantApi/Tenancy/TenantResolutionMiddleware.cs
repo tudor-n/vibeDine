@@ -25,7 +25,8 @@ public class TenantResolutionMiddleware
     // the part after /api/restaurants/{rid}. Anything outside this set returns 403
     // even though they pass the membership check. Waiters get: the orders board and
     // log (read + advance status), the floor plan (read-only zones/tables layout +
-    // claim/release their own orders), and the waiter-call queue. Write endpoints
+    // claim/release their own orders), the waiter-call queue, and Waiter Mode
+    // (table service sessions + waiter-entered orders). Write endpoints
     // for menu, zones, tables, AI config, etc. stay manager-only — both the verb
     // and the path must match, so e.g. POST /admin/zones (create zone) is rejected
     // while GET /admin/zones (read layout) is allowed.
@@ -45,6 +46,26 @@ public class TenantResolutionMiddleware
         // (PUT) or upload assets (POST .../logo, .../photo). The anchored, no-subpath regex
         // ensures it matches only the exact branding-root GET, not the upload sub-routes.
         ("GET",   new(@"^/admin/branding/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+
+        // Waiter Mode: taking tables, running their bills, and entering orders for guests
+        // who ordered verbally. These are the waiter's core job, so the whole set is open
+        // to them — ownership (is this MY table?) is enforced per endpoint in
+        // WaiterModeController, not here.
+        //
+        // /waiter/sessions/{id}/force-release is deliberately NOT listed: overriding a
+        // colleague's claim is a manager decision, and managers bypass this table entirely
+        // (the canManage check above short-circuits it), so its absence IS the restriction.
+        ("GET",   new(@"^/waiter/floor/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/waiter/my-sessions/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/waiter/staff/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/waiter/tables/[0-9a-fA-F-]{36}/claim/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/waiter/tables/[0-9a-fA-F-]{36}/orders/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/waiter/sessions/[0-9a-fA-F-]{36}/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/waiter/sessions/[0-9a-fA-F-]{36}/transfer/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/waiter/sessions/[0-9a-fA-F-]{36}/close/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("PATCH", new(@"^/waiter/orders/[0-9a-fA-F-]{36}/items/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/waiter/orders/[0-9a-fA-F-]{36}/submit/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/waiter/orders/[0-9a-fA-F-]{36}/cancel/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
     ];
 
     public TenantResolutionMiddleware(RequestDelegate next) => _next = next;

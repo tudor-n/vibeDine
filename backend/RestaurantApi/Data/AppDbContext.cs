@@ -34,6 +34,8 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<MenuImportJob> MenuImportJobs => Set<MenuImportJob>();
     public DbSet<Ingredient> Ingredients => Set<Ingredient>();
     public DbSet<RecipeItem> RecipeItems => Set<RecipeItem>();
+    public DbSet<TableServiceSession> TableServiceSessions => Set<TableServiceSession>();
+    public DbSet<OrderEvent> OrderEvents => Set<OrderEvent>();
 
     // ── Tenancy ──────────────────────────────────────────────────────────────
     public DbSet<Organization> Organizations => Set<Organization>();
@@ -161,12 +163,18 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.StockDecremented).HasColumnName("stock_decremented").HasDefaultValue(false);
             e.Property(o => o.ClaimedByWaiterId).HasColumnName("claimed_by_waiter_id");
             e.Property(o => o.ClaimedAt).HasColumnName("claimed_at");
+            e.Property(o => o.TableServiceSessionId).HasColumnName("table_service_session_id");
+            e.Property(o => o.Source).HasColumnName("source").HasDefaultValue("qr");
+            e.Property(o => o.PlacedByUserId).HasColumnName("placed_by_user_id");
             e.HasIndex(o => o.RestaurantId);
             e.HasIndex(o => new { o.RestaurantId, o.OrderNumber });
             // Fast "is there a draft for this guest at this table" lookup.
             e.HasIndex(o => new { o.TableId, o.GuestId, o.Status });
             e.HasIndex(o => o.ClaimedByWaiterId);
             e.HasIndex(o => o.DeviceSessionId);
+            // The waiter bill view loads every order of a session; Logistic reads the
+            // same set when fiscalizing on session.closed.
+            e.HasIndex(o => o.TableServiceSessionId).HasDatabaseName("ix_orders_table_service_session_id");
 
             e.HasOne(o => o.Table)
              .WithMany(t => t.Orders)
@@ -184,6 +192,20 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
              .WithMany()
              .HasForeignKey(o => o.DeviceSessionId)
              .OnDelete(DeleteBehavior.SetNull);
+
+            // Same reasoning for the waiter's table-service session: the bill's orders
+            // are history and must survive the session row (SetNull, never cascade).
+            e.HasOne<TableServiceSession>()
+             .WithMany()
+             .HasForeignKey(o => o.TableServiceSessionId)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // The staff member who entered a waiter order. SetNull so removing a user
+            // keeps the order (mirrors ClaimedByWaiter above).
+            e.HasOne(o => o.PlacedByUser)
+             .WithMany()
+             .HasForeignKey(o => o.PlacedByUserId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<OrderItem>(e =>
@@ -197,6 +219,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(oi => oi.UnitPriceAtPurchase).HasColumnName("unit_price_at_purchase");
             e.Property(oi => oi.WasAiRecommended).HasColumnName("was_ai_recommended");
             e.Property(oi => oi.IsFlashDealItem).HasColumnName("is_flash_deal_item");
+            e.Property(oi => oi.Notes).HasColumnName("notes");
 
             e.HasOne(oi => oi.Order)
              .WithMany(o => o.Items)
@@ -408,6 +431,75 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
              .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<TableServiceSession>(e =>
+        {
+            e.ToTable("table_service_sessions");
+            e.Property(s => s.Id).HasColumnName("id");
+            e.Property(s => s.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(s => s.TableId).HasColumnName("table_id");
+            e.Property(s => s.WaiterUserId).HasColumnName("waiter_user_id");
+            e.Property(s => s.WaiterName).HasColumnName("waiter_name");
+            e.Property(s => s.Status).HasColumnName("status").HasDefaultValue("open");
+            e.Property(s => s.OpenedAt).HasColumnName("opened_at");
+            e.Property(s => s.ClosedAt).HasColumnName("closed_at");
+            e.Property(s => s.ClosedReason).HasColumnName("closed_reason");
+            e.Property(s => s.PaymentMethod).HasColumnName("payment_method");
+            e.Property(s => s.CashAmount).HasColumnName("cash_amount");
+            e.Property(s => s.CardAmount).HasColumnName("card_amount");
+            e.Property(s => s.TotalAmount).HasColumnName("total_amount");
+            e.Property(s => s.ClosedByUserId).HasColumnName("closed_by_user_id");
+            e.Property(s => s.ClosedByName).HasColumnName("closed_by_name");
+
+            // THE exclusivity guarantee. A table can have at most one open session, and
+            // the database is the arbiter: TableSessionService claims by INSERTing and
+            // treats the resulting 23505 as "someone else got there first". Application
+            // read-then-write checks would leave a race window; this does not.
+            e.HasIndex(s => s.TableId)
+             .IsUnique()
+             .HasFilter("status = 'open'")
+             .HasDatabaseName("ix_table_service_sessions_open_table");
+            e.HasIndex(s => s.RestaurantId)
+             .HasDatabaseName("ix_table_service_sessions_restaurant_id");
+            // Drives the floor plan's "open sessions for this restaurant" read.
+            e.HasIndex(s => new { s.RestaurantId, s.Status })
+             .HasDatabaseName("ix_table_service_sessions_restaurant_id_status");
+
+            e.HasOne(s => s.Table)
+             .WithMany()
+             .HasForeignKey(s => s.TableId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            // SetNull: deleting a staff account must not delete their served tables'
+            // bills — WaiterName keeps the human-readable snapshot.
+            e.HasOne(s => s.WaiterUser)
+             .WithMany()
+             .HasForeignKey(s => s.WaiterUserId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<OrderEvent>(e =>
+        {
+            e.ToTable("order_events");
+            e.Property(o => o.Id).HasColumnName("id");
+            e.Property(o => o.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(o => o.EventType).HasColumnName("event_type");
+            e.Property(o => o.EntityId).HasColumnName("entity_id");
+            e.Property(o => o.Payload).HasColumnName("payload").HasColumnType("jsonb");
+            e.Property(o => o.CreatedAt).HasColumnName("created_at");
+            e.Property(o => o.ProcessedAt).HasColumnName("processed_at");
+            e.Property(o => o.Attempts).HasColumnName("attempts").HasDefaultValue(0);
+            e.Property(o => o.LeaseId).HasColumnName("lease_id");
+            e.Property(o => o.LeaseExpiresAt).HasColumnName("lease_expires_at");
+
+            // The consumer's poll: oldest unprocessed first, cheap because the index
+            // only carries the backlog rather than the whole history.
+            e.HasIndex(o => o.CreatedAt)
+             .HasFilter("processed_at IS NULL")
+             .HasDatabaseName("ix_order_events_unprocessed");
+            e.HasIndex(o => new { o.RestaurantId, o.CreatedAt })
+             .HasDatabaseName("ix_order_events_restaurant_id_created_at");
+        });
+
         modelBuilder.Entity<MenuImportJob>(e =>
         {
             e.ToTable("menu_import_jobs");
@@ -602,6 +694,10 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<MenuImportJob>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<Ingredient>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<RecipeItem>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<TableServiceSession>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        // OrderEvent has NO query filter — cross-tenant by design: consumed by LogisticApi,
+        // which polls the outbox across every restaurant without a tenant in scope. It
+        // carries restaurant_id as a plain column so the consumer can route each event.
     }
 
     /// <summary>Stamps RestaurantId on new tenant-scoped entities from the ambient tenant.</summary>

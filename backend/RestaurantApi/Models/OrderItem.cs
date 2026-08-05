@@ -21,4 +21,8 @@ public class OrderItem : ITenantScoped {
     public bool? WasAiRecommended { get; set; } = false;
 
     public bool? IsFlashDealItem { get; set; } = false;
+
+    // Free-text kitchen remark the waiter attaches to a line ("fără ceapă",
+    // "bine făcut"). Capped at 200 chars by the API; null on QR-placed lines.
+    public string? Notes { get; set; }
 }
