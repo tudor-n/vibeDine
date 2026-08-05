@@ -23,6 +23,22 @@ public class Order : ITenantScoped {
     // surviving order and Status becomes "merged" so it drops out of active queries.
     public Guid? MergedIntoOrderId { get; set; }
 
+    // The waiter's table-service session this order belongs to. Set when a waiter
+    // creates the order, when a QR order is submitted at a claimed table, and when a
+    // claim adopts the table's orphan active orders. Null for orders placed at an
+    // unclaimed table (and after the session row is deleted — SetNull).
+    public Guid? TableServiceSessionId { get; set; }
+
+    // Where the order came from: "qr" (a diner's phone) or "waiter" (entered on the
+    // waiter's device). This is the ORIGIN, not the fulfillment channel — the delivery
+    // storefront spec owns OrderType (dine_in|delivery|takeaway) separately, and waiter
+    // orders are dine_in orders whose origin happens to be the waiter.
+    public string Source { get; set; } = "qr";
+
+    // The staff member who entered a waiter-sourced order. Null on QR orders.
+    public Guid? PlacedByUserId { get; set; }
+    public AppUser? PlacedByUser { get; set; }
+
     [Required]
     public string Status { get; set; } = "draft";
 
