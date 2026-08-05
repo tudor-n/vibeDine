@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RestaurantApi.Data;
 using RestaurantApi.Hubs;
+using RestaurantApi.Models;
 using RestaurantApi.Tenancy;
 
 namespace RestaurantApi.Services;
@@ -59,6 +60,7 @@ public sealed class OrderFinalizationService : BackgroundService
         using var scope = _services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var tenant = scope.ServiceProvider.GetRequiredService<ICurrentTenant>();
+        var events = scope.ServiceProvider.GetRequiredService<IOrderEventWriter>();
         var customerHub = scope.ServiceProvider.GetRequiredService<IHubContext<CustomerHub>>();
         var staffHub = scope.ServiceProvider.GetRequiredService<IHubContext<StaffHub>>();
 
@@ -82,6 +84,17 @@ public sealed class OrderFinalizationService : BackgroundService
         {
             order.Status = "completed";
             order.DeletedAt = now;
+
+            // Archiving is the order's terminal state and what Logistic books as revenue.
+            // Enqueued into the same context so the batch's events and archive writes
+            // commit in the single SaveChangesAsync below — a failed poll iteration
+            // re-finds these orders next tick and emits exactly once then.
+            events.Enqueue(
+                db,
+                OrderEventTypes.OrderCompleted,
+                order.RestaurantId,
+                order.Id,
+                OrderEventPayloads.BuildOrderCompletedPayload(order));
         }
         await db.SaveChangesAsync(ct);
 

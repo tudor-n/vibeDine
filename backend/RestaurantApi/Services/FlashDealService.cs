@@ -21,6 +21,7 @@ public class FlashDealService : IFlashDealService
     private readonly IHubContext<StaffHub> _staffhub;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStockService _stockService;
+    private readonly IOrderEventWriter _events;
     private readonly ILogger<FlashDealService> _logger;
 
     public FlashDealService(
@@ -29,6 +30,7 @@ public class FlashDealService : IFlashDealService
         IHubContext<StaffHub> staffHub,
         IServiceScopeFactory scopeFactory,
         IStockService stockService,
+        IOrderEventWriter events,
         ILogger<FlashDealService> logger
     )
     {
@@ -37,6 +39,7 @@ public class FlashDealService : IFlashDealService
         _staffhub = staffHub;
         _scopeFactory = scopeFactory;
         _stockService = stockService;
+        _events = events;
         _logger = logger;
     }
 
@@ -115,6 +118,19 @@ public class FlashDealService : IFlashDealService
         if (order == null || order.Status != "pending_dispatch") return;
 
         order.Status = "submitted";
+
+        // Dispatch is also the point Logistic cares about (consumption valuation, and the
+        // order's line detail for the eventual receipt). Attach the outbox row to the
+        // context BEFORE the decrement call: that call is what saves — inside its own
+        // transaction — so the event rides the same commit as the status flip and the
+        // stock movement. The early return above keeps this exactly-once.
+        _events.Enqueue(
+            _context,
+            OrderEventTypes.OrderDispatched,
+            order.RestaurantId,
+            order.Id,
+            await OrderEventPayloads.BuildOrderPayloadAsync(_context, order));
+
         // Sending to the kitchen is the commitment point: subtract the order's ingredient usage
         // from stock here. Idempotent, and persists the status change in the same transaction
         // (handles recipe, simple and untracked products alike).
