@@ -7,6 +7,7 @@ import { useGuestStore } from '@/stores/useGuestStore'
 import { useCartStore } from '@/stores/useCartStore'
 import { useMenu } from '@/composables/useMenu'
 import type { OrderStatus } from '@shared/types/models'
+import { isDemoToken } from '@/demo/config'
 
 
 const rawWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5005'
@@ -38,6 +39,10 @@ export function useWebSocket() {
   }
 
   function connect() {
+    // Demo session: there is no backend and no hub — the demo scripter replays
+    // the pushes instead (src/demo/demoScripter.ts). Bail before creating a
+    // socket so there's also no 5s reconnect loop hammering a dead URL.
+    if (isDemoToken(sessionStore.qrToken)) return
     if (socket) return  // already connected, don't check tableId here
 
     // A fresh connect means we want to stay connected; reconnect on unexpected close.
