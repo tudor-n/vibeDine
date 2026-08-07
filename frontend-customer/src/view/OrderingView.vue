@@ -11,6 +11,7 @@ import { useWebSocket } from '@/composables/useWebSocket'
 import { useLinkExpiry } from '@/composables/useLinkExpiry'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
+import { isDemoToken } from '@/demo/config'
 
 import LanguageSelectView from '@/components/screens/LanguageSelectView.vue'
 import WelcomeView from '@/components/screens/WelcomeView.vue'
@@ -229,8 +230,13 @@ onMounted(async () => {
     // the invalid-QR screen the diner needs to read.
     booting.value = false
   }
-  partyPoll = setInterval(() => guestStore.refreshParty(sessionStore.qrToken), PARTY_POLL_MS)
-  document.addEventListener('visibilitychange', onVisibilityChange)
+  // Demo session: no party exists and no server wants heartbeats — skip the
+  // poll and the refocus beat entirely (the WebSocket is already skipped in
+  // useWebSocket, and the scripter replays the kitchen's pushes).
+  if (!isDemoToken(sessionStore.qrToken)) {
+    partyPoll = setInterval(() => guestStore.refreshParty(sessionStore.qrToken), PARTY_POLL_MS)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  }
   // After a refresh the order may already be archived (or partway through its
   // 30s grace) — reconcile the button's retirement against the restored state.
   evaluateProgressDismissal()
