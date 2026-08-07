@@ -2,6 +2,7 @@ import type { MenuResponse, VibeyRecommendationResponse } from '@shared/types/ap
 import type { UpdateOrderItemsRequest, VibeyRecommendationRequest } from '@shared/types/api-requests';
 import type { ActiveHappyHour, DeviceSessionSummary, RestaurantBranding } from '@shared/types/models';
 import { resolveResponseMediaUrls } from '@/services/mediaUrl';
+import { isDemoSession } from '@/demo/config';
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5005';
 const BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
@@ -72,6 +73,14 @@ function rid(): string {
 }
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  // Demo session (magic qrToken): every request is served from local fixtures —
+  // no backend exists. Dynamic import so (a) demo code stays out of the normal
+  // session's path and (b) no circular import (the adapter imports Pinia
+  // stores, which import this module).
+  if (isDemoSession()) {
+    const { handleDemoRequest } = await import('@/demo/demoAdapter');
+    return (await handleDemoRequest(endpoint, options)) as T;
+  }
   const response = await fetch(`${BASE_URL}${endpoint}`, {
     ...options,
     headers: {
@@ -163,6 +172,10 @@ export const apiClient = {
     | { ok: true; cooldownEndsAt: string }
     | { ok: false; status: number; retryAfterSeconds?: number; message?: string }
   > => {
+    if (isDemoSession()) {
+      const { handleDemoCallWaiter } = await import('@/demo/demoAdapter');
+      return handleDemoCallWaiter();
+    }
     const res = await fetch(
       `${BASE_URL}/api/restaurants/${rid()}/tables/${tableId}/call-waiter`,
       {
