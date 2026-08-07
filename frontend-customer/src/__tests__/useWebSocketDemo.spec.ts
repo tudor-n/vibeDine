@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick } from 'vue'
 import { createPinia } from 'pinia'
 import { useWebSocket } from '@/composables/useWebSocket'
-import { useSessionStore } from '@/stores/useSessionStore'
 import { DEMO_TOKEN } from '@/demo/config'
 
 // useWebSocket registers onUnmounted, so it must run inside a component.
