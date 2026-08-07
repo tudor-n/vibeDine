@@ -11,10 +11,26 @@ export function isDemoToken(token: string | null | undefined): boolean {
   return token === DEMO_TOKEN
 }
 
-// True when THIS browsing context is the demo: the URL says so (fresh load,
-// before any join) or the stored session does (later calls that only know the
-// restaurant-scoped endpoint, e.g. menu/happy-hour fetches).
+// True when THIS browsing context is the demo. The URL is authoritative
+// whenever it carries a token: a real table URL must never be hijacked by a
+// stale demo qrToken left in sessionStorage from an earlier demo visit in the
+// same tab. Only when the URL carries no token at all (later calls that only
+// know the restaurant-scoped endpoint, e.g. menu/happy-hour fetches) do we
+// fall back to the stored session.
 export function isDemoSession(): boolean {
   const urlToken = window.location.pathname.split('/')[1] || null
-  return isDemoToken(urlToken) || isDemoToken(sessionStorage.getItem('qrToken'))
+  if (urlToken) return isDemoToken(urlToken)
+  return isDemoToken(sessionStorage.getItem('qrToken'))
+}
+
+// True when the previous tab occupant (per stored sessionStorage['qrToken'])
+// was in a different mode (demo vs. real) than the page about to boot. Used
+// to wipe sessionStorage before anything reads it, so a demo tab's leftovers
+// can't pollute a real session and vice versa.
+export function shouldClearCrossModeStorage(
+  urlToken: string | null,
+  storedToken: string | null,
+): boolean {
+  if (!urlToken || !storedToken) return false
+  return isDemoToken(urlToken) !== isDemoToken(storedToken)
 }

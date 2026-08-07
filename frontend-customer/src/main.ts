@@ -4,7 +4,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { hydrateBrandFromCache } from './composables/useTheme'
-import { isDemoToken } from './demo/config'
+import { isDemoToken, shouldClearCrossModeStorage } from './demo/config'
 import './style.css'
 
 // The single route is /:qrToken, so the table is known from the URL before the
@@ -20,7 +20,21 @@ function qrTokenFromUrl(): string | null {
 // hydrateBrandFromCache AND before any store module reads sessionStorage —
 // i.e. right here, before the app is created.
 const bootToken = qrTokenFromUrl()
-if (isDemoToken(bootToken) && new URLSearchParams(window.location.search).has('fresh')) {
+
+// A tab that previously held a session in the OTHER mode (demo vs. real)
+// leaves its qrToken/tableId/cart behind in sessionStorage. Left alone, that
+// pollutes the new boot in either direction: a demo tab's leftovers hijacking
+// a real session, or a real tab's leftovers opening a real WebSocket inside
+// the demo. Must run before hydrateBrandFromCache and before any store
+// module reads sessionStorage.
+if (shouldClearCrossModeStorage(bootToken, sessionStorage.getItem('qrToken'))) {
+  sessionStorage.clear()
+}
+
+if (
+  isDemoToken(bootToken) &&
+  new URLSearchParams(window.location.search).get('fresh') === '1'
+) {
   sessionStorage.clear()
   try {
     localStorage.removeItem(`party.guest.${bootToken}`)
