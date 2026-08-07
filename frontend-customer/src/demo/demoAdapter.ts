@@ -31,7 +31,7 @@ export async function handleDemoRequest(
 ): Promise<unknown> {
   await latency()
   const method = (options?.method || 'GET').toUpperCase()
-  const path = endpoint.split('?')[0]
+  const path = endpoint.split('?')[0] ?? ''
 
   if (method === 'POST' && /^\/api\/tables\/[^/]+\/join$/.test(path)) {
     return buildDemoJoinResponse()
@@ -52,13 +52,15 @@ export async function handleDemoRequest(
     return {}
   }
   const submit = path.match(/^\/api\/restaurants\/[^/]+\/orders\/([^/]+)\/submit$/)
-  if (method === 'POST' && submit) {
+  const orderId = submit?.[1]
+  if (method === 'POST' && orderId) {
     // The "kitchen" takes over: status progression + the post-order flash deal.
-    startPostSubmitSequence(submit[1])
+    startPostSubmitSequence(orderId)
     return {}
   }
   const claim = path.match(/^\/api\/restaurants\/[^/]+\/orders\/([^/]+)\/claim-deal\/[^/]+$/)
-  if (method === 'POST' && claim) {
+  const claimOrderId = claim?.[1]
+  if (method === 'POST' && claimOrderId) {
     // Mirror the server: the claimed dessert is appended to the sent order at
     // the deal price, so the visit's running total (and the sent screen, via
     // OrderingView's cumulativeTotal watcher) updates.
@@ -66,7 +68,7 @@ export async function handleDemoRequest(
     const deal = flashDeal.activeDeal
     if (deal) {
       const price = roundMoney(deal.discountedPrice * Math.max(1, flashDeal.activeDealQuantity))
-      useSessionStore().registerSubmittedRound(price, claim[1])
+      useSessionStore().registerSubmittedRound(price, claimOrderId)
     }
     return {}
   }
