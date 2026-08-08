@@ -71,6 +71,10 @@ async function accept(requestId: string) {
           <div class="call-label">MASA</div>
           <div class="call-table">{{ c.tableNumber || '—' }}</div>
           <div class="call-ago">{{ ago(c.createdAt) }}</div>
+          <!-- Ownership follows the table session — managers see whose call it is. -->
+          <div class="call-assigned" :class="{ 'call-assigned--open': !c.assignedWaiterName }">
+            {{ c.assignedWaiterName ? `Ospătar · ${c.assignedWaiterName}` : 'Fără ospătar' }}
+          </div>
         </div>
         <button
           type="button"
@@ -183,6 +187,28 @@ async function accept(requestId: string) {
   font-size: 12px;
   color: var(--ink70, var(--ink));
   opacity: 0.75;
+}
+.call-assigned {
+  margin-top: 8px;
+  justify-self: start;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--lime);
+  color: var(--onLime);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.call-assigned--open {
+  background: var(--accentSoft);
+  color: var(--accentDk);
+  border: 1px solid var(--accentBorder);
 }
 .accept-btn {
   min-height: var(--tap-min, 44px);

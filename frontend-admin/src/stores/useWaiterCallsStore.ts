@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { apiClient, type WaiterCall } from '@/services/api-client'
 import { createStaffHubClient, type StaffHubClient } from '@/services/signalRClient'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { useToast } from '@/composables/useToast'
 
 /**
@@ -13,9 +14,16 @@ import { useToast } from '@/composables/useToast'
  * The backend broadcasts help events to the `WaitStaff` group; the hub authorizes
  * the join by restaurant access (not role), so admins may join it too — no
  * backend change needed (see HelpController / StaffHub).
+ *
+ * Ownership: a call carries the waiter whose open session covers the table
+ * (`assignedWaiterUserId`, null = nobody's yet). Managers hold the whole queue;
+ * a waiter's store only keeps — and only chimes for — unassigned calls and
+ * their own. The REST list is server-filtered the same way; the live broadcast
+ * reaches every phone, so relevance is re-checked on receipt.
  */
 export const useWaiterCallsStore = defineStore('waiterCalls', () => {
   const toast = useToast()
+  const auth = useAuthStore()
 
   const calls = ref<WaiterCall[]>([])
   const isConnected = ref(false)
@@ -27,6 +35,24 @@ export const useWaiterCallsStore = defineStore('waiterCalls', () => {
   let starting: Promise<void> | null = null
 
   const count = computed(() => calls.value.length)
+
+  /** Calls from the caller's own claimed tables — "Chemările mele". */
+  const myCalls = computed(() =>
+    calls.value.filter((c) => c.assignedWaiterUserId && c.assignedWaiterUserId === auth.user?.id),
+  )
+  /** Calls from tables nobody has claimed — "Chemări fără ospătar". */
+  const unassignedCalls = computed(() => calls.value.filter((c) => !c.assignedWaiterUserId))
+  /** Calls owned by colleagues — waiters never hold these; managers watch them. */
+  const otherCalls = computed(() =>
+    calls.value.filter((c) => c.assignedWaiterUserId && c.assignedWaiterUserId !== auth.user?.id),
+  )
+
+  /** Managers watch the whole queue; a waiter cares about unassigned + their own. */
+  function isRelevant(c: WaiterCall): boolean {
+    if (!auth.isWaiter) return true
+    const assigned = c.assignedWaiterUserId ?? null
+    return assigned === null || assigned === auth.user?.id
+  }
 
   function upsert(c: WaiterCall): boolean {
     if (!c?.requestId || seen.has(c.requestId)) return false
@@ -50,7 +76,9 @@ export const useWaiterCallsStore = defineStore('waiterCalls', () => {
     try {
       const open = await apiClient.getHelpRequests()
       reset()
-      for (const c of open) upsert(c)
+      // The endpoint already filters for waiter callers; the client-side check
+      // keeps the store honest against a stale or manager-shaped payload.
+      for (const c of open) if (isRelevant(c)) upsert(c)
     } catch {
       // Keep whatever we have; live SignalR events will still arrive.
     }
@@ -68,9 +96,15 @@ export const useWaiterCallsStore = defineStore('waiterCalls', () => {
       const client = createStaffHubClient()
 
       client.on<WaiterCall>('HelpRequested', (payload) => {
+        // A colleague's table calling for its waiter is not this phone's alarm.
+        if (!isRelevant(payload)) return
         if (upsert(payload)) {
           const where = payload.tableNumber ? `Masa ${payload.tableNumber}` : 'O masă'
-          toast.info(`${where} cheamă un ospătar.`, { title: 'chemare nouă' })
+          const mine = !!payload.assignedWaiterUserId && payload.assignedWaiterUserId === auth.user?.id
+          toast.info(
+            mine ? `${where} — masa ta — cheamă un ospătar.` : `${where} cheamă un ospătar.`,
+            { title: mine ? 'chemare la masa ta' : 'chemare nouă' },
+          )
           playChime()
         }
       })
@@ -78,6 +112,17 @@ export const useWaiterCallsStore = defineStore('waiterCalls', () => {
       client.on<{ requestId: string }>('HelpAcknowledged', (payload) => {
         remove(payload.requestId)
       })
+
+      // Assignment is derived from table sessions, so any session change (claim,
+      // transfer, close) can move a call between phones — re-seed from REST, the
+      // source of truth, rather than patching state from the payload.
+      for (const sessionEvent of [
+        'TableSessionOpened',
+        'TableSessionTransferred',
+        'TableSessionClosed',
+      ]) {
+        client.on(sessionEvent, () => void seed())
+      }
 
       // After a dropped-then-restored connection, re-join the group and re-seed
       // so any calls created (or accepted) while offline are reconciled.
@@ -150,7 +195,17 @@ export const useWaiterCallsStore = defineStore('waiterCalls', () => {
     }
   }
 
-  return { calls, count, isConnected, start, stop, acknowledge }
+  return {
+    calls,
+    count,
+    myCalls,
+    unassignedCalls,
+    otherCalls,
+    isConnected,
+    start,
+    stop,
+    acknowledge,
+  }
 })
 
 // ── Chime ────────────────────────────────────────────────────────────────────

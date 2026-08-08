@@ -500,6 +500,9 @@ export interface WaiterCall {
     tableId: string;
     tableNumber: string | null;
     createdAt: string;
+    /** The waiter whose open session covers the table — null/absent = nobody's yet. */
+    assignedWaiterUserId?: string | null;
+    assignedWaiterName?: string | null;
 }
 
 export type ActiveOrderStatus = 'submitted' | 'preparing' | 'ready';

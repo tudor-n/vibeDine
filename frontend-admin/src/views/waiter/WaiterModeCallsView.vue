@@ -1,14 +1,23 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { WaiterCall } from '@/services/api-client'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { useWaiterCallsStore } from '@/stores/useWaiterCallsStore'
 
 /**
- * "Apeluri" inside Waiter Mode. Same live queue as the admin "Chemări" page
- * (useWaiterCallsStore owns the StaffHub connection app-wide), but rendered in
- * the waiter shell — before this view, the tab jumped into the admin console
- * and dumped the waiter out of Mod ospătar.
+ * "Apeluri" inside Waiter Mode, split by table ownership:
+ *
+ *  - "Chemările mele" — calls from tables the caller has claimed. Routed: only
+ *    the owning waiter's phone holds (and chimes for) these.
+ *  - "Chemări fără ospătar" — calls from unclaimed tables; anyone can accept.
+ *  - "La colegi" — calls owned by other waiters. Waiters never receive these
+ *    (the store and the API both filter), so the section renders for managers.
+ *
+ * The store owns the StaffHub connection app-wide and re-seeds itself on every
+ * session change, so a claim/transfer/close moves calls between phones live.
  */
 const store = useWaiterCallsStore()
+const auth = useAuthStore()
 
 // Live "time ago" — a coarse 15s tick is plenty for minute-level labels.
 const now = ref(Date.now())
@@ -20,12 +29,15 @@ onBeforeUnmount(() => {
   if (tick) window.clearInterval(tick)
 })
 
-// Oldest first — the table that has been waiting longest sits on top.
-const calls = computed(() =>
-  [...store.calls].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  ),
-)
+// Oldest first inside each section — the table waiting longest sits on top.
+function byAge(list: WaiterCall[]): WaiterCall[] {
+  return [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+}
+const myCalls = computed(() => byAge(store.myCalls))
+const unassignedCalls = computed(() => byAge(store.unassignedCalls))
+const otherCalls = computed(() => byAge(store.otherCalls))
+
+const isManager = computed(() => auth.canManageWaitersOfActive)
 
 function ago(createdAt: string): string {
   const secs = Math.max(0, Math.floor((now.value - new Date(createdAt).getTime()) / 1000))
@@ -61,29 +73,90 @@ async function accept(requestId: string) {
       </div>
     </header>
 
-    <div v-if="!calls.length" class="calls-empty">
+    <div v-if="!store.count" class="calls-empty">
       <div class="calls-empty-mark" aria-hidden="true">✓</div>
       <p class="calls-empty-title">Nicio chemare activă</p>
       <p class="calls-empty-text">Când o masă cheamă un ospătar, apare instant aici.</p>
     </div>
 
-    <ul v-else class="calls-list">
-      <li v-for="c in calls" :key="c.requestId" class="card-white call-card">
-        <div class="call-meta">
-          <span class="call-eyebrow">Masa</span>
-          <span class="call-table">{{ c.tableNumber || '—' }}</span>
-          <span class="call-ago">{{ ago(c.createdAt) }}</span>
-        </div>
-        <button
-          type="button"
-          class="call-accept"
-          :disabled="accepting.has(c.requestId)"
-          @click="accept(c.requestId)"
-        >
-          {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
-        </button>
-      </li>
-    </ul>
+    <template v-else>
+      <!-- ── Chemările mele — the caller's own claimed tables ─────────────── -->
+      <section v-if="myCalls.length" class="calls-section">
+        <h2 class="section-head section-head--mine">
+          Chemările mele
+          <span class="section-count">{{ myCalls.length }}</span>
+        </h2>
+        <ul class="calls-list">
+          <li v-for="c in myCalls" :key="c.requestId" class="card-white call-card call-card--mine">
+            <div class="call-meta">
+              <span class="call-eyebrow">Masa ta</span>
+              <span class="call-table">{{ c.tableNumber || '—' }}</span>
+              <span class="call-ago">{{ ago(c.createdAt) }}</span>
+            </div>
+            <button
+              type="button"
+              class="call-accept"
+              :disabled="accepting.has(c.requestId)"
+              @click="accept(c.requestId)"
+            >
+              {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
+            </button>
+          </li>
+        </ul>
+      </section>
+
+      <!-- ── Chemări fără ospătar — unclaimed tables, anyone can take them ── -->
+      <section v-if="unassignedCalls.length" class="calls-section">
+        <h2 class="section-head">
+          Chemări fără ospătar
+          <span class="section-count">{{ unassignedCalls.length }}</span>
+        </h2>
+        <p class="section-hint">De la mese nepreluate — oricine poate accepta.</p>
+        <ul class="calls-list">
+          <li v-for="c in unassignedCalls" :key="c.requestId" class="card-white call-card">
+            <div class="call-meta">
+              <span class="call-eyebrow">Masa</span>
+              <span class="call-table">{{ c.tableNumber || '—' }}</span>
+              <span class="call-ago">{{ ago(c.createdAt) }}</span>
+            </div>
+            <button
+              type="button"
+              class="call-accept"
+              :disabled="accepting.has(c.requestId)"
+              @click="accept(c.requestId)"
+            >
+              {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
+            </button>
+          </li>
+        </ul>
+      </section>
+
+      <!-- ── La colegi — only managers ever hold these in the store ───────── -->
+      <section v-if="otherCalls.length" class="calls-section">
+        <h2 class="section-head">
+          La colegi
+          <span class="section-count">{{ otherCalls.length }}</span>
+        </h2>
+        <ul class="calls-list">
+          <li v-for="c in otherCalls" :key="c.requestId" class="card-white call-card call-card--other">
+            <div class="call-meta">
+              <span class="call-eyebrow">Ospătar · {{ c.assignedWaiterName || 'coleg' }}</span>
+              <span class="call-table">{{ c.tableNumber || '—' }}</span>
+              <span class="call-ago">{{ ago(c.createdAt) }}</span>
+            </div>
+            <button
+              v-if="isManager"
+              type="button"
+              class="call-accept"
+              :disabled="accepting.has(c.requestId)"
+              @click="accept(c.requestId)"
+            >
+              {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
+            </button>
+          </li>
+        </ul>
+      </section>
+    </template>
   </div>
 </template>
 
@@ -150,6 +223,43 @@ async function accept(requestId: string) {
   max-width: 30ch;
 }
 
+/* ── Sections ────────────────────────────────────────────────────────────── */
+.calls-section { margin-bottom: 20px; }
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink70);
+  margin-bottom: 8px;
+}
+.section-head--mine { color: var(--accentDk); }
+.section-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ink06);
+  color: var(--ink70);
+  display: inline-grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+}
+.section-head--mine .section-count {
+  background: var(--accent);
+  color: var(--onAccent);
+}
+.section-hint {
+  font-size: 12.5px;
+  color: var(--ink40);
+  margin: -4px 0 8px;
+}
+
 .calls-list {
   list-style: none;
   margin: 0;
@@ -164,8 +274,13 @@ async function accept(requestId: string) {
   justify-content: space-between;
   gap: 14px;
   padding: 14px;
-  border: 1px solid var(--accentBorder);
+  border: 1px solid var(--ink12);
 }
+.call-card--mine {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.call-card--other { opacity: 0.75; }
 .call-meta {
   display: grid;
   gap: 1px;
@@ -177,7 +292,11 @@ async function accept(requestId: string) {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink70);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.call-card--mine .call-eyebrow { color: var(--accentDk); }
 .call-table {
   font-size: 32px;
   font-weight: 800;
