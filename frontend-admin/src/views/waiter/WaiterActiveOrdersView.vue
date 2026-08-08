@@ -12,10 +12,13 @@ import { formatMoney } from '@/utils/money'
 /**
  * "Comenzi active" inside Waiter Mode: the same feed as the admin kanban
  * (`/orders/active`), rendered phone-first in the waiter shell so a waiter never
- * has to jump back to the admin console mid-service. Same data source, same 5s
- * poll, same permission rules: managers act on anything, a waiter only on the
- * orders they personally claimed — claiming is offered right on the card here,
- * since "Sala" (the admin floor plan) is out of reach on this screen.
+ * has to jump back to the admin console mid-service.
+ *
+ * Ownership follows the table session (backend-stamped): a waiter's feed is
+ * server-filtered to the rounds assigned to them — their typed rounds, QR rounds
+ * on their claimed tables, rounds adopted at claim, and anything transferred to
+ * them. Managers get the whole board, where a truly unassigned round (QR on an
+ * unclaimed table) still offers the order-level "Preia comanda".
  */
 const auth = useAuthStore()
 const toast = useToast()
@@ -208,7 +211,7 @@ onBeforeUnmount(() => {
     </div>
 
     <p v-if="!visibleOrders.length" class="orders-empty">
-      Nicio comandă în această stare.
+      {{ isManager ? 'Nicio comandă în această stare.' : 'Nicio comandă a ta în această stare.' }}
     </p>
 
     <div v-else class="order-list">
@@ -271,9 +274,12 @@ onBeforeUnmount(() => {
           </div>
         </footer>
 
-        <!-- Primary action: claim it, or move it one step forward. -->
+        <!-- Primary action: claim it, or move it one step forward. Assignment
+             follows the table session, so a waiter's feed only ever holds their
+             own rounds — the claim button is a manager affordance for the rare
+             truly-unassigned round (QR on an unclaimed table). -->
         <button
-          v-if="!order.claimedByWaiterId"
+          v-if="isManager && !order.claimedByWaiterId"
           type="button"
           class="oc-action oc-action--claim"
           :disabled="busyOrderIds.has(order.id)"
