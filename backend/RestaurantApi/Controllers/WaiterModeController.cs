@@ -525,6 +525,233 @@ public class WaiterModeController : ControllerBase
         return Ok(new WaiterCancelOrderResponse(order.Id, order.Status));
     }
 
+    // ── Masa auxiliară ───────────────────────────────────────────────────────
+    // A private, per-waiter holding area for lines pulled off live rounds (a
+    // problem with a dish, guests switching tables, …). Not a physical table:
+    // no floor tile, no QR, no session. Money follows the line (price snapshot);
+    // stock never moves in either direction — the food already exists.
+
+    /// <summary>Lines already with the kitchen — the only ones worth parking.</summary>
+    private static readonly string[] AuxMovableStatuses = ["submitted", "preparing", "ready"];
+
+    [HttpGet("aux-table")]
+    public async Task<IActionResult> GetAuxTable()
+    {
+        var items = await _db.AuxTableItems
+            .AsNoTracking()
+            .Where(a => a.WaiterUserId == UserId)
+            .OrderBy(a => a.CreatedAt)
+            .Select(a => new WaiterAuxItemDto(
+                a.Id, a.ProductId, a.ProductName, a.Quantity, a.UnitPriceAtPurchase,
+                a.Notes, a.SourceOrderNumber, a.SourceTableNumber, a.CreatedAt))
+            .ToListAsync();
+
+        return Ok(new WaiterAuxTableResponse(items, items.Sum(i => i.Quantity * i.UnitPriceAtPurchase)));
+    }
+
+    /// <summary>
+    /// Pulls (part of) a line off a live round onto the caller's aux table. The
+    /// source order's total shrinks with it; an order left with no lines is
+    /// auto-cancelled — with NO stock restore, because the food moved, it didn't
+    /// come back.
+    /// </summary>
+    [HttpPost("orders/{orderId:guid}/items/{itemId:guid}/move-to-aux")]
+    public async Task<IActionResult> MoveItemToAux(
+        Guid restaurantId, Guid orderId, Guid itemId, [FromBody] MoveItemToAuxRequest? request)
+    {
+        var order = await _db.Orders
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Table)
+            .FirstOrDefaultAsync(o => o.Id == orderId && o.DeletedAt == null);
+        if (order is null) return NotFound(new { message = "Comanda nu a fost găsită." });
+
+        var guard = await AuthorizeOrderAsync(restaurantId, order);
+        if (guard is not null) return guard;
+
+        if (!AuxMovableStatuses.Contains(order.Status))
+            return Conflict(new { message = $"Doar comenzile aflate la bucătărie pot fi mutate (stare: {order.Status})." });
+
+        var item = order.Items.FirstOrDefault(i => i.Id == itemId);
+        if (item is null) return NotFound(new { message = "Produsul nu a fost găsit în comandă." });
+
+        var quantity = request?.Quantity ?? item.Quantity;
+        if (quantity < 1 || quantity > item.Quantity)
+            return BadRequest(new { message = $"Cantitatea trebuie să fie între 1 și {item.Quantity}." });
+
+        _db.AuxTableItems.Add(new AuxTableItem
+        {
+            WaiterUserId = UserId,
+            ProductId = item.ProductId,
+            ProductName = item.Product?.Name ?? "Produs șters",
+            Quantity = quantity,
+            UnitPriceAtPurchase = item.UnitPriceAtPurchase,
+            Notes = item.Notes,
+            SourceOrderId = order.Id,
+            SourceOrderNumber = order.OrderNumber,
+            SourceTableNumber = order.Table?.TableNumber,
+        });
+
+        var movedAll = quantity == item.Quantity;
+        if (movedAll) _db.OrderItems.Remove(item);
+        else item.Quantity -= quantity;
+
+        // Partial: item.Quantity is already decremented. Full: exclude the removed row.
+        order.TotalAmount = order.Items
+            .Where(i => !(movedAll && i.Id == item.Id))
+            .Sum(i => i.Quantity * i.UnitPriceAtPurchase);
+
+        var emptied = movedAll && order.Items.All(i => i.Id == item.Id);
+
+        // Two saves, one transaction: the outbox payload builder reads items from
+        // the DB, so the removal must be flushed first for the cancel event to
+        // carry the true (line-less) remainder rather than the moved food.
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        await _db.SaveChangesAsync();
+
+        if (emptied)
+        {
+            order.Status = "cancelled";
+            order.DeletedAt = DateTime.UtcNow;
+            _events.Enqueue(
+                _db,
+                OrderEventTypes.OrderCancelled,
+                order.RestaurantId,
+                order.Id,
+                await OrderEventPayloads.BuildOrderPayloadAsync(_db, order));
+            await _db.SaveChangesAsync();
+        }
+        await tx.CommitAsync();
+
+        if (emptied)
+        {
+            await _customerHub.Clients
+                .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
+                .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
+        }
+        await BroadcastOrderChangedAsync(order);
+
+        _logger.LogInformation(
+            "Waiter {UserId} moved {Quantity}× item {ItemId} from order {OrderId} to aux (emptied: {Emptied})",
+            UserId, quantity, itemId, order.Id, emptied);
+
+        return Ok(new { orderId = order.Id, orderStatus = order.Status, movedQuantity = quantity });
+    }
+
+    /// <summary>
+    /// Lands an aux line on one of the caller's tables as an archived, completed
+    /// round: it joins that session's bill (cumulative total counts completed,
+    /// soft-deleted rounds) but never reaches the kitchen board, and
+    /// StockDecremented=true keeps stock untouched — the food was already cooked
+    /// and accounted at its source table's dispatch.
+    /// </summary>
+    [HttpPost("aux-table/items/{auxItemId:guid}/move-to-table")]
+    public async Task<IActionResult> MoveAuxItemToTable(
+        Guid restaurantId, Guid auxItemId, [FromBody] MoveAuxItemToTableRequest? request)
+    {
+        if (request is null || request.TableId == Guid.Empty)
+            return BadRequest(new { message = "Selectează masa pe care muți produsul." });
+
+        var aux = await _db.AuxTableItems
+            .FirstOrDefaultAsync(a => a.Id == auxItemId && a.WaiterUserId == UserId);
+        if (aux is null) return NotFound(new { message = "Produsul nu a fost găsit pe masa ta auxiliară." });
+
+        var table = await _db.Tables
+            .FirstOrDefaultAsync(t => t.Id == request.TableId && t.DeletedAt == null);
+        if (table is null) return NotFound(new { message = "Masa nu a fost găsită." });
+
+        var session = await _db.TableServiceSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TableId == table.Id && s.Status == "open");
+        if (session is null)
+            return Conflict(new { message = "Masa nu este preluată. Preia masa înainte de a muta produsul." });
+        if (session.WaiterUserId != UserId && !await _access.CanManageRestaurantAsync(UserId, restaurantId))
+            return Conflict(new { message = $"Masa este preluată de {session.WaiterName}." });
+
+        var lastNumber = await _db.Orders
+            .IgnoreQueryFilters()
+            .Where(o => o.RestaurantId == restaurantId && o.OrderNumber != null)
+            .MaxAsync(o => (int?)o.OrderNumber) ?? 0;
+
+        var now = DateTime.UtcNow;
+        var order = new Order
+        {
+            TableId = table.Id,
+            Status = "completed",
+            PaymentStatus = "unpaid",
+            Source = "waiter",
+            PlacedByUserId = UserId,
+            TableServiceSessionId = session.Id,
+            ClaimedByWaiterId = session.WaiterUserId ?? UserId,
+            ClaimedAt = now,
+            OrderNumber = lastNumber + 1,
+            TotalAmount = aux.Quantity * aux.UnitPriceAtPurchase,
+            ReadyAt = now,
+            DeletedAt = now,
+            StockDecremented = true,
+            Items =
+            {
+                new OrderItem
+                {
+                    ProductId = aux.ProductId,
+                    Quantity = aux.Quantity,
+                    UnitPriceAtPurchase = aux.UnitPriceAtPurchase,
+                    Notes = aux.Notes,
+                    IsFlashDealItem = false,
+                    WasAiRecommended = false,
+                },
+            },
+        };
+        _db.Orders.Add(order);
+        _db.AuxTableItems.Remove(aux);
+
+        // Revenue books at completion; the source order's total already shrank when
+        // the line left it, so the money is counted exactly once.
+        _events.Enqueue(
+            _db,
+            OrderEventTypes.OrderCompleted,
+            restaurantId,
+            order.Id,
+            OrderEventPayloads.BuildOrderCompletedPayload(order));
+
+        await _db.SaveChangesAsync();
+        await BroadcastOrderChangedAsync(order);
+
+        _logger.LogInformation(
+            "Waiter {UserId} moved aux item {AuxItemId} to table {TableId} as order {OrderId}",
+            UserId, auxItemId, table.Id, order.Id);
+
+        return Ok(new { orderId = order.Id, orderNumber = order.OrderNumber, tableNumber = table.TableNumber });
+    }
+
+    /// <summary>Writes the parked line off. Stock stays consumed — nothing returns to shelf.</summary>
+    [HttpDelete("aux-table/items/{auxItemId:guid}")]
+    public async Task<IActionResult> DiscardAuxItem(Guid auxItemId)
+    {
+        var aux = await _db.AuxTableItems
+            .FirstOrDefaultAsync(a => a.Id == auxItemId && a.WaiterUserId == UserId);
+        if (aux is null) return NotFound(new { message = "Produsul nu a fost găsit pe masa ta auxiliară." });
+
+        _db.AuxTableItems.Remove(aux);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("Waiter {UserId} discarded aux item {AuxItemId} ({Name} ×{Qty})",
+            UserId, auxItemId, aux.ProductName, aux.Quantity);
+
+        return Ok(new { id = auxItemId });
+    }
+
+    /// <summary>Nudges every staff surface (boards, floors, table views) to refetch.</summary>
+    private async Task BroadcastOrderChangedAsync(Order order)
+    {
+        var payload = new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status };
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "admin"))
+            .SendAsync("OrderStatusUpdated", payload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderStatusUpdated", payload);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /// <summary>

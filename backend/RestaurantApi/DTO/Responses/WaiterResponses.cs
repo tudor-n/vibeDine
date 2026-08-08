@@ -105,6 +105,24 @@ public record WaiterUnclaimedOrderDto(
     DateTime CreatedAt,
     IReadOnlyList<WaiterOrderItemDto> Items);
 
+/// <summary>
+/// One line parked on the caller's "masa auxiliară" — the per-waiter holding area
+/// for lines pulled off live rounds. Price is the snapshot taken when the line
+/// left its source order; the Source* fields are display-only provenance.
+/// </summary>
+public record WaiterAuxItemDto(
+    Guid Id,
+    Guid ProductId,
+    string ProductName,
+    int Quantity,
+    decimal UnitPriceAtPurchase,
+    string? Notes,
+    int? SourceOrderNumber,
+    string? SourceTableNumber,
+    DateTime CreatedAt);
+
+public record WaiterAuxTableResponse(IReadOnlyList<WaiterAuxItemDto> Items, decimal Total);
+
 /// <summary>A transfer target: an active Waiter or RestaurantAdmin of this restaurant.</summary>
 public record WaiterStaffMemberDto(Guid UserId, string FullName, string Role);
 
