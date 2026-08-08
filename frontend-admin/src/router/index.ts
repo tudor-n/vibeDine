@@ -122,6 +122,11 @@ const router = createRouter({
             component: () => import('@/views/waiter/WaiterOrderView.vue')
         },
         {
+            path: '/waiter/orders',
+            name: 'waiter-active-orders',
+            component: () => import('@/views/waiter/WaiterActiveOrdersView.vue')
+        },
+        {
             path: '/tables',
             name: 'tables',
             component: () => import('@/views/TablesView.vue')
@@ -233,6 +238,7 @@ router.beforeEach(async (to) => {
         'waiter-floor',
         'waiter-table',
         'waiter-order',
+        'waiter-active-orders',
         'orders-active',
         'orders',
         'waiter-calls',

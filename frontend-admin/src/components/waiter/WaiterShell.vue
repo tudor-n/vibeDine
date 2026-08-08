@@ -115,6 +115,15 @@ function backToAdmin() {
         <span class="w-tab-label">Mesele mele</span>
       </RouterLink>
 
+      <RouterLink
+        :to="{ name: 'waiter-active-orders' }"
+        class="w-tab"
+        active-class="w-tab-active"
+      >
+        <span class="w-tab-icon" aria-hidden="true">▤</span>
+        <span class="w-tab-label">Comenzi</span>
+      </RouterLink>
+
       <RouterLink :to="{ name: 'waiter-calls' }" class="w-tab">
         <span class="w-tab-icon" aria-hidden="true">
           ◉
@@ -201,7 +210,7 @@ function backToAdmin() {
 .w-tabbar {
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--ink12);
