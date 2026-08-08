@@ -119,7 +119,15 @@ async function load() {
     await store.start(rid)
     if (!store.floor) await store.refreshFloor()
 
-    const table = store.tableById(tableId.value)
+    let table = store.tableById(tableId.value)
+    if (!table?.session) {
+      // A warm floor snapshot can predate a claim made a moment ago (the claim
+      // flows fire refreshFloor without awaiting it, then navigate here) — the
+      // session exists server-side but not in this copy yet. Re-read once
+      // before concluding the table really has no open session.
+      await store.refreshFloor()
+      table = store.tableById(tableId.value)
+    }
     if (!table?.session) {
       leaveToFloor('Masa nu mai are o sesiune deschisă.')
       return
