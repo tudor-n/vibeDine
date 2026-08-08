@@ -121,6 +121,19 @@ public class WaiterModeController : ControllerBase
                 .ToListAsync())
             .ToDictionary(x => x.TableId, x => x.Count);
 
+        // Of those, the ones on no bill at all — what the "Comenzi nepreluate" tab
+        // (and its badge) counts. Session-null rather than table-session-open, so a
+        // round left in flight by a *closed* session is not re-offered for claiming.
+        var unclaimedByTable = (await _db.Orders
+                .Where(o => o.DeletedAt == null
+                            && o.TableServiceSessionId == null
+                            && tableIds.Contains(o.TableId)
+                            && TableSessionService.ActiveOrderStatuses.Contains(o.Status))
+                .GroupBy(o => o.TableId)
+                .Select(g => new { TableId = g.Key, Count = g.Count() })
+                .ToListAsync())
+            .ToDictionary(x => x.TableId, x => x.Count);
+
         var floorTables = tables.Select(t => new WaiterFloorTableDto(
             t.Id,
             t.TableNumber,
@@ -131,9 +144,58 @@ public class WaiterModeController : ControllerBase
             t.PositionY,
             sessionsByTable.GetValueOrDefault(t.Id),
             tablesWithHelp.Contains(t.Id),
-            activeByTable.GetValueOrDefault(t.Id))).ToList();
+            activeByTable.GetValueOrDefault(t.Id),
+            unclaimedByTable.GetValueOrDefault(t.Id))).ToList();
 
         return Ok(new WaiterFloorResponse(zones, floorTables));
+    }
+
+    /// <summary>
+    /// The "Comenzi nepreluate" feed: live rounds (QR submits, in practice — a waiter
+    /// round always has a session) on tables no session covers, oldest first. Claiming
+    /// the table adopts them onto the new bill (see TableSessionService.ClaimTableAsync),
+    /// which is what empties this list.
+    /// </summary>
+    [HttpGet("unclaimed-orders")]
+    public async Task<IActionResult> GetUnclaimedOrders()
+    {
+        var orders = await _db.Orders
+            .AsNoTracking()
+            .Where(o => o.DeletedAt == null
+                        && o.TableServiceSessionId == null
+                        && TableSessionService.ActiveOrderStatuses.Contains(o.Status))
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+            .OrderBy(o => o.CreatedAt)
+            .ToListAsync();
+
+        var tableIds = orders.Select(o => o.TableId).Distinct().ToList();
+        var tableNumbers = await _db.Tables
+            .Where(t => tableIds.Contains(t.Id) && t.DeletedAt == null)
+            .Select(t => new { t.Id, t.TableNumber })
+            .ToDictionaryAsync(t => t.Id, t => t.TableNumber);
+
+        // Totalled from the lines, not Order.TotalAmount, matching the cumulative-total
+        // rule — the stored header total is not trusted for display.
+        var result = orders.Select(o => new WaiterUnclaimedOrderDto(
+            o.Id,
+            o.OrderNumber,
+            o.Status,
+            o.Source,
+            o.TableId,
+            tableNumbers.GetValueOrDefault(o.TableId),
+            o.Items.Sum(i => i.Quantity * i.UnitPriceAtPurchase),
+            o.CreatedAt,
+            o.Items.Select(i => new WaiterOrderItemDto(
+                i.Id,
+                i.ProductId,
+                i.Product?.Name ?? "Produs șters",
+                i.Quantity,
+                i.UnitPriceAtPurchase,
+                i.Notes,
+                i.IsFlashDealItem ?? false)).ToList())).ToList();
+
+        return Ok(result);
     }
 
     // ── Sessions ─────────────────────────────────────────────────────────────

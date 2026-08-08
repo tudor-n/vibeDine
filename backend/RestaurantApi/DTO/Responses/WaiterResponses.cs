@@ -80,13 +80,30 @@ public record WaiterFloorTableDto(
     double PositionY,
     WaiterSessionDto? Session,
     bool HasOpenHelpRequest,
-    int ActiveOrderCount);
+    int ActiveOrderCount,
+    int UnclaimedOrderCount);
 
 public record WaiterFloorZoneDto(Guid Id, string Name, int SortOrder);
 
 public record WaiterFloorResponse(
     IReadOnlyList<WaiterFloorZoneDto> Zones,
     IReadOnlyList<WaiterFloorTableDto> Tables);
+
+/// <summary>
+/// A live round on a table nobody has claimed yet — the "Comenzi nepreluate" feed.
+/// Includes <c>pending_dispatch</c> (unlike the kitchen board), so a waiter sees the
+/// round the moment the diner submits it, not after the flash-deal hold elapses.
+/// </summary>
+public record WaiterUnclaimedOrderDto(
+    Guid Id,
+    int? OrderNumber,
+    string Status,
+    string Source,
+    Guid TableId,
+    string? TableNumber,
+    decimal TotalAmount,
+    DateTime CreatedAt,
+    IReadOnlyList<WaiterOrderItemDto> Items);
 
 /// <summary>A transfer target: an active Waiter or RestaurantAdmin of this restaurant.</summary>
 public record WaiterStaffMemberDto(Guid UserId, string FullName, string Role);
