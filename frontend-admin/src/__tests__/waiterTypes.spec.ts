@@ -18,6 +18,7 @@ import {
   sessionOpenedPayload,
   sessionTransferredPayload,
   staffMember,
+  unclaimedOrder,
   waiterOrder,
 } from './waiterContractFixtures'
 
@@ -121,11 +122,33 @@ describe('waiter contract — DTO field sets', () => {
         session: 0,
         hasOpenHelpRequest: 0,
         activeOrderCount: 0,
+        unclaimedOrderCount: 0,
       }),
     )
     // `session === null` is what marks a table free — nothing else.
     expect(freeTable.session).toBeNull()
     expect(occupiedTable.session).not.toBeNull()
+    // A claimed table's rounds are all on its bill — nothing left to claim there.
+    expect(occupiedTable.unclaimedOrderCount).toBe(0)
+    expect(freeTable.unclaimedOrderCount).toBe(1)
+  })
+
+  it('WaiterUnclaimedOrderDto', () => {
+    expect(keys(unclaimedOrder)).toEqual(
+      keys({
+        id: 0,
+        orderNumber: 0,
+        status: 0,
+        source: 0,
+        tableId: 0,
+        tableNumber: 0,
+        totalAmount: 0,
+        createdAt: 0,
+        items: 0,
+      }),
+    )
+    // In practice these are QR rounds — a waiter round always has a session.
+    expect(unclaimedOrder.source).toBe('qr')
   })
 
   it('WaiterFloorResponse', () => {

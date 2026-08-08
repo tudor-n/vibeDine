@@ -7,6 +7,7 @@ import type {
     WaiterSessionDetailDto,
     WaiterSessionDto,
     WaiterStaffMemberDto,
+    WaiterUnclaimedOrderDto,
 } from '@shared/types/waiter'
 import { authedFetcher, fetcher, scoped } from '@/services/api-client'
 
@@ -120,6 +121,14 @@ export const cancelOrder = (orderId: UUID) =>
 export const getStaff = () => authedFetcher<WaiterStaffMemberDto[]>(scoped('/waiter/staff'))
 
 /**
+ * 13 — the "Comenzi nepreluate" feed: live rounds on tables no session covers,
+ * oldest first. `claimTable` on the round's table adopts it onto the new bill,
+ * which is what removes it from this list.
+ */
+export const getUnclaimedOrders = () =>
+    authedFetcher<WaiterUnclaimedOrderDto[]>(scoped('/waiter/unclaimed-orders'))
+
+/**
  * The order screen's menu. Deliberately the existing anonymous customer menu
  * endpoint (B.4: "no new menu endpoint") — it already merges out-of-stock state
  * and hides staff-hidden products, so it needs no bearer token.
@@ -128,6 +137,7 @@ export const getMenu = () => fetcher<MenuResponse>(scoped('/menu'))
 
 export const waiterApi = {
     getFloor,
+    getUnclaimedOrders,
     claimTable,
     getSession,
     getMySessions,

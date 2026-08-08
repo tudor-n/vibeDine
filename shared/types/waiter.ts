@@ -75,11 +75,31 @@ export interface WaiterFloorTableDto {
   hasOpenHelpRequest: boolean;
   /** Non-deleted orders in pending_dispatch..ready. */
   activeOrderCount: number;
+  /** Of those, the ones attached to no session — what "Comenzi nepreluate" counts. */
+  unclaimedOrderCount: number;
 }
 
 export interface WaiterFloorResponse {
   zones: { id: UUID; name: string; sortOrder: number }[];
   tables: WaiterFloorTableDto[];
+}
+
+/**
+ * A live round on a table no session covers — the "Comenzi nepreluate" feed.
+ * Includes `pending_dispatch` (unlike the kitchen board) so a QR round shows the
+ * moment the diner submits. Claiming the table adopts these onto the new bill.
+ */
+export interface WaiterUnclaimedOrderDto {
+  id: UUID;
+  orderNumber: number | null;
+  status: OrderStatus;
+  source: OrderSource;
+  tableId: UUID;
+  tableNumber: string | null;
+  /** Line-derived (Σ quantity × unitPriceAtPurchase), not the stored header total. */
+  totalAmount: number;
+  createdAt: ISODateString;
+  items: WaiterOrderItemDto[];
 }
 
 export interface WaiterStaffMemberDto {
