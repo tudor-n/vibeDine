@@ -242,6 +242,34 @@ adds no menu endpoint.
 Caps enforced on `PATCH /orders/{id}/items`: **100** items per order, **99** per line,
 **200** characters of notes. They are frozen in the contract and mirrored client-side.
 
+### Ownership: orders and help calls follow the table session
+
+The order-level claim (`orders.claimed_by_waiter_id`, the old "Preia comanda") is no
+longer an independent, manual step — it is **stamped from the table session** at every
+point where ownership changes hands:
+
+| Moment | Assignment |
+|---|---|
+| Waiter creates a round (`POST /waiter/tables/{id}/orders`) | the session's waiter (not necessarily the typist — a manager can type on any table) |
+| QR submit on a claimed table | the session's waiter |
+| Table claim adopts orphan rounds | the claiming waiter |
+| `POST /waiter/sessions/{id}/transfer` | the receiving waiter (same transaction as the session hand-over) |
+
+Consequences:
+
+- `GET /admin/orders/active` returns **only the caller's assigned rounds for
+  Waiter-role callers**; managers get the whole board. The waiter-mode "Comenzi" tab
+  is therefore per-waiter, and the per-card "Preia comanda" survives only as a
+  manager affordance for truly unassigned rounds (QR on an unclaimed table).
+- Help calls carry `assignedWaiterUserId`/`assignedWaiterName`, derived from the
+  table's open session **at read time** (so claiming after the call adopts it).
+  `GET /help-requests` filters for Waiter-role callers to unassigned + their own;
+  the `HelpRequested` broadcast carries the same fields and every phone re-checks
+  relevance on receipt. The waiter-mode Apeluri screen splits into "Chemările mele" /
+  "Chemări fără ospătar" (+ manager-only "La colegi"), and `useWaiterCallsStore`
+  re-seeds on every `TableSession*` event so session changes move calls between
+  phones live.
+
 ### What waiter orders do differently
 
 - `source = 'waiter'`, `placed_by_user_id` = the caller, `GuestId = null`.
