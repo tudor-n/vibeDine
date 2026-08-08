@@ -446,9 +446,13 @@ public class WaiterModeController : ControllerBase
             .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
             .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
 
+        var cancelPayload = new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status };
         await _staffHub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderStatusUpdated", new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status });
+            .SendAsync("OrderStatusUpdated", cancelPayload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderStatusUpdated", cancelPayload);
 
         _logger.LogInformation("Waiter {UserId} cancelled order {OrderId} (#{Number})", UserId, order.Id, order.OrderNumber);
         return Ok(new WaiterCancelOrderResponse(order.Id, order.Status));

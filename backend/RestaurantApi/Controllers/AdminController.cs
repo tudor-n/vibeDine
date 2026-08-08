@@ -537,17 +537,21 @@ public class AdminController : ControllerBase
                 status = order.Status,
             });
 
-        // And to other admin sessions so the kanban stays in sync across tabs.
+        // And to both staff groups so the kanban and the waiter phones stay in sync.
+        var statusPayload = new
+        {
+            orderId = order.Id,
+            orderNumber = order.OrderNumber,
+            status = order.Status,
+            readyAt = order.ReadyAt,
+            tableId = order.TableId,
+        };
         await _staffHub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderStatusUpdated", new
-            {
-                orderId = order.Id,
-                orderNumber = order.OrderNumber,
-                status = order.Status,
-                readyAt = order.ReadyAt,
-                tableId = order.TableId,
-            });
+            .SendAsync("OrderStatusUpdated", statusPayload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderStatusUpdated", statusPayload);
 
         return Ok(new
         {
@@ -600,10 +604,14 @@ public class AdminController : ControllerBase
             .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
             .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
 
-        // Other admin tabs drop the card from the board.
+        // Other staff sessions (admin tabs and waiter phones) drop the card.
+        var cancelPayload = new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status };
         await _staffHub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderStatusUpdated", new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status });
+            .SendAsync("OrderStatusUpdated", cancelPayload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderStatusUpdated", cancelPayload);
 
         _logger.LogInformation("Cancelled order {OrderId} (#{Number})", order.Id, order.OrderNumber);
         return Ok(new { id = order.Id, status = order.Status });

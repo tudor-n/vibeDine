@@ -114,14 +114,18 @@ public sealed class OrderFinalizationService : BackgroundService
                     status = order.Status,
                 }, ct);
 
+            var finalizedPayload = new
+            {
+                orderId = order.Id,
+                orderNumber = order.OrderNumber,
+                tableId = order.TableId,
+            };
             await staffHub.Clients
                 .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-                .SendAsync("OrderFinalized", new
-                {
-                    orderId = order.Id,
-                    orderNumber = order.OrderNumber,
-                    tableId = order.TableId,
-                }, ct);
+                .SendAsync("OrderFinalized", finalizedPayload, ct);
+            await staffHub.Clients
+                .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+                .SendAsync("OrderFinalized", finalizedPayload, ct);
         }
 
         _logger.LogInformation("OrderFinalizationService archived {Count} order(s)", due.Count);
