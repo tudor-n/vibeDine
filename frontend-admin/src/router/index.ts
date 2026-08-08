@@ -132,6 +132,13 @@ const router = createRouter({
             component: () => import('@/views/waiter/WaiterUnclaimedOrdersView.vue')
         },
         {
+            // In-shell calls queue. 'waiter-calls' (no "mode") is the admin-console
+            // page — this one keeps the waiter inside Mod ospătar.
+            path: '/waiter/calls',
+            name: 'waiter-mode-calls',
+            component: () => import('@/views/waiter/WaiterModeCallsView.vue')
+        },
+        {
             path: '/tables',
             name: 'tables',
             component: () => import('@/views/TablesView.vue')
@@ -245,6 +252,7 @@ router.beforeEach(async (to) => {
         'waiter-order',
         'waiter-active-orders',
         'waiter-unclaimed',
+        'waiter-mode-calls',
         'orders-active',
         'orders',
         'waiter-calls',

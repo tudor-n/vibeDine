@@ -84,6 +84,7 @@ const WAITER_MODE_ROUTES = new Set([
   'waiter-order',
   'waiter-active-orders',
   'waiter-unclaimed',
+  'waiter-mode-calls',
 ])
 const waiterMode = computed(() => WAITER_MODE_ROUTES.has(String(route.name)))
 

@@ -138,7 +138,11 @@ function backToAdmin() {
         <span class="w-tab-label">Nepreluate</span>
       </RouterLink>
 
-      <RouterLink :to="{ name: 'waiter-calls' }" class="w-tab">
+      <RouterLink
+        :to="{ name: 'waiter-mode-calls' }"
+        class="w-tab"
+        active-class="w-tab-active"
+      >
         <span class="w-tab-icon" aria-hidden="true">
           ◉
           <span v-if="waiterCalls.count" class="w-tab-badge">{{ waiterCalls.count }}</span>
