@@ -443,12 +443,22 @@ public class AdminController : ControllerBase
 
     // Active kanban feed. The admin frontend polls this every few seconds and
     // bucket-sorts the result into the three columns (submitted / preparing / ready).
+    // Managers see the whole board; a Waiter-role caller gets only the orders
+    // assigned to them (assignment follows the table session — waiter-typed rounds,
+    // QR rounds on their claimed tables, adoption at claim, and transfers).
     [HttpGet("orders/active")]
-    public async Task<IActionResult> GetActiveOrders()
+    public async Task<IActionResult> GetActiveOrders(Guid restaurantId)
     {
-        var orders = await _dbContext.Orders
+        var canManage = await _access.CanManageRestaurantAsync(UserId, restaurantId);
+
+        var query = _dbContext.Orders
             .Where(o => o.DeletedAt == null
-                        && (o.Status == "submitted" || o.Status == "preparing" || o.Status == "ready"))
+                        && (o.Status == "submitted" || o.Status == "preparing" || o.Status == "ready"));
+
+        if (!canManage)
+            query = query.Where(o => o.ClaimedByWaiterId == UserId);
+
+        var orders = await query
             .Include(o => o.Table)
             .Include(o => o.ClaimedByWaiter)
             .Include(o => o.Items)

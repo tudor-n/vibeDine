@@ -93,15 +93,24 @@ public class CustomerController : ControllerBase
 
         // If a waiter has taken this table, the round belongs on their bill — otherwise
         // the QR order would never be billed by the session and the fiscal receipt cut at
-        // close would be short. Nothing else about the diner flow changes: the order stays
+        // close would be short. Ownership follows the bill: the round is also assigned to
+        // the session's waiter so it shows up on their "Comenzi" board without a manual
+        // "Preia comanda". Nothing else about the diner flow changes: the order stays
         // source "qr" and behaves identically at an unclaimed table (session stays null).
-        var openSessionId = await _context.TableServiceSessions
+        var openSession = await _context.TableServiceSessions
             .Where(s => s.TableId == order.TableId && s.Status == "open")
-            .Select(s => (Guid?)s.Id)
+            .Select(s => new { s.Id, s.WaiterUserId })
             .FirstOrDefaultAsync();
 
-        if (openSessionId is Guid sessionId)
-            order.TableServiceSessionId = sessionId;
+        if (openSession is not null)
+        {
+            order.TableServiceSessionId = openSession.Id;
+            if (openSession.WaiterUserId is Guid waiterId)
+            {
+                order.ClaimedByWaiterId = waiterId;
+                order.ClaimedAt = DateTime.UtcNow;
+            }
+        }
 
         await _context.SaveChangesAsync();
 

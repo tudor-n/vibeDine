@@ -165,12 +165,17 @@ public class TableSessionService : ITableSessionService
         // Adopt whatever was already running at this table: QR rounds submitted before
         // anyone claimed it belong on this bill, otherwise they'd never be billed by the
         // session. Only unattached, live orders — never steal from another session.
+        // Adoption also assigns the rounds to the claiming waiter (taking the table IS
+        // taking its orders), so they move straight onto that waiter's "Comenzi" board.
         var adopted = await _db.Orders
             .Where(o => o.TableId == tableId
                         && o.DeletedAt == null
                         && o.TableServiceSessionId == null
                         && ActiveOrderStatuses.Contains(o.Status))
-            .ExecuteUpdateAsync(s => s.SetProperty(o => o.TableServiceSessionId, session.Id));
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.TableServiceSessionId, session.Id)
+                .SetProperty(o => o.ClaimedByWaiterId, userId)
+                .SetProperty(o => o.ClaimedAt, DateTime.UtcNow));
 
         if (adopted > 0)
             _logger.LogInformation("Session {SessionId} adopted {Count} orphan order(s) at table {TableId}", session.Id, adopted, tableId);
@@ -232,6 +237,17 @@ public class TableSessionService : ITableSessionService
             await tx.RollbackAsync();
             return new TableSessionOutcome(TableSessionOutcomeCode.Conflict, Message: "Sesiunea este deja închisă.");
         }
+
+        // The table goes with everything on it: the session's live rounds move to the
+        // new waiter's "Comenzi" board in the same transaction, so ownership of the
+        // bill and of its orders can never diverge.
+        await _db.Orders
+            .Where(o => o.TableServiceSessionId == sessionId
+                        && o.DeletedAt == null
+                        && ActiveOrderStatuses.Contains(o.Status))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.ClaimedByWaiterId, (Guid?)toUserId)
+                .SetProperty(o => o.ClaimedAt, (DateTime?)DateTime.UtcNow));
 
         _events.Enqueue(_db, OrderEventTypes.SessionTransferred, restaurantId, sessionId, new
         {

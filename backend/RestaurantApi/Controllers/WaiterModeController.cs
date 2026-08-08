@@ -312,6 +312,11 @@ public class WaiterModeController : ControllerBase
             Source = "waiter",
             PlacedByUserId = UserId,
             TableServiceSessionId = session.Id,
+            // Ownership follows the table: the round belongs to the session's waiter
+            // (not necessarily the typist — a manager can enter orders on any table),
+            // so it lands directly on that waiter's "Comenzi" board.
+            ClaimedByWaiterId = session.WaiterUserId ?? UserId,
+            ClaimedAt = DateTime.UtcNow,
         };
 
         _db.Orders.Add(order);
