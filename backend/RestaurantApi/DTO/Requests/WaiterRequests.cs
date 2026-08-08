@@ -32,3 +32,11 @@ public record WaiterOrderItemRequest(Guid ProductId, int Quantity, string? Notes
 
 /// <summary>Full-replace cart semantics, like the customer PATCH: omission removes the line.</summary>
 public record UpdateWaiterOrderItemsRequest(List<WaiterOrderItemRequest>? Items);
+
+// ── Masa auxiliară ───────────────────────────────────────────────────────────
+
+/// <summary>Null quantity moves the whole line.</summary>
+public record MoveItemToAuxRequest(int? Quantity);
+
+/// <summary>Target of an aux → table move; the table must carry the caller's open session.</summary>
+public record MoveAuxItemToTableRequest(Guid TableId);

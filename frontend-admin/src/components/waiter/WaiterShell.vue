@@ -27,7 +27,7 @@ const { theme, toggle: toggleTheme } = useTheme()
 const restaurantName = computed(() => auth.activeRestaurant?.name ?? 'Restaurant')
 
 // "Mesele mele" is the floor filtered to the caller's own open sessions rather
-// than a fourth route — the waiter-mode route set is frozen at three names.
+// than a separate route — it shares waiter-floor with a query flag.
 const MINE_QUERY = 'ale-mele'
 const mineActive = computed(
   () => route.name === 'waiter-floor' && route.query.filtru === MINE_QUERY,
@@ -115,7 +115,34 @@ function backToAdmin() {
         <span class="w-tab-label">Mesele mele</span>
       </RouterLink>
 
-      <RouterLink :to="{ name: 'waiter-calls' }" class="w-tab">
+      <RouterLink
+        :to="{ name: 'waiter-active-orders' }"
+        class="w-tab"
+        active-class="w-tab-active"
+      >
+        <span class="w-tab-icon" aria-hidden="true">▤</span>
+        <span class="w-tab-label">Comenzi</span>
+      </RouterLink>
+
+      <RouterLink
+        :to="{ name: 'waiter-unclaimed' }"
+        class="w-tab"
+        active-class="w-tab-active"
+      >
+        <span class="w-tab-icon" aria-hidden="true">
+          ◎
+          <span v-if="waiterRealtime.unclaimedOrderCount" class="w-tab-badge">
+            {{ waiterRealtime.unclaimedOrderCount }}
+          </span>
+        </span>
+        <span class="w-tab-label">Nepreluate</span>
+      </RouterLink>
+
+      <RouterLink
+        :to="{ name: 'waiter-mode-calls' }"
+        class="w-tab"
+        active-class="w-tab-active"
+      >
         <span class="w-tab-icon" aria-hidden="true">
           ◉
           <span v-if="waiterCalls.count" class="w-tab-badge">{{ waiterCalls.count }}</span>
@@ -201,7 +228,7 @@ function backToAdmin() {
 .w-tabbar {
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
   padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--ink12);
@@ -233,10 +260,12 @@ function backToAdmin() {
 }
 .w-tab-label {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
+  /* Five slots share the phone frame — a notch smaller so "Mesele mele" and
+     "Nepreluate" never wrap or clip. */
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   text-align: center;
 }
 .w-tab-badge {

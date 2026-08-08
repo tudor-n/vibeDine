@@ -5,6 +5,8 @@ import {
   SESSION_CLOSED_REASONS,
   SESSION_PAYMENT_METHODS,
   SESSION_STATUSES,
+  auxItem,
+  auxTable,
   closedSession,
   draftOrder,
   floorResponse,
@@ -18,6 +20,7 @@ import {
   sessionOpenedPayload,
   sessionTransferredPayload,
   staffMember,
+  unclaimedOrder,
   waiterOrder,
 } from './waiterContractFixtures'
 
@@ -121,11 +124,33 @@ describe('waiter contract — DTO field sets', () => {
         session: 0,
         hasOpenHelpRequest: 0,
         activeOrderCount: 0,
+        unclaimedOrderCount: 0,
       }),
     )
     // `session === null` is what marks a table free — nothing else.
     expect(freeTable.session).toBeNull()
     expect(occupiedTable.session).not.toBeNull()
+    // A claimed table's rounds are all on its bill — nothing left to claim there.
+    expect(occupiedTable.unclaimedOrderCount).toBe(0)
+    expect(freeTable.unclaimedOrderCount).toBe(1)
+  })
+
+  it('WaiterUnclaimedOrderDto', () => {
+    expect(keys(unclaimedOrder)).toEqual(
+      keys({
+        id: 0,
+        orderNumber: 0,
+        status: 0,
+        source: 0,
+        tableId: 0,
+        tableNumber: 0,
+        totalAmount: 0,
+        createdAt: 0,
+        items: 0,
+      }),
+    )
+    // In practice these are QR rounds — a waiter round always has a session.
+    expect(unclaimedOrder.source).toBe('qr')
   })
 
   it('WaiterFloorResponse', () => {
@@ -135,6 +160,25 @@ describe('waiter contract — DTO field sets', () => {
 
   it('WaiterStaffMemberDto', () => {
     expect(keys(staffMember)).toEqual(keys({ userId: 0, fullName: 0, role: 0 }))
+  })
+
+  it('WaiterAuxItemDto / WaiterAuxTableResponse', () => {
+    expect(keys(auxItem)).toEqual(
+      keys({
+        id: 0,
+        productId: 0,
+        productName: 0,
+        quantity: 0,
+        unitPriceAtPurchase: 0,
+        notes: 0,
+        sourceOrderNumber: 0,
+        sourceTableNumber: 0,
+        createdAt: 0,
+      }),
+    )
+    expect(keys(auxTable)).toEqual(keys({ items: 0, total: 0 }))
+    // The total is the sum of the parked lines — money follows the food.
+    expect(auxTable.total).toBe(auxItem.quantity * auxItem.unitPriceAtPurchase)
   })
 })
 

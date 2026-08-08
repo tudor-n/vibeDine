@@ -166,7 +166,7 @@ the restaurant realm exactly like the rest of the admin console:
 - Role separation is the **path allow-list**: a `Waiter` may only reach the suffixes below.
   Everything else 403s even though the membership check passed.
 
-### The eleven new waiter-allowed pairs
+### The sixteen waiter-allowed pairs
 
 `Tenancy/TenantResolutionMiddleware.WaiterAllowedPaths` — anchored regexes,
 `IgnoreCase | Compiled`, matched against the path **after** `/api/restaurants/{rid}`:
@@ -174,6 +174,7 @@ the restaurant realm exactly like the rest of the admin console:
 | Method | Path suffix |
 |---|---|
 | `GET` | `^/waiter/floor/?$` |
+| `GET` | `^/waiter/unclaimed-orders/?$` |
 | `GET` | `^/waiter/my-sessions/?$` |
 | `GET` | `^/waiter/staff/?$` |
 | `GET` | `^/waiter/sessions/{guid}/?$` |
@@ -184,6 +185,10 @@ the restaurant realm exactly like the rest of the admin console:
 | `PATCH` | `^/waiter/orders/{guid}/items/?$` |
 | `POST` | `^/waiter/orders/{guid}/submit/?$` |
 | `POST` | `^/waiter/orders/{guid}/cancel/?$` |
+| `GET` | `^/waiter/aux-table/?$` |
+| `POST` | `^/waiter/orders/{guid}/items/{guid}/move-to-aux/?$` |
+| `POST` | `^/waiter/aux-table/items/{guid}/move-to-table/?$` |
+| `DELETE` | `^/waiter/aux-table/items/{guid}/?$` |
 
 `{guid}` is the existing `[0-9a-fA-F-]{36}` form. The ten pre-existing entries (orders
 board, zones/tables read, help queue, branding read) are untouched.
@@ -222,6 +227,7 @@ backend/RestaurantApi/
 | Method & path | Purpose |
 |---------------|---------|
 | `GET  /floor` | the whole floor: zones + tables + session + help/order flags → `WaiterFloorResponse` |
+| `GET  /unclaimed-orders` | live rounds on tables no session covers (incl. `pending_dispatch`), with items + table info → `WaiterUnclaimedOrderDto[]` — the "Comenzi nepreluate" feed; claiming the table adopts them |
 | `GET  /my-sessions` | the caller's open sessions → `WaiterSessionDto[]` |
 | `GET  /sessions/{id}` | one bill: session + its orders + total → `WaiterSessionDetailDto` |
 | `GET  /staff` | transfer targets: active Waiter/RestaurantAdmin members → `WaiterStaffMemberDto[]` |
@@ -233,12 +239,44 @@ backend/RestaurantApi/
 | `PATCH /orders/{id}/items` | `{ items: [{ productId, quantity, notes? }] }` — full replace, `draft` only |
 | `POST /orders/{id}/submit` | price it, number it, **dispatch to the kitchen immediately** |
 | `POST /orders/{id}/cancel` | draft → hard delete; anything live → `cancelled` + stock restore |
+| `GET  /aux-table` | the caller's **masa auxiliară**: parked lines + total → `WaiterAuxTableResponse` |
+| `POST /orders/{id}/items/{itemId}/move-to-aux` | `{ quantity? }` — pull (part of) a line off a live round onto the caller's aux; source total shrinks; an emptied round auto-cancels **without** a stock restore |
+| `POST /aux-table/items/{id}/move-to-table` | `{ tableId }` — land the parked line on one of the caller's tables, as an archived `completed` round (on the bill, never on the kanban, stock untouched) |
+| `DELETE /aux-table/items/{id}` | write the parked line off (stock stays consumed) |
 
 The menu comes from the existing anonymous `GET /api/restaurants/{rid}/menu` — Waiter Mode
 adds no menu endpoint.
 
 Caps enforced on `PATCH /orders/{id}/items`: **100** items per order, **99** per line,
 **200** characters of notes. They are frozen in the contract and mirrored client-side.
+
+### Ownership: orders and help calls follow the table session
+
+The order-level claim (`orders.claimed_by_waiter_id`, the old "Preia comanda") is no
+longer an independent, manual step — it is **stamped from the table session** at every
+point where ownership changes hands:
+
+| Moment | Assignment |
+|---|---|
+| Waiter creates a round (`POST /waiter/tables/{id}/orders`) | the session's waiter (not necessarily the typist — a manager can type on any table) |
+| QR submit on a claimed table | the session's waiter |
+| Table claim adopts orphan rounds | the claiming waiter |
+| `POST /waiter/sessions/{id}/transfer` | the receiving waiter (same transaction as the session hand-over) |
+
+Consequences:
+
+- `GET /admin/orders/active` returns **only the caller's assigned rounds for
+  Waiter-role callers**; managers get the whole board. The waiter-mode "Comenzi" tab
+  is therefore per-waiter, and the per-card "Preia comanda" survives only as a
+  manager affordance for truly unassigned rounds (QR on an unclaimed table).
+- Help calls carry `assignedWaiterUserId`/`assignedWaiterName`, derived from the
+  table's open session **at read time** (so claiming after the call adopts it).
+  `GET /help-requests` filters for Waiter-role callers to unassigned + their own;
+  the `HelpRequested` broadcast carries the same fields and every phone re-checks
+  relevance on receipt. The waiter-mode Apeluri screen splits into "Chemările mele" /
+  "Chemări fără ospătar" (+ manager-only "La colegi"), and `useWaiterCallsStore`
+  re-seeds on every `TableSession*` event so session changes move calls between
+  phones live.
 
 ### What waiter orders do differently
 
@@ -269,6 +307,10 @@ are sent to **both** `admin` and `WaitStaff`, because managers watch the same fl
 Existing events (`OrderSubmitted`, `OrderStatusUpdated`, `OrderClaimed`, `OrderFinalized`,
 `HelpRequested`, `HelpAcknowledged`) keep their exact names and shapes — waiter-placed orders
 flow through them like any other order, which is why the kitchen kanban needed no changes.
+Since the tabs update, the order lifecycle events (`OrderSubmitted`, `OrderStatusUpdated`,
+`OrderFinalized`) are broadcast to **both** `admin` and `WaitStaff` — previously they reached
+only `admin`, so waiter phones noticed order changes via the 15 s poll instead of the
+250 ms event-triggered refresh.
 
 One extension to an existing broadcast: `StockService.BroadcastAvailabilityForProductsAsync`
 now also sends the **same** `MenuItemAvailabilityChanged` payload to the `admin` and
@@ -287,8 +329,8 @@ DTO — never an EF entity.
 frontend-admin/src/
 ├── App.vue                          # picks WaiterShell vs the sidebar shell by route name
 ├── components/waiter/
-│   └── WaiterShell.vue              # mobile-first shell: bottom nav, large touch targets
-├── views/waiter/                    # floor / table / order screens
+│   └── WaiterShell.vue              # mobile-first shell: bottom nav (5 tabs), large touch targets
+├── views/waiter/                    # floor / table / order / active-orders / unclaimed / calls screens
 ├── services/waiterApi.ts            # the twelve functions of §5, via authedFetcher + scoped
 ├── stores/
 │   ├── useWaiterRealtimeStore.ts    # floor + live events + polling fallback  (defineStore 'waiterRealtime')
@@ -307,10 +349,18 @@ frontend-admin/src/
 | `/waiter` | `waiter-floor` | the live floor plan |
 | `/waiter/table/:tableId` | `waiter-table` | one table: session, bill, actions |
 | `/waiter/table/:tableId/order` | `waiter-order` | menu + cart for that table |
+| `/waiter/orders` | `waiter-active-orders` | "Comenzi" — the active-orders feed, phone-first (status segments, claim/advance; cancel manager-only) |
+| `/waiter/unclaimed` | `waiter-unclaimed` | "Nepreluate" — QR rounds on unclaimed tables, grouped per table, with "Preia masa" |
+| `/waiter/calls` | `waiter-mode-calls` | "Apeluri" — the live help queue, in-shell (the admin `waiter-calls` page is separate) |
+| `/waiter/aux` | `waiter-aux` | "Masa auxiliară" — the caller's private holding area (entry card sits on "Mesele mele"; lines are pulled per-item from the table screen's rounds) |
 
 Waiters **land on `/waiter`**: the router guard's waiter fallback redirects to
 `waiter-floor` instead of `orders-active`. The old orders board stays reachable — it is
 still in the waiter-allowed route set.
+
+The bottom tab bar has five slots: **Mese** (floor) · **Mesele mele** (floor filtered by
+`?filtru=ale-mele`) · **Comenzi** · **Nepreluate** (badge = Σ `unclaimedOrderCount` over the
+floor) · **Apeluri** (badge = open help requests).
 
 ### Gating lives in three places
 
@@ -324,11 +374,16 @@ This repo gates imperatively, not declaratively, and Waiter Mode follows that co
 ⚠️ Shell selection uses an **exact set**, never a prefix test:
 
 ```ts
-const WAITER_MODE_ROUTES = new Set(['waiter-floor', 'waiter-table', 'waiter-order'])
+const WAITER_MODE_ROUTES = new Set([
+  'waiter-floor', 'waiter-table', 'waiter-order',
+  'waiter-active-orders', 'waiter-unclaimed', 'waiter-mode-calls',
+])
 ```
 
 `waiter-calls`, `waiter-signup` and `waiters` are pre-existing route names — a
 `startsWith('waiter')` check would drag three unrelated screens into the waiter shell.
+(Yes, `waiter-calls` vs `waiter-mode-calls` is confusing: the former is the admin-console
+page, the latter the in-shell tab. Both stay — managers use one, waiters the other.)
 
 ### The realtime store's public interface
 
@@ -336,7 +391,8 @@ const WAITER_MODE_ROUTES = new Set(['waiter-floor', 'waiter-table', 'waiter-orde
 
 - **state** — `floor`, `isConnected`, `isLoading`
 - **getters** — `tables`, `zones`, `myTables` (`session.waiterUserId === auth.user?.id`),
-  `freeTables`, `tableById(id)`, `unavailableProductIds`
+  `freeTables`, `unclaimedOrderCount` (Σ per-table unclaimed rounds — the "Nepreluate"
+  badge), `tableById(id)`, `unavailableProductIds`
 - **actions** — `start(restaurantId)`, `stop()`, `refreshFloor()`
 
 Lifecycle is driven from `App.vue`'s existing `watch([isAuthenticated, activeRestaurantId])`,

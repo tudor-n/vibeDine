@@ -4,7 +4,6 @@ import { useRoute } from 'vue-router'
 import {
   apiClient,
   type ActiveOrder,
-  type ActiveOrderItem,
   type ActiveOrderStatus,
 } from '@/services/api-client'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -12,19 +11,9 @@ import { formatMoney } from '@/utils/money'
 
 type ActiveStatus = ActiveOrderStatus
 
-// Waiter Mode adds two fields to the admin order payload: per-item kitchen
-// remarks and the order's origin ('qr' | 'waiter'). They are declared locally
-// because `api-client.ts` is owned by another work stream this cycle — fold them
-// into ActiveOrder / ActiveOrderItem there and delete these two aliases.
-type BoardOrderItem = ActiveOrderItem & { notes?: string | null }
-type BoardOrder = Omit<ActiveOrder, 'items'> & {
-  source?: 'qr' | 'waiter'
-  items: BoardOrderItem[]
-}
-
 const route = useRoute()
 const auth = useAuthStore()
-const orders = ref<BoardOrder[]>([])
+const orders = ref<ActiveOrder[]>([])
 const isLoading = ref(false)
 const error = ref<string | null>(null)
 const now = ref(Date.now())
@@ -92,8 +81,8 @@ async function fetchActive() {
   }
 }
 
-const byColumn = computed<Record<ActiveStatus, BoardOrder[]>>(() => {
-  const buckets: Record<ActiveStatus, BoardOrder[]> = { submitted: [], preparing: [], ready: [] }
+const byColumn = computed<Record<ActiveStatus, ActiveOrder[]>>(() => {
+  const buckets: Record<ActiveStatus, ActiveOrder[]> = { submitted: [], preparing: [], ready: [] }
   for (const o of orders.value) buckets[o.status]?.push(o)
   // Stable ordering per column: oldest first so the kitchen works FIFO.
   for (const k of Object.keys(buckets) as ActiveStatus[]) {

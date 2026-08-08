@@ -78,7 +78,15 @@ const showShell = computed(() => auth.isAuthenticated && !bareLayout.value)
 // Membership is an explicit route-name set, never a `startsWith('waiter')` test —
 // `waiter-calls`, `waiter-signup` and `waiters` are admin-console routes and must
 // keep rendering in the normal shell.
-const WAITER_MODE_ROUTES = new Set(['waiter-floor', 'waiter-table', 'waiter-order'])
+const WAITER_MODE_ROUTES = new Set([
+  'waiter-floor',
+  'waiter-table',
+  'waiter-order',
+  'waiter-active-orders',
+  'waiter-unclaimed',
+  'waiter-mode-calls',
+  'waiter-aux',
+])
 const waiterMode = computed(() => WAITER_MODE_ROUTES.has(String(route.name)))
 
 // Every role may flip into Waiter Mode from the console (gating place ②; the

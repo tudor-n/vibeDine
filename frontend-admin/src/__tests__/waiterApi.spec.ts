@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { createPinia, setActivePinia } from 'pinia'
@@ -8,15 +8,12 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import type { WaiterFloorResponse, WaiterOrderDto, WaiterSessionDto } from '@shared/types/waiter'
 
 /**
- * HTTP contract for `services/waiterApi.ts` — the twelve frozen functions of the
+ * HTTP contract for `services/waiterApi.ts` — the frozen functions of the
  * Waiter Mode REST surface, all under `/api/restaurants/{rid}/waiter`.
  *
- * TODO(W2 landing): `src/services/waiterApi.ts` is owned by the waiter-mode
- * frontend stream and has not landed yet, so this suite is `describe.skip` and
- * the module path is assembled at runtime — a statically analysable import of a
- * missing file fails the whole file at collection. Drop the four `.skip`s at
- * final integration; the runtime import resolves the `@` alias as-is.
- * See PARALLEL-HANDOFF.md § W3.
+ * The module path is still assembled at runtime: it predates the module landing
+ * (a statically analysable import of a missing file failed the whole file at
+ * collection) and keeping it costs nothing now that the suites run for real.
  */
 const WAITER_API_MODULE = ['@/services', 'waiterApi'].join('/')
 
@@ -31,10 +28,15 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
-const baseUrl = 'http://api.test'
+// api-client.ts freezes its BASE_URL when the module loads, and the static
+// imports above pull it in transitively — so the env override must run before
+// any import executes. vi.hoisted is the only pre-import hook vitest offers.
+const baseUrl = vi.hoisted(() => {
+  import.meta.env.VITE_API_URL = 'http://api.test'
+  return 'http://api.test'
+})
 const restaurantId = 'rest-1'
 const waiterPrefix = `${baseUrl}/api/restaurants/${restaurantId}/waiter`
-import.meta.env.VITE_API_URL = baseUrl
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -74,7 +76,7 @@ const order = (over: Partial<WaiterOrderDto> = {}): WaiterOrderDto => ({
   ...over,
 })
 
-describe.skip('waiterApi — URL building (scoped to the active restaurant)', () => {
+describe('waiterApi — URL building (scoped to the active restaurant)', () => {
   it('getFloor GETs /waiter/floor', async () => {
     const floor: WaiterFloorResponse = { zones: [], tables: [] }
     server.use(http.get(`${waiterPrefix}/floor`, () => HttpResponse.json(floor)))
@@ -109,6 +111,32 @@ describe.skip('waiterApi — URL building (scoped to the active restaurant)', ()
     expect(detail.cumulativeTotal).toBe(0)
   })
 
+  it('getUnclaimedOrders GETs /waiter/unclaimed-orders', async () => {
+    server.use(
+      http.get(`${waiterPrefix}/unclaimed-orders`, () =>
+        HttpResponse.json([
+          {
+            id: 'o-9',
+            orderNumber: 42,
+            status: 'submitted',
+            source: 'qr',
+            tableId: 't-1',
+            tableNumber: '12',
+            totalAmount: 31,
+            createdAt: '2026-08-05T18:10:00Z',
+            items: [],
+          },
+        ]),
+      ),
+    )
+
+    const api = await loadWaiterApi()
+    const feed = (await api.getUnclaimedOrders()) as { tableNumber: string; source: string }[]
+    expect(feed).toHaveLength(1)
+    expect(feed[0].tableNumber).toBe('12')
+    expect(feed[0].source).toBe('qr')
+  })
+
   it('getStaff GETs /waiter/staff (transfer targets)', async () => {
     server.use(
       http.get(`${waiterPrefix}/staff`, () =>
@@ -122,7 +150,7 @@ describe.skip('waiterApi — URL building (scoped to the active restaurant)', ()
   })
 })
 
-describe.skip('waiterApi — claim semantics', () => {
+describe('waiterApi — claim semantics', () => {
   it('claimTable POSTs and resolves the new session on 201', async () => {
     server.use(
       http.post(`${waiterPrefix}/tables/t-1/claim`, () =>
@@ -154,7 +182,7 @@ describe.skip('waiterApi — claim semantics', () => {
   })
 })
 
-describe.skip('waiterApi — session lifecycle', () => {
+describe('waiterApi — session lifecycle', () => {
   it('transferSession POSTs { toUserId }', async () => {
     let body: unknown = null
     server.use(
@@ -230,7 +258,7 @@ describe.skip('waiterApi — session lifecycle', () => {
   })
 })
 
-describe.skip('waiterApi — orders', () => {
+describe('waiterApi — orders', () => {
   it('createOrder POSTs /waiter/tables/{id}/orders and returns a draft', async () => {
     server.use(
       http.post(`${waiterPrefix}/tables/t-1/orders`, () =>

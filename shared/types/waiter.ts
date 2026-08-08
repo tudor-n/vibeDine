@@ -75,6 +75,8 @@ export interface WaiterFloorTableDto {
   hasOpenHelpRequest: boolean;
   /** Non-deleted orders in pending_dispatch..ready. */
   activeOrderCount: number;
+  /** Of those, the ones attached to no session — what "Comenzi nepreluate" counts. */
+  unclaimedOrderCount: number;
 }
 
 export interface WaiterFloorResponse {
@@ -82,10 +84,51 @@ export interface WaiterFloorResponse {
   tables: WaiterFloorTableDto[];
 }
 
+/**
+ * A live round on a table no session covers — the "Comenzi nepreluate" feed.
+ * Includes `pending_dispatch` (unlike the kitchen board) so a QR round shows the
+ * moment the diner submits. Claiming the table adopts these onto the new bill.
+ */
+export interface WaiterUnclaimedOrderDto {
+  id: UUID;
+  orderNumber: number | null;
+  status: OrderStatus;
+  source: OrderSource;
+  tableId: UUID;
+  tableNumber: string | null;
+  /** Line-derived (Σ quantity × unitPriceAtPurchase), not the stored header total. */
+  totalAmount: number;
+  createdAt: ISODateString;
+  items: WaiterOrderItemDto[];
+}
+
 export interface WaiterStaffMemberDto {
   userId: UUID;
   fullName: string;
   role: string;
+}
+
+// ── Masa auxiliară ───────────────────────────────────────────────────────────
+// A private, per-waiter holding area for lines pulled off live rounds. Not a
+// physical table: no floor tile, no QR, no session. Money follows the line
+// (price snapshot); stock never moves in either direction.
+
+export interface WaiterAuxItemDto {
+  id: UUID;
+  productId: UUID;
+  productName: string;
+  quantity: number;
+  unitPriceAtPurchase: number;
+  notes: string | null;
+  /** Display-only provenance: where the line came from. */
+  sourceOrderNumber: number | null;
+  sourceTableNumber: string | null;
+  createdAt: ISODateString;
+}
+
+export interface WaiterAuxTableResponse {
+  items: WaiterAuxItemDto[];
+  total: number;
 }
 
 // ── SignalR payloads (StaffHub; event names PascalCase, payloads camelCase) ──

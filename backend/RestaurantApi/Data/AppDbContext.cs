@@ -29,6 +29,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
     public DbSet<RecommendationDirective> RecommendationDirectives => Set<RecommendationDirective>();
     public DbSet<SimilarityRule> SimilarityRules => Set<SimilarityRule>();
     public DbSet<HelpRequest> HelpRequests => Set<HelpRequest>();
+    public DbSet<AuxTableItem> AuxTableItems => Set<AuxTableItem>();
     public DbSet<TableGuest> TableGuests => Set<TableGuest>();
     public DbSet<DeviceSession> DeviceSessions => Set<DeviceSession>();
     public DbSet<MenuImportJob> MenuImportJobs => Set<MenuImportJob>();
@@ -395,6 +396,33 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
              .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<AuxTableItem>(e =>
+        {
+            e.ToTable("aux_table_items");
+            e.Property(a => a.Id).HasColumnName("id");
+            e.Property(a => a.RestaurantId).HasColumnName("restaurant_id");
+            e.Property(a => a.WaiterUserId).HasColumnName("waiter_user_id");
+            e.Property(a => a.ProductId).HasColumnName("product_id");
+            e.Property(a => a.ProductName).HasColumnName("product_name");
+            e.Property(a => a.Quantity).HasColumnName("quantity");
+            e.Property(a => a.UnitPriceAtPurchase).HasColumnName("unit_price_at_purchase");
+            e.Property(a => a.Notes).HasColumnName("notes");
+            e.Property(a => a.SourceOrderId).HasColumnName("source_order_id");
+            e.Property(a => a.SourceOrderNumber).HasColumnName("source_order_number");
+            e.Property(a => a.SourceTableNumber).HasColumnName("source_table_number");
+            e.Property(a => a.CreatedAt).HasColumnName("created_at");
+            e.HasIndex(a => a.RestaurantId);
+            // The hot read is "my aux table": one waiter's rows in one restaurant.
+            e.HasIndex(a => new { a.RestaurantId, a.WaiterUserId });
+
+            // Restrict, not cascade: an aux row holds real, already-cooked food — a
+            // product retirement must not silently delete the waiter's parked line.
+            e.HasOne(a => a.Product)
+             .WithMany()
+             .HasForeignKey(a => a.ProductId)
+             .OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<TableGuest>(e =>
         {
             e.ToTable("table_guests");
@@ -689,6 +717,7 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
         modelBuilder.Entity<RecommendationDirective>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<SimilarityRule>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<HelpRequest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
+        modelBuilder.Entity<AuxTableItem>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<TableGuest>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<DeviceSession>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);
         modelBuilder.Entity<MenuImportJob>().HasQueryFilter(x => _tenant.IsResolutionSuppressed || x.RestaurantId == _tenant.RestaurantId);

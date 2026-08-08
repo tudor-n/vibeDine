@@ -136,15 +136,21 @@ public class FlashDealService : IFlashDealService
         // (handles recipe, simple and untracked products alike).
         await _stockService.ApplyDecrementForOrderAsync(order);
 
+        // Both staff groups: the admin kanban and the waiter phones (whose realtime
+        // store treats this as a floor-refresh trigger) must both hear a new round.
+        var submittedPayload = new
+        {
+            orderId = order.Id,
+            orderNumber = order.OrderNumber,
+            tableId = order.TableId,
+            status = order.Status,
+        };
         await _staffhub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderSubmitted", new
-            {
-                orderId = order.Id,
-                orderNumber = order.OrderNumber,
-                tableId = order.TableId,
-                status = order.Status,
-            });
+            .SendAsync("OrderSubmitted", submittedPayload);
+        await _staffhub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderSubmitted", submittedPayload);
     }
 
     // Returns true if a deal offer was created (so the caller should hold the

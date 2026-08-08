@@ -56,6 +56,7 @@ public class TenantResolutionMiddleware
         // colleague's claim is a manager decision, and managers bypass this table entirely
         // (the canManage check above short-circuits it), so its absence IS the restriction.
         ("GET",   new(@"^/waiter/floor/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("GET",   new(@"^/waiter/unclaimed-orders/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("GET",   new(@"^/waiter/my-sessions/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("GET",   new(@"^/waiter/staff/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("POST",  new(@"^/waiter/tables/[0-9a-fA-F-]{36}/claim/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
@@ -66,6 +67,14 @@ public class TenantResolutionMiddleware
         ("PATCH", new(@"^/waiter/orders/[0-9a-fA-F-]{36}/items/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("POST",  new(@"^/waiter/orders/[0-9a-fA-F-]{36}/submit/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("POST",  new(@"^/waiter/orders/[0-9a-fA-F-]{36}/cancel/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+
+        // Masa auxiliară — the caller's private holding area; every endpoint is
+        // already keyed by the authenticated user id, so the allow-list only
+        // needs to open the paths.
+        ("GET",    new(@"^/waiter/aux-table/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",   new(@"^/waiter/orders/[0-9a-fA-F-]{36}/items/[0-9a-fA-F-]{36}/move-to-aux/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",   new(@"^/waiter/aux-table/items/[0-9a-fA-F-]{36}/move-to-table/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("DELETE", new(@"^/waiter/aux-table/items/[0-9a-fA-F-]{36}/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
     ];
 
     public TenantResolutionMiddleware(RequestDelegate next) => _next = next;

@@ -228,6 +228,69 @@ namespace RestaurantApi.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantApi.Models.AuxTableItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("product_name");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<Guid?>("SourceOrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_order_id");
+
+                    b.Property<int?>("SourceOrderNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_order_number");
+
+                    b.Property<string>("SourceTableNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("source_table_number");
+
+                    b.Property<decimal>("UnitPriceAtPurchase")
+                        .HasColumnType("decimal(10,2)")
+                        .HasColumnName("unit_price_at_purchase");
+
+                    b.Property<Guid>("WaiterUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("waiter_user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("RestaurantId", "WaiterUserId");
+
+                    b.ToTable("aux_table_items", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantApi.Models.Category", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1629,6 +1692,17 @@ namespace RestaurantApi.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("RestaurantApi.Models.AuxTableItem", b =>
+                {
+                    b.HasOne("RestaurantApi.Models.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.DeviceSession", b =>

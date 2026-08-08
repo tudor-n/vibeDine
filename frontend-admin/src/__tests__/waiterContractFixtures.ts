@@ -19,6 +19,8 @@ import type {
   TableSessionClosedPayload,
   TableSessionOpenedPayload,
   TableSessionTransferredPayload,
+  WaiterAuxItemDto,
+  WaiterAuxTableResponse,
   WaiterFloorResponse,
   WaiterFloorTableDto,
   WaiterOrderDto,
@@ -26,6 +28,7 @@ import type {
   WaiterSessionDetailDto,
   WaiterSessionDto,
   WaiterStaffMemberDto,
+  WaiterUnclaimedOrderDto,
 } from '@shared/types/waiter'
 
 // Every literal of each string-union — a renamed member fails to compile.
@@ -111,6 +114,7 @@ export const occupiedTable: WaiterFloorTableDto = {
   session: openSession,
   hasOpenHelpRequest: true,
   activeOrderCount: 2,
+  unclaimedOrderCount: 0,
 }
 
 export const freeTable: WaiterFloorTableDto = {
@@ -120,12 +124,44 @@ export const freeTable: WaiterFloorTableDto = {
   zoneId: null,
   session: null,
   hasOpenHelpRequest: false,
-  activeOrderCount: 0,
+  activeOrderCount: 1,
+  unclaimedOrderCount: 1,
 }
 
 export const floorResponse: WaiterFloorResponse = {
   zones: [{ id: '11111111-2222-3333-4444-555555555555', name: 'Terasă', sortOrder: 0 }],
   tables: [occupiedTable, freeTable],
+}
+
+/** A QR round waiting on the free table above — the "Comenzi nepreluate" feed. */
+export const unclaimedOrder: WaiterUnclaimedOrderDto = {
+  id: 'a6a6a6a6-1111-2222-3333-444455556666',
+  orderNumber: 42,
+  status: 'submitted',
+  source: 'qr',
+  tableId: freeTable.id,
+  tableNumber: '13',
+  totalAmount: 49,
+  createdAt: '2026-08-05T18:10:00Z',
+  items: [{ ...orderItem, notes: null }],
+}
+
+/** A line parked on the waiter's masa auxiliară, with its provenance. */
+export const auxItem: WaiterAuxItemDto = {
+  id: 'b8b8b8b8-1111-2222-3333-444455556666',
+  productId: 'd3d3d3d3-1111-2222-3333-444455556666',
+  productName: 'Ciorbă de burtă',
+  quantity: 1,
+  unitPriceAtPurchase: 24.5,
+  notes: 'fără smântână',
+  sourceOrderNumber: 41,
+  sourceTableNumber: '12',
+  createdAt: '2026-08-08T12:00:00Z',
+}
+
+export const auxTable: WaiterAuxTableResponse = {
+  items: [auxItem],
+  total: 24.5,
 }
 
 export const staffMember: WaiterStaffMemberDto = {

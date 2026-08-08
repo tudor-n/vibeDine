@@ -443,12 +443,22 @@ public class AdminController : ControllerBase
 
     // Active kanban feed. The admin frontend polls this every few seconds and
     // bucket-sorts the result into the three columns (submitted / preparing / ready).
+    // Managers see the whole board; a Waiter-role caller gets only the orders
+    // assigned to them (assignment follows the table session — waiter-typed rounds,
+    // QR rounds on their claimed tables, adoption at claim, and transfers).
     [HttpGet("orders/active")]
-    public async Task<IActionResult> GetActiveOrders()
+    public async Task<IActionResult> GetActiveOrders(Guid restaurantId)
     {
-        var orders = await _dbContext.Orders
+        var canManage = await _access.CanManageRestaurantAsync(UserId, restaurantId);
+
+        var query = _dbContext.Orders
             .Where(o => o.DeletedAt == null
-                        && (o.Status == "submitted" || o.Status == "preparing" || o.Status == "ready"))
+                        && (o.Status == "submitted" || o.Status == "preparing" || o.Status == "ready"));
+
+        if (!canManage)
+            query = query.Where(o => o.ClaimedByWaiterId == UserId);
+
+        var orders = await query
             .Include(o => o.Table)
             .Include(o => o.ClaimedByWaiter)
             .Include(o => o.Items)
@@ -465,6 +475,8 @@ public class AdminController : ControllerBase
                 readyAt = o.ReadyAt,
                 tableId = o.TableId,
                 tableNumber = o.Table != null ? o.Table.TableNumber : "?",
+                // Origin marker — the board shows an "Ospătar" tag on waiter-typed rounds.
+                source = o.Source,
                 claimedByWaiterId = o.ClaimedByWaiterId,
                 claimedByName = o.ClaimedByWaiter != null ? o.ClaimedByWaiter.FullName : null,
                 claimedAt = o.ClaimedAt,
@@ -476,7 +488,9 @@ public class AdminController : ControllerBase
                     unitPrice = i.UnitPriceAtPurchase,
                     subtotal = i.Quantity * i.UnitPriceAtPurchase,
                     wasAiRecommended = i.WasAiRecommended ?? false,
-                    isFlashDealItem = i.IsFlashDealItem ?? false
+                    isFlashDealItem = i.IsFlashDealItem ?? false,
+                    // The waiter's kitchen remark — it can change how the dish is made.
+                    notes = i.Notes
                 }).ToList()
             })
             .ToListAsync();
@@ -537,17 +551,21 @@ public class AdminController : ControllerBase
                 status = order.Status,
             });
 
-        // And to other admin sessions so the kanban stays in sync across tabs.
+        // And to both staff groups so the kanban and the waiter phones stay in sync.
+        var statusPayload = new
+        {
+            orderId = order.Id,
+            orderNumber = order.OrderNumber,
+            status = order.Status,
+            readyAt = order.ReadyAt,
+            tableId = order.TableId,
+        };
         await _staffHub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderStatusUpdated", new
-            {
-                orderId = order.Id,
-                orderNumber = order.OrderNumber,
-                status = order.Status,
-                readyAt = order.ReadyAt,
-                tableId = order.TableId,
-            });
+            .SendAsync("OrderStatusUpdated", statusPayload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderStatusUpdated", statusPayload);
 
         return Ok(new
         {
@@ -600,10 +618,14 @@ public class AdminController : ControllerBase
             .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
             .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
 
-        // Other admin tabs drop the card from the board.
+        // Other staff sessions (admin tabs and waiter phones) drop the card.
+        var cancelPayload = new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status };
         await _staffHub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))
-            .SendAsync("OrderStatusUpdated", new { orderId = order.Id, orderNumber = order.OrderNumber, status = order.Status });
+            .SendAsync("OrderStatusUpdated", cancelPayload);
+        await _staffHub.Clients
+            .Group(TenantGroups.Role(order.RestaurantId, "WaitStaff"))
+            .SendAsync("OrderStatusUpdated", cancelPayload);
 
         _logger.LogInformation("Cancelled order {OrderId} (#{Number})", order.Id, order.OrderNumber);
         return Ok(new { id = order.Id, status = order.Status });
