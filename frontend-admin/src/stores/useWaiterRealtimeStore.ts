@@ -110,6 +110,10 @@ export const useWaiterRealtimeStore = defineStore('waiterRealtime', () => {
     tables.value.filter((t) => t.session !== null && t.session.waiterUserId === auth.user?.id),
   )
   const freeTables = computed(() => tables.value.filter((t) => t.session === null))
+  /** Live rounds attached to no session, floor-wide — the "Nepreluate" tab badge. */
+  const unclaimedOrderCount = computed(() =>
+    tables.value.reduce((n, t) => n + (t.unclaimedOrderCount ?? 0), 0),
+  )
   const unavailableProductIds = computed<Set<string>>(() => unavailableIds.value)
 
   function tableById(id: string): WaiterFloorTableDto | undefined {
@@ -265,6 +269,7 @@ export const useWaiterRealtimeStore = defineStore('waiterRealtime', () => {
     zones,
     myTables,
     freeTables,
+    unclaimedOrderCount,
     unavailableProductIds,
     tableById,
     // actions
