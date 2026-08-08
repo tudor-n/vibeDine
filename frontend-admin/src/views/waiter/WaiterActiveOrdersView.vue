@@ -17,8 +17,9 @@ import { formatMoney } from '@/utils/money'
  * Ownership follows the table session (backend-stamped): a waiter's feed is
  * server-filtered to the rounds assigned to them — their typed rounds, QR rounds
  * on their claimed tables, rounds adopted at claim, and anything transferred to
- * them. Managers get the whole board, where a truly unassigned round (QR on an
- * unclaimed table) still offers the order-level "Preia comanda".
+ * them. Managers get the whole board. There is deliberately no order-level
+ * "Preia comanda" here: taking ownership means claiming the TABLE (from
+ * "Nepreluate" or the floor), which assigns its rounds in the same motion.
  */
 const auth = useAuthStore()
 const toast = useToast()
@@ -107,24 +108,6 @@ async function fetchActive() {
     // Keep the last good list; the next poll reconciles it.
   } finally {
     isLoading.value = false
-  }
-}
-
-/** "Preia comanda" — same order-level claim the admin floor plan offers. */
-async function claim(order: ActiveOrder) {
-  if (busyOrderIds.value.has(order.id)) return
-  withBusy(order.id, true)
-  try {
-    const result = await apiClient.claimOrder(order.id)
-    order.claimedByWaiterId = result.claimedByWaiterId
-    order.claimedByName = result.claimedByName ?? auth.user?.fullName ?? null
-    toast.success(`Ai preluat comanda #${order.orderNumber ?? '—'}.`)
-  } catch (err) {
-    // 409: the API's message already names the colleague who claimed first.
-    toast.error(err instanceof Error ? err.message : 'Comanda nu a putut fi preluată.')
-    await fetchActive()
-  } finally {
-    withBusy(order.id, false)
   }
 }
 
@@ -274,21 +257,11 @@ onBeforeUnmount(() => {
           </div>
         </footer>
 
-        <!-- Primary action: claim it, or move it one step forward. Assignment
-             follows the table session, so a waiter's feed only ever holds their
-             own rounds — the claim button is a manager affordance for the rare
-             truly-unassigned round (QR on an unclaimed table). -->
+        <!-- Primary action: move the round one step forward. No order-level
+             claim here — ownership is taken by claiming the table, so rounds
+             arrive on this board already assigned. -->
         <button
-          v-if="isManager && !order.claimedByWaiterId"
-          type="button"
-          class="oc-action oc-action--claim"
-          :disabled="busyOrderIds.has(order.id)"
-          @click="claim(order)"
-        >
-          {{ busyOrderIds.has(order.id) ? 'Se preia…' : 'Preia comanda' }}
-        </button>
-        <button
-          v-else-if="canInteract(order) && nextLabel(order.status)"
+          v-if="canInteract(order) && nextLabel(order.status)"
           type="button"
           class="oc-action"
           :disabled="busyOrderIds.has(order.id)"
@@ -601,10 +574,5 @@ onBeforeUnmount(() => {
 }
 .oc-action:active { filter: brightness(1.15); }
 .oc-action:disabled { opacity: 0.6; cursor: default; }
-.oc-action--claim {
-  background: var(--accent);
-  color: var(--onAccent);
-}
 [data-theme='dark'] .oc-action { color: var(--accent); }
-[data-theme='dark'] .oc-action--claim { color: var(--onAccent); }
 </style>
