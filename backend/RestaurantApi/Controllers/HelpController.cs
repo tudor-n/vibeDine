@@ -56,6 +56,15 @@ public class HelpController : ControllerBase
         _db.HelpRequests.Add(req);
         await _db.SaveChangesAsync();
 
+        // A call from a claimed table belongs to the waiter serving it; every
+        // client still receives the broadcast (one WaitStaff group), but the
+        // assignment lets each phone decide whether the call is theirs to show.
+        var session = await _db.TableServiceSessions
+            .AsNoTracking()
+            .Where(s => s.TableId == tableId && s.Status == "open")
+            .Select(s => new { s.WaiterUserId, s.WaiterName })
+            .FirstOrDefaultAsync();
+
         await _staffHub.Clients
             .Group(TenantGroups.Role(restaurantId, "WaitStaff"))
             .SendAsync("HelpRequested", new
@@ -63,7 +72,9 @@ public class HelpController : ControllerBase
                 requestId = req.Id,
                 tableId,
                 tableNumber = table.TableNumber,
-                createdAt = req.CreatedAt
+                createdAt = req.CreatedAt,
+                assignedWaiterUserId = session?.WaiterUserId,
+                assignedWaiterName = session?.WaiterName,
             });
 
         // Return the cooldown end as an explicit ISO-8601 (round-trip "O") string so the
@@ -78,21 +89,38 @@ public class HelpController : ControllerBase
     // Staff dashboard (admin + waiter) lists the open calls. [Authorize] requires a
     // signed-in user; the explicit tenant-access check stops a signed-in user from
     // reading another restaurant's calls by swapping the {restaurantId} in the URL.
+    // Calls carry the waiter whose open session covers the table (null = nobody's
+    // yet); a Waiter-role caller only gets the unassigned ones plus their own —
+    // a colleague's table calling for its waiter is not everyone's alarm.
     [Authorize]
     [HttpGet("restaurants/{restaurantId:guid}/help-requests")]
     public async Task<IActionResult> List(Guid restaurantId)
     {
         if (!await _access.CanAccessRestaurantAsync(UserId, restaurantId)) return Forbid();
 
-        var items = await _db.HelpRequests
-            .Where(h => h.Status == "open")
-            .OrderBy(h => h.CreatedAt)
-            .Join(_db.Tables, h => h.TableId, t => t.Id, (h, t) => new
+        var canManage = await _access.CanManageRestaurantAsync(UserId, restaurantId);
+
+        var query = from h in _db.HelpRequests
+                    where h.Status == "open"
+                    join t in _db.Tables on h.TableId equals t.Id
+                    join open in _db.TableServiceSessions.Where(s => s.Status == "open")
+                        on h.TableId equals open.TableId into sessions
+                    from s in sessions.DefaultIfEmpty()
+                    select new { h, t, s };
+
+        if (!canManage)
+            query = query.Where(x => x.s == null || x.s.WaiterUserId == UserId);
+
+        var items = await query
+            .OrderBy(x => x.h.CreatedAt)
+            .Select(x => new
             {
-                requestId = h.Id,
-                tableId = h.TableId,
-                tableNumber = t.TableNumber,
-                createdAt = h.CreatedAt
+                requestId = x.h.Id,
+                tableId = x.h.TableId,
+                tableNumber = x.t.TableNumber,
+                createdAt = x.h.CreatedAt,
+                assignedWaiterUserId = x.s != null ? x.s.WaiterUserId : null,
+                assignedWaiterName = x.s != null ? x.s.WaiterName : null,
             })
             .ToListAsync();
         return Ok(items);
