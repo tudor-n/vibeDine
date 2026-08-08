@@ -166,7 +166,7 @@ the restaurant realm exactly like the rest of the admin console:
 - Role separation is the **path allow-list**: a `Waiter` may only reach the suffixes below.
   Everything else 403s even though the membership check passed.
 
-### The twelve waiter-allowed pairs
+### The sixteen waiter-allowed pairs
 
 `Tenancy/TenantResolutionMiddleware.WaiterAllowedPaths` — anchored regexes,
 `IgnoreCase | Compiled`, matched against the path **after** `/api/restaurants/{rid}`:
@@ -185,6 +185,10 @@ the restaurant realm exactly like the rest of the admin console:
 | `PATCH` | `^/waiter/orders/{guid}/items/?$` |
 | `POST` | `^/waiter/orders/{guid}/submit/?$` |
 | `POST` | `^/waiter/orders/{guid}/cancel/?$` |
+| `GET` | `^/waiter/aux-table/?$` |
+| `POST` | `^/waiter/orders/{guid}/items/{guid}/move-to-aux/?$` |
+| `POST` | `^/waiter/aux-table/items/{guid}/move-to-table/?$` |
+| `DELETE` | `^/waiter/aux-table/items/{guid}/?$` |
 
 `{guid}` is the existing `[0-9a-fA-F-]{36}` form. The ten pre-existing entries (orders
 board, zones/tables read, help queue, branding read) are untouched.
@@ -235,6 +239,10 @@ backend/RestaurantApi/
 | `PATCH /orders/{id}/items` | `{ items: [{ productId, quantity, notes? }] }` — full replace, `draft` only |
 | `POST /orders/{id}/submit` | price it, number it, **dispatch to the kitchen immediately** |
 | `POST /orders/{id}/cancel` | draft → hard delete; anything live → `cancelled` + stock restore |
+| `GET  /aux-table` | the caller's **masa auxiliară**: parked lines + total → `WaiterAuxTableResponse` |
+| `POST /orders/{id}/items/{itemId}/move-to-aux` | `{ quantity? }` — pull (part of) a line off a live round onto the caller's aux; source total shrinks; an emptied round auto-cancels **without** a stock restore |
+| `POST /aux-table/items/{id}/move-to-table` | `{ tableId }` — land the parked line on one of the caller's tables, as an archived `completed` round (on the bill, never on the kanban, stock untouched) |
+| `DELETE /aux-table/items/{id}` | write the parked line off (stock stays consumed) |
 
 The menu comes from the existing anonymous `GET /api/restaurants/{rid}/menu` — Waiter Mode
 adds no menu endpoint.
@@ -344,6 +352,7 @@ frontend-admin/src/
 | `/waiter/orders` | `waiter-active-orders` | "Comenzi" — the active-orders feed, phone-first (status segments, claim/advance; cancel manager-only) |
 | `/waiter/unclaimed` | `waiter-unclaimed` | "Nepreluate" — QR rounds on unclaimed tables, grouped per table, with "Preia masa" |
 | `/waiter/calls` | `waiter-mode-calls` | "Apeluri" — the live help queue, in-shell (the admin `waiter-calls` page is separate) |
+| `/waiter/aux` | `waiter-aux` | "Masa auxiliară" — the caller's private holding area (entry card sits on "Mesele mele"; lines are pulled per-item from the table screen's rounds) |
 
 Waiters **land on `/waiter`**: the router guard's waiter fallback redirects to
 `waiter-floor` instead of `orders-active`. The old orders board stays reachable — it is
