@@ -73,90 +73,89 @@ async function accept(requestId: string) {
       </div>
     </header>
 
-    <div v-if="!store.count" class="calls-empty">
-      <div class="calls-empty-mark" aria-hidden="true">✓</div>
-      <p class="calls-empty-title">Nicio chemare activă</p>
-      <p class="calls-empty-text">Când o masă cheamă un ospătar, apare instant aici.</p>
-    </div>
+    <!-- ── Chemările mele — the caller's own claimed tables. Always visible,
+         so the split reads even with an empty queue. ─────────────────────── -->
+    <section class="calls-section">
+      <h2 class="section-head section-head--mine">
+        Chemările mele
+        <span v-if="myCalls.length" class="section-count">{{ myCalls.length }}</span>
+      </h2>
+      <p v-if="!myCalls.length" class="section-empty">
+        Nicio chemare de la mesele tale.
+      </p>
+      <ul v-else class="calls-list">
+        <li v-for="c in myCalls" :key="c.requestId" class="card-white call-card call-card--mine">
+          <div class="call-meta">
+            <span class="call-eyebrow">Masa ta</span>
+            <span class="call-table">{{ c.tableNumber || '—' }}</span>
+            <span class="call-ago">{{ ago(c.createdAt) }}</span>
+          </div>
+          <button
+            type="button"
+            class="call-accept"
+            :disabled="accepting.has(c.requestId)"
+            @click="accept(c.requestId)"
+          >
+            {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
+          </button>
+        </li>
+      </ul>
+    </section>
 
-    <template v-else>
-      <!-- ── Chemările mele — the caller's own claimed tables ─────────────── -->
-      <section v-if="myCalls.length" class="calls-section">
-        <h2 class="section-head section-head--mine">
-          Chemările mele
-          <span class="section-count">{{ myCalls.length }}</span>
-        </h2>
-        <ul class="calls-list">
-          <li v-for="c in myCalls" :key="c.requestId" class="card-white call-card call-card--mine">
-            <div class="call-meta">
-              <span class="call-eyebrow">Masa ta</span>
-              <span class="call-table">{{ c.tableNumber || '—' }}</span>
-              <span class="call-ago">{{ ago(c.createdAt) }}</span>
-            </div>
-            <button
-              type="button"
-              class="call-accept"
-              :disabled="accepting.has(c.requestId)"
-              @click="accept(c.requestId)"
-            >
-              {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
-            </button>
-          </li>
-        </ul>
-      </section>
+    <!-- ── Chemări fără ospătar — unclaimed tables, anyone can take them ──── -->
+    <section class="calls-section">
+      <h2 class="section-head">
+        Chemări fără ospătar
+        <span v-if="unassignedCalls.length" class="section-count">{{ unassignedCalls.length }}</span>
+      </h2>
+      <p class="section-hint">De la mese nepreluate — oricine poate accepta.</p>
+      <p v-if="!unassignedCalls.length" class="section-empty">
+        Nicio chemare de la mese nepreluate.
+      </p>
+      <ul v-else class="calls-list">
+        <li v-for="c in unassignedCalls" :key="c.requestId" class="card-white call-card">
+          <div class="call-meta">
+            <span class="call-eyebrow">Masa</span>
+            <span class="call-table">{{ c.tableNumber || '—' }}</span>
+            <span class="call-ago">{{ ago(c.createdAt) }}</span>
+          </div>
+          <button
+            type="button"
+            class="call-accept"
+            :disabled="accepting.has(c.requestId)"
+            @click="accept(c.requestId)"
+          >
+            {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
+          </button>
+        </li>
+      </ul>
+    </section>
 
-      <!-- ── Chemări fără ospătar — unclaimed tables, anyone can take them ── -->
-      <section v-if="unassignedCalls.length" class="calls-section">
-        <h2 class="section-head">
-          Chemări fără ospătar
-          <span class="section-count">{{ unassignedCalls.length }}</span>
-        </h2>
-        <p class="section-hint">De la mese nepreluate — oricine poate accepta.</p>
-        <ul class="calls-list">
-          <li v-for="c in unassignedCalls" :key="c.requestId" class="card-white call-card">
-            <div class="call-meta">
-              <span class="call-eyebrow">Masa</span>
-              <span class="call-table">{{ c.tableNumber || '—' }}</span>
-              <span class="call-ago">{{ ago(c.createdAt) }}</span>
-            </div>
-            <button
-              type="button"
-              class="call-accept"
-              :disabled="accepting.has(c.requestId)"
-              @click="accept(c.requestId)"
-            >
-              {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
-            </button>
-          </li>
-        </ul>
-      </section>
-
-      <!-- ── La colegi — only managers ever hold these in the store ───────── -->
-      <section v-if="otherCalls.length" class="calls-section">
-        <h2 class="section-head">
-          La colegi
-          <span class="section-count">{{ otherCalls.length }}</span>
-        </h2>
-        <ul class="calls-list">
-          <li v-for="c in otherCalls" :key="c.requestId" class="card-white call-card call-card--other">
-            <div class="call-meta">
-              <span class="call-eyebrow">Ospătar · {{ c.assignedWaiterName || 'coleg' }}</span>
-              <span class="call-table">{{ c.tableNumber || '—' }}</span>
-              <span class="call-ago">{{ ago(c.createdAt) }}</span>
-            </div>
-            <button
-              v-if="isManager"
-              type="button"
-              class="call-accept"
-              :disabled="accepting.has(c.requestId)"
-              @click="accept(c.requestId)"
-            >
-              {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
-            </button>
-          </li>
-        </ul>
-      </section>
-    </template>
+    <!-- ── La colegi — only managers ever hold these in the store ─────────── -->
+    <section v-if="otherCalls.length" class="calls-section">
+      <h2 class="section-head">
+        La colegi
+        <span class="section-count">{{ otherCalls.length }}</span>
+      </h2>
+      <ul class="calls-list">
+        <li v-for="c in otherCalls" :key="c.requestId" class="card-white call-card call-card--other">
+          <div class="call-meta">
+            <span class="call-eyebrow">Ospătar · {{ c.assignedWaiterName || 'coleg' }}</span>
+            <span class="call-table">{{ c.tableNumber || '—' }}</span>
+            <span class="call-ago">{{ ago(c.createdAt) }}</span>
+          </div>
+          <button
+            v-if="isManager"
+            type="button"
+            class="call-accept"
+            :disabled="accepting.has(c.requestId)"
+            @click="accept(c.requestId)"
+          >
+            {{ accepting.has(c.requestId) ? 'Se acceptă…' : 'Acceptă' }}
+          </button>
+        </li>
+      </ul>
+    </section>
   </div>
 </template>
 
@@ -189,41 +188,18 @@ async function accept(requestId: string) {
   box-shadow: 0 12px 28px -12px rgba(255, 74, 28, 0.7);
 }
 
-.calls-empty {
-  margin-top: 8px;
-  padding: 42px 24px;
-  border-radius: 22px;
-  background: var(--card, var(--paperHi));
-  border: 1px dashed var(--ink12);
-  display: grid;
-  place-items: center;
-  text-align: center;
-  gap: 4px;
-}
-.calls-empty-mark {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--lime);
-  color: var(--onLime, #15140f);
-  font-size: 24px;
-  font-weight: 800;
-  margin-bottom: 8px;
-}
-.calls-empty-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ink);
-}
-.calls-empty-text {
-  font-size: 13.5px;
-  color: var(--ink70);
-  max-width: 30ch;
-}
-
 /* ── Sections ────────────────────────────────────────────────────────────── */
+.section-empty {
+  padding: 18px 12px;
+  text-align: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink40);
+  border: 1px dashed var(--ink12);
+  border-radius: 14px;
+}
 .calls-section { margin-bottom: 20px; }
 .section-head {
   display: flex;
