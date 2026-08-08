@@ -95,6 +95,17 @@ public sealed class OrderFinalizationService : BackgroundService
                     status = order.Status,
                 }, ct);
 
+            // Parked orders: the customer joined the ORIGINAL table's group, so mirror the
+            // status broadcast there or their live timeline goes silent while it's parked.
+            if (order.MovedFromTableId is Guid homeTableId)
+                await customerHub.Clients
+                    .Group(TenantGroups.Table(order.RestaurantId, homeTableId))
+                    .SendAsync("OrderStatusUpdated", new
+                    {
+                        orderId = order.Id,
+                        status = order.Status,
+                    }, ct);
+
             await staffHub.Clients
                 .Group(TenantGroups.Role(order.RestaurantId, "admin"))
                 .SendAsync("OrderFinalized", new

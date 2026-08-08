@@ -17,7 +17,7 @@ namespace RestaurantApi.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.0")
+                .HasAnnotation("ProductVersion", "8.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -716,6 +716,14 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("merged_into_order_id");
 
+                    b.Property<Guid?>("MovedFromTableId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("moved_from_table_id");
+
+                    b.Property<DateTime?>("MovedToAuxAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("moved_to_aux_at");
+
                     b.Property<int?>("OrderNumber")
                         .HasColumnType("integer")
                         .HasColumnName("order_number");
@@ -754,6 +762,8 @@ namespace RestaurantApi.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ClaimedByWaiterId");
+
+                    b.HasIndex("MovedFromTableId");
 
                     b.HasIndex("RestaurantId");
 
@@ -1120,6 +1130,10 @@ namespace RestaurantApi.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid?>("AssignedWaiterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assigned_waiter_id");
+
                     b.Property<int>("Capacity")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -1129,6 +1143,12 @@ namespace RestaurantApi.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
+
+                    b.Property<bool>("IsAux")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_aux");
 
                     b.Property<double>("PositionX")
                         .HasColumnType("double precision")
@@ -1164,12 +1184,18 @@ namespace RestaurantApi.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedWaiterId");
+
                     b.HasIndex("QrToken")
                         .IsUnique();
 
                     b.HasIndex("RestaurantId");
 
                     b.HasIndex("ZoneId");
+
+                    b.HasIndex("RestaurantId", "AssignedWaiterId")
+                        .IsUnique()
+                        .HasFilter("is_aux AND deleted_at IS NULL");
 
                     b.ToTable("tables", (string)null);
                 });
@@ -1525,6 +1551,11 @@ namespace RestaurantApi.Migrations
                         .HasForeignKey("ClaimedByWaiterId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("RestaurantApi.Models.RestaurantTable", null)
+                        .WithMany()
+                        .HasForeignKey("MovedFromTableId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("RestaurantApi.Models.RestaurantTable", "Table")
                         .WithMany("Orders")
                         .HasForeignKey("TableId")
@@ -1616,10 +1647,17 @@ namespace RestaurantApi.Migrations
 
             modelBuilder.Entity("RestaurantApi.Models.RestaurantTable", b =>
                 {
+                    b.HasOne("RestaurantApi.Models.AppUser", "AssignedWaiter")
+                        .WithMany()
+                        .HasForeignKey("AssignedWaiterId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("RestaurantApi.Models.TableZone", null)
                         .WithMany()
                         .HasForeignKey("ZoneId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("AssignedWaiter");
                 });
 
             modelBuilder.Entity("RestaurantApi.Models.SimilarityRule", b =>

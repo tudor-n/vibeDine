@@ -462,6 +462,9 @@ public class AdminController : ControllerBase
                 readyAt = o.ReadyAt,
                 tableId = o.TableId,
                 tableNumber = o.Table != null ? o.Table.TableNumber : "?",
+                isAuxTable = o.Table != null && o.Table.IsAux,
+                auxWaiterName = o.Table != null && o.Table.AssignedWaiter != null ? o.Table.AssignedWaiter.FullName : null,
+                movedFromTableId = o.MovedFromTableId,
                 claimedByWaiterId = o.ClaimedByWaiterId,
                 claimedByName = o.ClaimedByWaiter != null ? o.ClaimedByWaiter.FullName : null,
                 claimedAt = o.ClaimedAt,
@@ -534,6 +537,13 @@ public class AdminController : ControllerBase
                 status = order.Status,
             });
 
+        // Parked orders: the customer joined the ORIGINAL table's group, so mirror the
+        // status broadcast there or their live timeline goes silent while it's parked.
+        if (order.MovedFromTableId is Guid homeTableId)
+            await _customerHub.Clients
+                .Group(TenantGroups.Table(order.RestaurantId, homeTableId))
+                .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
+
         // And to other admin sessions so the kanban stays in sync across tabs.
         await _staffHub.Clients
             .Group(TenantGroups.Role(order.RestaurantId, "admin"))
@@ -585,6 +595,13 @@ public class AdminController : ControllerBase
         await _customerHub.Clients
             .Group(TenantGroups.Table(order.RestaurantId, order.TableId))
             .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
+
+        // Parked orders: the customer joined the ORIGINAL table's group, so mirror the
+        // status broadcast there or their live timeline goes silent while it's parked.
+        if (order.MovedFromTableId is Guid homeTableId)
+            await _customerHub.Clients
+                .Group(TenantGroups.Table(order.RestaurantId, homeTableId))
+                .SendAsync("OrderStatusUpdated", new { orderId = order.Id, status = order.Status });
 
         // Other admin tabs drop the card from the board.
         await _staffHub.Clients

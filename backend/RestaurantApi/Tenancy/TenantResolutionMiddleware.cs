@@ -25,7 +25,9 @@ public class TenantResolutionMiddleware
     // the part after /api/restaurants/{rid}. Anything outside this set returns 403
     // even though they pass the membership check. Waiters get: the orders board and
     // log (read + advance status), the floor plan (read-only zones/tables layout +
-    // claim/release their own orders), and the waiter-call queue. Write endpoints
+    // claim/release their own orders), parking a claimed order on their own aux
+    // table (move-to-aux; the manager-only aux console and unpark/reassign
+    // endpoints stay off this list), and the waiter-call queue. Write endpoints
     // for menu, zones, tables, AI config, etc. stay manager-only — both the verb
     // and the path must match, so e.g. POST /admin/zones (create zone) is rejected
     // while GET /admin/zones (read layout) is allowed.
@@ -36,6 +38,7 @@ public class TenantResolutionMiddleware
         ("PATCH", new(@"^/admin/orders/[0-9a-fA-F-]{36}/status/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("POST",  new(@"^/admin/orders/[0-9a-fA-F-]{36}/claim/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("POST",  new(@"^/admin/orders/[0-9a-fA-F-]{36}/release/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
+        ("POST",  new(@"^/admin/orders/[0-9a-fA-F-]{36}/move-to-aux/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("GET",   new(@"^/admin/zones/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("GET",   new(@"^/admin/tables/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),
         ("GET",   new(@"^/help-requests/?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)),

@@ -27,6 +27,17 @@ public class RestaurantTable : ITenantScoped {
     public double PositionX { get; set; }
     public double PositionY { get; set; }
 
+    // Auxiliary (parking) table owned by one staff member, used to park problem
+    // orders. Never appears on the floor plan or the QR table list; QrToken
+    // stays null. Managed via AuxTablesController, invisible to TablesController.
+    public bool IsAux { get; set; }
+
+    // The waiter who owns this aux table (one live aux table per staff member
+    // per restaurant). SetNull on user hard-delete so parked orders survive the
+    // account's removal.
+    public Guid? AssignedWaiterId { get; set; }
+    public AppUser? AssignedWaiter { get; set; }
+
     // Soft-delete marker. A non-null value hides the table from the admin list
     // and stops its QR token from resolving, while keeping the row (and its
     // historical orders) intact for reporting. See TablesController.Delete.

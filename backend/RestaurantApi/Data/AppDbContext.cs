@@ -116,17 +116,30 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(t => t.ZoneId).HasColumnName("zone_id");
             e.Property(t => t.PositionX).HasColumnName("position_x");
             e.Property(t => t.PositionY).HasColumnName("position_y");
+            e.Property(t => t.IsAux).HasColumnName("is_aux").HasDefaultValue(false);
+            e.Property(t => t.AssignedWaiterId).HasColumnName("assigned_waiter_id");
             e.Property(t => t.DeletedAt).HasColumnName("deleted_at");
             // qr_token is the customer's globally-unique entry point; it must resolve a
             // single table across the whole platform.
             e.HasIndex(t => t.QrToken).IsUnique();
             e.HasIndex(t => t.RestaurantId);
+            // One live aux table per staff member per restaurant.
+            e.HasIndex(t => new { t.RestaurantId, t.AssignedWaiterId })
+             .IsUnique()
+             .HasFilter("is_aux AND deleted_at IS NULL");
 
             // Optional FK to a floor-plan zone. Deleting a zone unassigns its
             // tables rather than removing them.
             e.HasOne<TableZone>()
              .WithMany()
              .HasForeignKey(t => t.ZoneId)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // The staff member owning this aux table. SetNull so removing the
+            // user keeps the table (and its parked orders) intact.
+            e.HasOne(t => t.AssignedWaiter)
+             .WithMany()
+             .HasForeignKey(t => t.AssignedWaiterId)
              .OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -159,6 +172,8 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.Property(o => o.StockDecremented).HasColumnName("stock_decremented").HasDefaultValue(false);
             e.Property(o => o.ClaimedByWaiterId).HasColumnName("claimed_by_waiter_id");
             e.Property(o => o.ClaimedAt).HasColumnName("claimed_at");
+            e.Property(o => o.MovedFromTableId).HasColumnName("moved_from_table_id");
+            e.Property(o => o.MovedToAuxAt).HasColumnName("moved_to_aux_at");
             e.HasIndex(o => o.RestaurantId);
             e.HasIndex(o => new { o.RestaurantId, o.OrderNumber });
             // Fast "is there a draft for this guest at this table" lookup.
@@ -173,6 +188,13 @@ public class AppDbContext : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>
             e.HasOne(o => o.ClaimedByWaiter)
              .WithMany()
              .HasForeignKey(o => o.ClaimedByWaiterId)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // The regular table the order sat on before being parked on an aux
+            // table. SetNull so deleting that table doesn't strand the order.
+            e.HasOne<RestaurantTable>()
+             .WithMany()
+             .HasForeignKey(o => o.MovedFromTableId)
              .OnDelete(DeleteBehavior.SetNull);
         });
 

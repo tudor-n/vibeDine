@@ -52,7 +52,7 @@ public class TablesController : ControllerBase
     public async Task<IActionResult> List()
     {
         var tables = await _db.Tables
-            .Where(t => t.DeletedAt == null)
+            .Where(t => t.DeletedAt == null && !t.IsAux)
             .OrderBy(t => t.TableNumber)
             .Select(t => new TableResponse(t.Id, t.TableNumber, t.QrToken ?? Guid.Empty, t.ZoneId, t.PositionX, t.PositionY, t.Capacity, t.Shape))
             .ToListAsync();
@@ -95,8 +95,11 @@ public class TablesController : ControllerBase
     [HttpPost("{id:guid}/regenerate")]
     public async Task<IActionResult> Regenerate(Guid id)
     {
+        // Aux (parking) tables live off the floor plan and have no QR — they are
+        // invisible to this controller (see AuxTablesController).
         var table = await _db.Tables.FindAsync(id);
-        if (table == null) return NotFound(new { message = "Table not found." });
+        if (table == null || table.DeletedAt != null || table.IsAux)
+            return NotFound(new { message = "Table not found." });
 
         table.QrToken = Guid.NewGuid();
         await _db.SaveChangesAsync();
@@ -110,7 +113,7 @@ public class TablesController : ControllerBase
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateTableRequest request)
     {
         var table = await _db.Tables.FindAsync(id);
-        if (table == null || table.DeletedAt != null)
+        if (table == null || table.DeletedAt != null || table.IsAux)
             return NotFound(new { message = "Table not found." });
 
         if (request.TableNumber != null)
@@ -165,7 +168,7 @@ public class TablesController : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         var table = await _db.Tables.FindAsync(id);
-        if (table == null || table.DeletedAt != null)
+        if (table == null || table.DeletedAt != null || table.IsAux)
             return NotFound(new { message = "Table not found." });
 
         if (await _db.Orders.AnyAsync(o => o.TableId == id

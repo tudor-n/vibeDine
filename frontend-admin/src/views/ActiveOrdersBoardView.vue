@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { apiClient, type ActiveOrder, type ActiveOrderStatus } from '@/services/api-client'
+import { apiClient, auxApi, waiterApi, type ActiveOrder, type ActiveOrderStatus, type WaiterRow } from '@/services/api-client'
+import type { MoveOrderToAuxPayload } from '@shared/types/models'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/utils/money'
 
 type ActiveStatus = ActiveOrderStatus
 
 const route = useRoute()
 const auth = useAuthStore()
+const toast = useToast()
 const orders = ref<ActiveOrder[]>([])
 const isLoading = ref(false)
 const error = ref<string | null>(null)
@@ -159,6 +162,96 @@ async function cancelOrder(order: ActiveOrder) {
   }
 }
 
+// ── „Mută” — move an order (whole or selected items) onto an aux table ──────
+// Waiters move their own claimed orders onto their OWN aux table; managers move
+// any order and must pick the target waiter. Orders already on an aux table
+// (isAuxTable) are handled from the manager console, not from the board.
+const moveOrder = ref<ActiveOrder | null>(null) // order being moved; null = modal closed
+const moveScope = ref<'whole' | 'items'>('whole')
+const moveQuantities = ref<Record<string, number>>({}) // orderItemId → qty to move (items mode)
+const moveTargetWaiterId = ref<string | null>(null)
+const moveBusy = ref(false)
+const waiters = ref<WaiterRow[]>([])
+const waitersLoaded = ref(false)
+const waitersLoading = ref(false)
+
+function openMove(order: ActiveOrder) {
+  moveOrder.value = order
+  moveScope.value = 'whole'
+  moveTargetWaiterId.value = null
+  moveBusy.value = false
+  const quantities: Record<string, number> = {}
+  for (const item of order.items) quantities[item.id] = 0
+  moveQuantities.value = quantities
+  // Managers pick the target waiter — load the active list once, lazily.
+  if (isManager.value && !waitersLoaded.value && !waitersLoading.value) loadWaiters()
+}
+
+function closeMove() {
+  moveOrder.value = null
+}
+
+async function loadWaiters() {
+  try {
+    waitersLoading.value = true
+    waiters.value = await waiterApi.listByRestaurant(auth.activeRestaurantId!, 'active')
+    waitersLoaded.value = true
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Nu am putut încărca ospătarii.')
+  } finally {
+    waitersLoading.value = false
+  }
+}
+
+function stepMoveQty(itemId: string, delta: number, max: number) {
+  const current = moveQuantities.value[itemId] ?? 0
+  moveQuantities.value[itemId] = Math.min(max, Math.max(0, current + delta))
+}
+
+// Total units picked in "Doar anumite produse" mode — 0 means nothing to move.
+const moveSelectedCount = computed(() =>
+  Object.values(moveQuantities.value).reduce((sum, qty) => sum + qty, 0),
+)
+
+const canSubmitMove = computed(() => {
+  if (!moveOrder.value || moveBusy.value) return false
+  if (moveScope.value === 'items' && moveSelectedCount.value === 0) return false
+  if (isManager.value && !moveTargetWaiterId.value) return false
+  return true
+})
+
+async function submitMove() {
+  const order = moveOrder.value
+  if (!order || !canSubmitMove.value) return
+
+  const payload: MoveOrderToAuxPayload = {}
+  if (isManager.value) payload.targetWaiterId = moveTargetWaiterId.value
+
+  if (moveScope.value === 'items') {
+    // Every item at full quantity = a whole-order move — send it as one (omit items).
+    const isWholeOrder = order.items.every(
+      (item) => (moveQuantities.value[item.id] ?? 0) === item.quantity,
+    )
+    if (!isWholeOrder) {
+      payload.items = order.items
+        .map((item) => ({ orderItemId: item.id, quantity: moveQuantities.value[item.id] ?? 0 }))
+        .filter((line) => line.quantity > 0)
+    }
+  }
+
+  try {
+    moveBusy.value = true
+    await auxApi.moveOrderToAux(order.id, payload)
+    toast.success('Comanda a fost mutată pe masa auxiliară.')
+    closeMove()
+    fetchActive()
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Mutarea pe masa auxiliară a eșuat.')
+  } finally {
+    moveBusy.value = false
+  }
+}
+
 async function onDrop(e: DragEvent, target: ActiveStatus) {
   e.preventDefault()
   const orderId = e.dataTransfer?.getData('text/plain') || dragOrderId.value
@@ -282,6 +375,9 @@ onBeforeUnmount(() => {
               <div class="kc-table">
                 <span class="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-70">Masa</span>
                 <span class="font-display text-base font-bold leading-none">{{ order.tableNumber ?? '?' }}</span>
+                <!-- Already parked on a waiter's aux table — the manager console
+                     handles it from here, the board just flags it. -->
+                <span v-if="order.isAuxTable" class="kc-aux-chip">AUX</span>
               </div>
             </div>
 
@@ -314,6 +410,14 @@ onBeforeUnmount(() => {
                   arhivare {{ secondsLeft(order) }}s
                 </span>
                 <button
+                  v-if="canInteract(order) && !order.isAuxTable"
+                  class="kc-move"
+                  type="button"
+                  title="Mută comanda pe o masă auxiliară"
+                  aria-label="Mută comanda"
+                  @click.stop="openMove(order)"
+                >Mută</button>
+                <button
                   class="kc-cancel"
                   type="button"
                   title="Anulează comanda"
@@ -341,6 +445,97 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </div>
+
+    <!-- „Mută” modal — whole order or selected items onto a waiter's aux table.
+         Teleported to <body> so it overlays the whole dashboard, clear of the
+         shell's stacking context (same pattern as the floor-plan modals). -->
+    <Teleport to="body">
+      <div v-if="moveOrder" class="mv-backdrop" @pointerdown.self="closeMove">
+        <div class="mv-modal card-white" role="dialog" aria-modal="true">
+          <div class="mv-head">
+            <div>
+              <div class="display-title text-2xl">Mută comanda #{{ moveOrder.orderNumber ?? '—' }}</div>
+              <div class="mv-sub">De pe masa {{ moveOrder.tableNumber ?? '?' }}</div>
+            </div>
+            <button type="button" class="icon-btn" aria-label="Închide" @click="closeMove">✕</button>
+          </div>
+
+          <!-- Scope: the whole order, or only some items (with quantities). -->
+          <div class="mv-field" role="radiogroup" aria-label="Ce se mută">
+            <label class="mv-radio" :class="{ 'mv-radio--on': moveScope === 'whole' }">
+              <input v-model="moveScope" type="radio" name="mv-scope" value="whole" />
+              <span>Toată comanda</span>
+            </label>
+            <label class="mv-radio" :class="{ 'mv-radio--on': moveScope === 'items' }">
+              <input v-model="moveScope" type="radio" name="mv-scope" value="items" />
+              <span>Doar anumite produse</span>
+            </label>
+          </div>
+
+          <div v-if="moveScope === 'items' && moveOrder" class="mv-field">
+            <div class="mv-label">Produse de mutat</div>
+            <div class="mv-items">
+              <div v-for="item in moveOrder.items" :key="item.id" class="mv-item">
+                <div class="mv-item-info">
+                  <span class="mv-item-name">{{ item.productName }}</span>
+                  <span class="mv-item-avail">×{{ item.quantity }}</span>
+                </div>
+                <!-- Stepper on purpose (no number input — native validation
+                     silently blocks submits elsewhere in this codebase). -->
+                <div class="mv-stepper">
+                  <button
+                    type="button"
+                    class="mv-step"
+                    :disabled="(moveQuantities[item.id] ?? 0) <= 0"
+                    aria-label="Mai puțin"
+                    @click="stepMoveQty(item.id, -1, item.quantity)"
+                  >−</button>
+                  <span class="mv-step-val">{{ moveQuantities[item.id] ?? 0 }}</span>
+                  <button
+                    type="button"
+                    class="mv-step"
+                    :disabled="(moveQuantities[item.id] ?? 0) >= item.quantity"
+                    aria-label="Mai mult"
+                    @click="stepMoveQty(item.id, 1, item.quantity)"
+                  >+</button>
+                </div>
+              </div>
+            </div>
+            <p v-if="moveSelectedCount === 0" class="mv-hint">Alege cel puțin un produs.</p>
+          </div>
+
+          <!-- Target: managers pick the waiter; waiters always get their own table. -->
+          <div class="mv-field">
+            <template v-if="isManager">
+              <div class="mv-label">Pe masa auxiliară a:</div>
+              <p v-if="waitersLoading" class="mv-hint">Se încarcă ospătarii…</p>
+              <template v-else>
+                <p v-if="waiters.length === 0" class="mv-hint">
+                  Niciun ospătar activ. Aprobă ospătari din pagina „Ospătari”.
+                </p>
+                <label
+                  v-for="w in waiters"
+                  :key="w.userId"
+                  class="mv-radio"
+                  :class="{ 'mv-radio--on': moveTargetWaiterId === w.userId }"
+                >
+                  <input v-model="moveTargetWaiterId" type="radio" name="mv-waiter" :value="w.userId" />
+                  <span>{{ w.fullName }}</span>
+                </label>
+              </template>
+            </template>
+            <p v-else class="mv-static">Comanda va fi mutată pe masa ta auxiliară.</p>
+          </div>
+
+          <div class="mv-actions">
+            <button type="button" class="btn-ghost" @click="closeMove">Renunță</button>
+            <button type="button" class="pill-btn-ink" :disabled="!canSubmitMove" @click="submitMove">
+              {{ moveBusy ? 'Se mută…' : 'Mută comanda' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -483,6 +678,22 @@ onBeforeUnmount(() => {
   color: var(--accentDk);
   border: 1px solid var(--accentBorder);
 }
+/* Order lives on a waiter's aux table — flagged next to the table label. */
+.kc-aux-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accentSoft);
+  color: var(--accentDk);
+  border: 1px solid var(--accentBorder);
+}
 .kanban-card--focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
@@ -572,6 +783,26 @@ onBeforeUnmount(() => {
 }
 .kc-cancel:hover {
   background: var(--accentSoft);
+}
+/* Same pill family as .kc-cancel, but neutral ink — a routine action, not a
+   destructive one. */
+.kc-move {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--ink12);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.kc-move:hover {
+  background: var(--ink06);
+  border-color: var(--ink);
 }
 .empty-slot {
   flex: 1;
@@ -679,5 +910,158 @@ onBeforeUnmount(() => {
   .kanban-card { cursor: default; }
   .kanban-card:active { cursor: default; }
   .empty-slot { padding: 48px 12px; }
+}
+
+/* ── „Mută” modal — teleported over the whole dashboard ── */
+.mv-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.mv-modal {
+  width: min(92vw, 460px);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 22px;
+  box-shadow: var(--shadow-pop);
+}
+.mv-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.mv-sub {
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink70);
+}
+.mv-field { margin-bottom: 16px; }
+.mv-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink70);
+  margin-bottom: 8px;
+}
+.mv-radio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--ink12);
+  border-radius: 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.mv-radio:hover { border-color: var(--ink); }
+.mv-radio--on {
+  border-color: var(--ink);
+  background: var(--paperHi);
+}
+.mv-radio input { accent-color: var(--ink); }
+.mv-radio span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.mv-items {
+  border: 1px solid var(--ink12);
+  border-radius: 14px;
+  padding: 2px 12px;
+}
+.mv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+}
+.mv-item + .mv-item { border-top: 1px solid var(--ink06); }
+.mv-item-info {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.mv-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mv-item-avail {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink70);
+  flex-shrink: 0;
+}
+.mv-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--ink12);
+  border-radius: 999px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.mv-step {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.mv-step:hover:not(:disabled) { background: var(--ink06); }
+.mv-step:disabled { opacity: 0.35; cursor: default; }
+.mv-step-val {
+  min-width: 26px;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.mv-hint {
+  margin: 6px 0 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink70);
+}
+.mv-static {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+.mv-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
 }
 </style>

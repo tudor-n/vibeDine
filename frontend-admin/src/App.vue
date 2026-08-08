@@ -192,6 +192,7 @@ const navGroups = computed<NavGroup[]>(() => {
       items: [
         { to: '/floor', icon: '▢', label: 'Sala', show: true, badge: floor.unclaimedCount },
         { to: '/tables', icon: '▦', label: 'Coduri QR', show: full },
+        { to: '/aux-tables', icon: '⇄', label: 'Mese auxiliare', show: full },
       ],
     },
     {

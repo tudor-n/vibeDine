@@ -297,3 +297,80 @@ export interface RestaurantBranding {
   logoBackground: string | null;
   logoIsDark: boolean | null;
 }
+
+
+// ── Aux tables ───────────────────────────────────────────────────────────────
+export interface AuxOrderItem {
+  id: UUID;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface AuxOrder {
+  id: UUID;
+  orderNumber: number | null;
+  status: OrderStatus;
+  totalAmount: number;
+  createdAt: ISODateString;
+  movedToAuxAt: ISODateString | null;
+  movedFromTableId: UUID | null;
+  movedFromTableNumber: string | null;
+  claimedByWaiterId: UUID | null;
+  claimedByName: string | null;
+  items: AuxOrderItem[];
+}
+
+export interface AuxTableRow {
+  waiterId: UUID;
+  waiterName: string;
+  avatarUrl: string | null;
+  /** False for orphan aux tables whose waiter membership is no longer active. */
+  isActiveStaff: boolean;
+  auxTableId: UUID | null;
+  auxTableNumber: string | null;
+  orders: AuxOrder[];
+}
+
+export interface MoveOrderToAuxPayload {
+  /** Manager: required target waiter. Waiter: omit (self). */
+  targetWaiterId?: UUID | null;
+  /** Omit for a whole-order move; quantities may be partial. */
+  items?: Array<{ orderItemId: UUID; quantity: number }> | null;
+}
+
+export interface MoveOrderToAuxResult {
+  movedOrderId: UUID;
+  movedOrderNumber: number | null;
+  auxTableId: UUID;
+  auxTableNumber: string | null;
+  auxWaiterId: UUID;
+  auxWaiterName: string | null;
+  sourceOrderId: UUID;
+  wholeOrderMoved: boolean;
+}
+
+export interface AuxOrderMoveResult {
+  orderId: UUID;
+  orderNumber: number | null;
+  tableId?: UUID;
+  tableNumber?: string | null;
+  auxTableId?: UUID;
+  auxTableNumber?: string | null;
+  auxWaiterId?: UUID;
+  auxWaiterName?: string | null;
+}
+
+export interface OrderMovedEvent {
+  orderId: UUID;
+  orderNumber: number | null;
+  tableId: UUID;
+  tableNumber: string | null;
+  isAux: boolean;
+  auxWaiterId: UUID | null;
+  auxWaiterName: string | null;
+  movedFromTableId: UUID | null;
+  movedFromTableNumber: string | null;
+  sourceOrderId: UUID;
+}

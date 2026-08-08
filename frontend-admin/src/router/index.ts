@@ -109,6 +109,11 @@ const router = createRouter({
             component: () => import('@/views/TablesView.vue')
         },
         {
+            path: '/aux-tables',
+            name: 'aux-tables',
+            component: () => import('@/views/AuxTablesView.vue')
+        },
+        {
             // Legacy entry point — the entire panel has moved into Settings → Colaboratori.
             // Keep the path so any old bookmark forwards to the new location.
             path: '/organization',

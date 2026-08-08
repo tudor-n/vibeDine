@@ -26,6 +26,8 @@ services:
       AiService__BaseUrl: "http://ai-service:8000"
       AllowedOrigins__0: "http://localhost:3000"
       AllowedOrigins__1: "http://localhost:3001"
+      # vibeDine Logistic signs in against this realm (auth only), so its origin needs allowing.
+      AllowedOrigins__2: "http://localhost:3004"
       ASPNETCORE_ENVIRONMENT: "Development"
       # appsettings.Development.json is excluded by .dockerignore, so JWT config
       # must come from the environment (same pattern as the connection string).

@@ -55,6 +55,16 @@ public class Order : ITenantScoped {
 
     public DateTime? ClaimedAt { get; set; }
 
+    // The regular table this order sat on before being parked on a waiter's aux
+    // table; null when not parked. Enables "return to original table" and keeps
+    // the customer's realtime updates flowing — status broadcasts also target
+    // this table's SignalR group while the order is parked.
+    public Guid? MovedFromTableId { get; set; }
+
+    // When the order was parked on an aux table (the incident's age). Survives
+    // reassignment between aux tables; null when not parked.
+    public DateTime? MovedToAuxAt { get; set; }
+
     public ICollection<OrderItem> Items { get; set; } = [];
 
     public ICollection<FlashDealOffer> FlashDeals { get; set; } = [];

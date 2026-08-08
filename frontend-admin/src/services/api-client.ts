@@ -12,6 +12,10 @@ import type {
     StockTrackingMode,
     StockUnitCode,
     RestaurantBranding,
+    AuxTableRow,
+    MoveOrderToAuxPayload,
+    MoveOrderToAuxResult,
+    AuxOrderMoveResult,
 } from '@shared/types/models';
 import { useAuthStore, type UserProfile } from '@/stores/useAuthStore';
 import { assertBrandingAssetSize, type BrandingAssetKind } from '@/services/brandingUpload';
@@ -495,6 +499,29 @@ export const zonesApi = {
         }),
 };
 
+// ── Aux tables (mese auxiliare) ──────────────────────────────────────────────
+export const auxApi = {
+    list: () => authedFetcher<AuxTableRow[]>(scoped('/admin/aux-tables')),
+
+    moveOrderToAux: (orderId: string, payload: MoveOrderToAuxPayload) =>
+        authedFetcher<MoveOrderToAuxResult>(scoped(`/admin/orders/${orderId}/move-to-aux`), {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    moveToTable: (orderId: string, tableId: string) =>
+        authedFetcher<AuxOrderMoveResult>(scoped(`/admin/aux-tables/orders/${orderId}/move-to-table`), {
+            method: 'POST',
+            body: JSON.stringify({ tableId }),
+        }),
+
+    reassign: (orderId: string, waiterId: string) =>
+        authedFetcher<AuxOrderMoveResult>(scoped(`/admin/aux-tables/orders/${orderId}/reassign`), {
+            method: 'POST',
+            body: JSON.stringify({ waiterId }),
+        }),
+}
+
 export interface WaiterCall {
     requestId: string;
     tableId: string;
@@ -527,6 +554,10 @@ export interface ActiveOrder {
     claimedByWaiterId: string | null;
     claimedByName: string | null;
     claimedAt: string | null;
+    // Aux-table state (masa auxiliară) — present once the backend slice ships.
+    isAuxTable?: boolean;
+    auxWaiterName?: string | null;
+    movedFromTableId?: string | null;
     items: ActiveOrderItem[];
 }
 

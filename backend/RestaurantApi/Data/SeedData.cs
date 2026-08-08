@@ -11,6 +11,8 @@ public static class SeedData
     private static readonly Guid DemoRestaurantId = Guid.Parse("00000000-0000-0000-0000-0000000000b1");
     private const string DemoOwnerEmail    = "supporter@demo.test";
     private const string DemoOwnerPassword = "Demo1234!";
+    private const string DemoWaiterEmail    = "waiter@demo.test";
+    private const string DemoWaiterPassword = "Demo1234!";
 
     public static async Task InitializeAsync(IServiceProvider services)
     {
@@ -59,6 +61,31 @@ public static class SeedData
             OrganizationId = org.Id,
             RestaurantId = null,
             Role = MembershipRole.OrgOwner,
+        });
+
+        // ── Demo waiter ──────────────────────────────────────────────────────────
+        // Waiter-scoped flows (order claiming, aux parking tables) need a second
+        // staff account — the owner alone can't exercise them.
+        var waiter = await users.FindByEmailAsync(DemoWaiterEmail);
+        if (waiter == null)
+        {
+            waiter = new AppUser
+            {
+                UserName = DemoWaiterEmail,
+                Email = DemoWaiterEmail,
+                FullName = "Demo Ospătar",
+                // Demo account must be usable without SMTP (no inbox exists for it).
+                EmailConfirmed = true,
+            };
+            await users.CreateAsync(waiter, DemoWaiterPassword);
+        }
+        await db.Memberships.AddAsync(new Membership
+        {
+            UserId = waiter.Id,
+            OrganizationId = DemoOrgId,
+            RestaurantId = DemoRestaurantId,
+            Role = MembershipRole.Waiter,
+            Status = MembershipStatus.Active,
         });
 
         var rid = restaurant.Id;
