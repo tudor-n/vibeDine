@@ -27,7 +27,7 @@ const { theme, toggle: toggleTheme } = useTheme()
 const restaurantName = computed(() => auth.activeRestaurant?.name ?? 'Restaurant')
 
 // "Mesele mele" is the floor filtered to the caller's own open sessions rather
-// than a fourth route — the waiter-mode route set is frozen at three names.
+// than a separate route — it shares waiter-floor with a query flag.
 const MINE_QUERY = 'ale-mele'
 const mineActive = computed(
   () => route.name === 'waiter-floor' && route.query.filtru === MINE_QUERY,

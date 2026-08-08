@@ -32,8 +32,8 @@ const sheetTable = ref<WaiterFloorTableDto | null>(null)
 // only points at it for someone who can actually use it.
 const isManager = computed(() => auth.canManageWaitersOfActive)
 
-// The bottom bar's "Mesele mele" tab is this same screen, filtered. Keeping it a
-// query flag rather than a fourth route keeps the frozen waiter-mode route set.
+// The bottom bar's "Mesele mele" tab is this same screen, filtered by a query
+// flag — one floor view, two tabs.
 const mineOnly = computed(() => route.query.filtru === 'ale-mele')
 
 const zones = computed(() => store.zones)
