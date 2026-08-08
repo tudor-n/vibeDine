@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import type { WaiterFloorTableDto } from '@shared/types/waiter'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import type { WaiterAuxTableResponse, WaiterFloorTableDto } from '@shared/types/waiter'
 import { waiterApi } from '@/services/waiterApi'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useWaiterRealtimeStore } from '@/stores/useWaiterRealtimeStore'
@@ -282,6 +282,29 @@ async function refresh() {
   }
 }
 
+// ── Masa auxiliară summary card (the "Mesele mele" tab hosts the entry) ─────
+const auxSummary = ref<WaiterAuxTableResponse | null>(null)
+async function loadAux() {
+  try {
+    auxSummary.value = await waiterApi.getAuxTable()
+  } catch {
+    // Keep the last known summary; the next floor refresh retriggers us.
+  }
+}
+const auxCount = computed(() =>
+  (auxSummary.value?.items ?? []).reduce((n, i) => n + i.quantity, 0),
+)
+// The floor snapshot is the refresh clock here too (events + 15s poll).
+watch(
+  () => store.floor,
+  () => {
+    if (mineOnly.value) void loadAux()
+  },
+)
+watch(mineOnly, (isMine) => {
+  if (isMine) void loadAux()
+})
+
 // App.vue owns the store lifecycle; this is the deep-link / hard-reload safety
 // net (`start` is idempotent for the restaurant it is already connected to).
 async function load() {
@@ -289,6 +312,7 @@ async function load() {
   if (!rid) return
   await store.start(rid)
   await store.refreshFloor()
+  if (mineOnly.value) void loadAux()
 }
 onMounted(load)
 </script>
@@ -314,6 +338,22 @@ onMounted(load)
 
     <!-- ══ "Mesele mele" — the caller's open tables as a work list ══ -->
     <template v-if="mineOnly">
+      <!-- The waiter's private holding area rides on top of their table list. -->
+      <RouterLink :to="{ name: 'waiter-aux' }" class="card-white aux-card">
+        <span class="aux-card-icon" aria-hidden="true">⇥</span>
+        <span class="aux-card-body">
+          <span class="aux-card-title">Masa auxiliară</span>
+          <span class="aux-card-meta">
+            <template v-if="auxCount">
+              {{ auxCount }} {{ auxCount === 1 ? 'produs' : 'produse' }} ·
+              {{ formatMoney(auxSummary?.total) }} RON
+            </template>
+            <template v-else>Goală — produse scoase de pe note ajung aici.</template>
+          </span>
+        </span>
+        <span class="aux-card-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
       <p v-if="!myTablesList.length" class="floor-empty">Nu ai nicio masă deschisă.</p>
 
       <div v-else class="table-grid">
@@ -745,6 +785,56 @@ onMounted(load)
   color: var(--accent);
   font-size: 12px;
   line-height: 1;
+}
+
+/* ── Masa auxiliară entry card ───────────────────────────────────────────── */
+.aux-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px dashed var(--accentBorder);
+  margin-bottom: 12px;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.aux-card:active { background: var(--accentSoft); }
+.aux-card-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--accentSoft);
+  color: var(--accentDk);
+  font-size: 17px;
+  flex-shrink: 0;
+}
+.aux-card-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.aux-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.aux-card-meta {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink40);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aux-card-arrow {
+  color: var(--ink40);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  flex-shrink: 0;
 }
 
 /* ── "Mesele mele" card grid (unchanged presentation) ────────────────────── */

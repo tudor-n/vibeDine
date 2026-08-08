@@ -139,6 +139,12 @@ const router = createRouter({
             component: () => import('@/views/waiter/WaiterModeCallsView.vue')
         },
         {
+            // The caller's private masa auxiliară (parked order lines).
+            path: '/waiter/aux',
+            name: 'waiter-aux',
+            component: () => import('@/views/waiter/WaiterAuxTableView.vue')
+        },
+        {
             path: '/tables',
             name: 'tables',
             component: () => import('@/views/TablesView.vue')
@@ -253,6 +259,7 @@ router.beforeEach(async (to) => {
         'waiter-active-orders',
         'waiter-unclaimed',
         'waiter-mode-calls',
+        'waiter-aux',
         'orders-active',
         'orders',
         'waiter-calls',

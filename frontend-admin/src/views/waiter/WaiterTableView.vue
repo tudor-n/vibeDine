@@ -5,6 +5,7 @@ import type { OrderStatus } from '@shared/types/models'
 import type {
   SessionPaymentMethod,
   WaiterOrderDto,
+  WaiterOrderItemDto,
   WaiterSessionDetailDto,
   WaiterStaffMemberDto,
 } from '@shared/types/waiter'
@@ -82,6 +83,43 @@ function statusLabel(status: OrderStatus): string {
 }
 function canCancel(order: WaiterOrderDto): boolean {
   return (isOwner.value || isManager.value) && CANCELLABLE.includes(order.status)
+}
+
+// ── Masa auxiliară: pull a line off a live round ────────────────────────────
+// Only rounds already with the kitchen — a draft is edited in the cart instead,
+// and a round mid-dispatch (pending_dispatch) is left to land first.
+const AUX_MOVABLE: OrderStatus[] = ['submitted', 'preparing', 'ready']
+const auxSheet = ref<{ order: WaiterOrderDto; item: WaiterOrderItemDto } | null>(null)
+const auxQty = ref(1)
+const isMovingToAux = ref(false)
+
+function canMoveToAux(order: WaiterOrderDto): boolean {
+  return (isOwner.value || isManager.value) && AUX_MOVABLE.includes(order.status)
+}
+function openAuxSheet(order: WaiterOrderDto, item: WaiterOrderItemDto) {
+  auxSheet.value = { order, item }
+  auxQty.value = item.quantity
+}
+function closeAuxSheet() {
+  if (isMovingToAux.value) return
+  auxSheet.value = null
+}
+async function confirmMoveToAux() {
+  const target = auxSheet.value
+  if (!target || isMovingToAux.value) return
+  isMovingToAux.value = true
+  try {
+    await waiterApi.moveItemToAux(target.order.id, target.item.id, auxQty.value)
+    auxSheet.value = null
+    toast.success('Produsul a fost mutat pe masa ta auxiliară.')
+    const current = session.value
+    if (current) await fetchSession(current.id)
+    void store.refreshFloor()
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Mutarea pe masa auxiliară a eșuat.')
+  } finally {
+    isMovingToAux.value = false
+  }
 }
 function orderTime(order: WaiterOrderDto): string {
   return new Date(order.createdAt).toLocaleTimeString('ro-RO', {
@@ -390,6 +428,16 @@ async function forceRelease() {
             <span class="ri-price">
               {{ formatMoney(item.unitPriceAtPurchase * item.quantity) }}
             </span>
+            <button
+              v-if="canMoveToAux(order)"
+              type="button"
+              class="ri-aux"
+              title="Mută pe masa auxiliară"
+              aria-label="Mută pe masa auxiliară"
+              @click="openAuxSheet(order, item)"
+            >
+              <span aria-hidden="true">⇥</span>
+            </button>
           </li>
         </ul>
 
@@ -519,6 +567,56 @@ async function forceRelease() {
           </button>
           <button type="button" class="pill-btn" :disabled="!canClose" @click="closeTable">
             {{ isClosing ? 'Se închide…' : 'Închide masa' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Masa auxiliară sheet: pull a line (or part of it) off this round. -->
+    <div v-if="auxSheet" class="sheet-backdrop" @click="closeAuxSheet">
+      <div
+        class="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Mută pe masa auxiliară"
+        @click.stop
+      >
+        <div class="sheet-grip" aria-hidden="true"></div>
+        <div class="eyebrow">Masa auxiliară</div>
+        <h2 class="sheet-title">Muți „{{ auxSheet.item.productName }}”?</h2>
+        <p class="sheet-text">
+          Produsul iese de pe nota acestei mese și rămâne parcat pe masa ta
+          auxiliară — de acolo îl poți muta pe altă masă sau șterge. Stocul nu
+          se modifică.
+        </p>
+
+        <div v-if="auxSheet.item.quantity > 1" class="aux-qty-row">
+          <span class="field-label">Cantitate</span>
+          <div class="aux-stepper">
+            <button
+              type="button"
+              class="aux-step"
+              :disabled="auxQty <= 1"
+              aria-label="Mai puțin"
+              @click="auxQty--"
+            >−</button>
+            <span class="aux-qty-value">{{ auxQty }} / {{ auxSheet.item.quantity }}</span>
+            <button
+              type="button"
+              class="aux-step"
+              :disabled="auxQty >= auxSheet.item.quantity"
+              aria-label="Mai mult"
+              @click="auxQty++"
+            >+</button>
+          </div>
+        </div>
+
+        <div class="sheet-actions">
+          <button type="button" class="btn-ghost" :disabled="isMovingToAux" @click="closeAuxSheet">
+            Renunță
+          </button>
+          <button type="button" class="pill-btn" :disabled="isMovingToAux" @click="confirmMoveToAux">
+            {{ isMovingToAux ? 'Se mută…' : 'Mută pe aux' }}
           </button>
         </div>
       </div>
@@ -654,6 +752,72 @@ async function forceRelease() {
   font-size: 12.5px;
   color: var(--ink70);
 }
+/* Per-line "move to aux" — small enough to sit in the row, big enough to tap. */
+.ri-aux {
+  flex-shrink: 0;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ink12);
+  background: transparent;
+  color: var(--ink70);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.ri-aux:active {
+  background: var(--accentSoft);
+  color: var(--accentDk);
+  border-color: var(--accentBorder);
+}
+
+/* Quantity stepper in the aux sheet. */
+.aux-qty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.aux-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--ink12);
+  background: var(--card);
+}
+.aux-step {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ink06);
+  color: var(--ink);
+  font-size: 19px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.aux-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.aux-qty-value {
+  min-width: 56px;
+  text-align: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
 .round-foot {
   display: flex;
   align-items: center;
@@ -721,6 +885,11 @@ async function forceRelease() {
   line-height: 1.2;
   color: var(--ink);
   margin-bottom: 12px;
+}
+.sheet-text {
+  font-size: 14px;
+  color: var(--ink70);
+  margin-bottom: 14px;
 }
 .sheet-actions {
   display: flex;

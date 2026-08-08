@@ -19,6 +19,8 @@ import type {
   TableSessionClosedPayload,
   TableSessionOpenedPayload,
   TableSessionTransferredPayload,
+  WaiterAuxItemDto,
+  WaiterAuxTableResponse,
   WaiterFloorResponse,
   WaiterFloorTableDto,
   WaiterOrderDto,
@@ -142,6 +144,24 @@ export const unclaimedOrder: WaiterUnclaimedOrderDto = {
   totalAmount: 49,
   createdAt: '2026-08-05T18:10:00Z',
   items: [{ ...orderItem, notes: null }],
+}
+
+/** A line parked on the waiter's masa auxiliară, with its provenance. */
+export const auxItem: WaiterAuxItemDto = {
+  id: 'b8b8b8b8-1111-2222-3333-444455556666',
+  productId: 'd3d3d3d3-1111-2222-3333-444455556666',
+  productName: 'Ciorbă de burtă',
+  quantity: 1,
+  unitPriceAtPurchase: 24.5,
+  notes: 'fără smântână',
+  sourceOrderNumber: 41,
+  sourceTableNumber: '12',
+  createdAt: '2026-08-08T12:00:00Z',
+}
+
+export const auxTable: WaiterAuxTableResponse = {
+  items: [auxItem],
+  total: 24.5,
 }
 
 export const staffMember: WaiterStaffMemberDto = {

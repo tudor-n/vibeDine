@@ -108,6 +108,29 @@ export interface WaiterStaffMemberDto {
   role: string;
 }
 
+// ── Masa auxiliară ───────────────────────────────────────────────────────────
+// A private, per-waiter holding area for lines pulled off live rounds. Not a
+// physical table: no floor tile, no QR, no session. Money follows the line
+// (price snapshot); stock never moves in either direction.
+
+export interface WaiterAuxItemDto {
+  id: UUID;
+  productId: UUID;
+  productName: string;
+  quantity: number;
+  unitPriceAtPurchase: number;
+  notes: string | null;
+  /** Display-only provenance: where the line came from. */
+  sourceOrderNumber: number | null;
+  sourceTableNumber: string | null;
+  createdAt: ISODateString;
+}
+
+export interface WaiterAuxTableResponse {
+  items: WaiterAuxItemDto[];
+  total: number;
+}
+
 // ── SignalR payloads (StaffHub; event names PascalCase, payloads camelCase) ──
 export interface TableSessionOpenedPayload {
   sessionId: UUID;

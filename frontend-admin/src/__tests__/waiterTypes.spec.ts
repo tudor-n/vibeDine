@@ -5,6 +5,8 @@ import {
   SESSION_CLOSED_REASONS,
   SESSION_PAYMENT_METHODS,
   SESSION_STATUSES,
+  auxItem,
+  auxTable,
   closedSession,
   draftOrder,
   floorResponse,
@@ -158,6 +160,25 @@ describe('waiter contract — DTO field sets', () => {
 
   it('WaiterStaffMemberDto', () => {
     expect(keys(staffMember)).toEqual(keys({ userId: 0, fullName: 0, role: 0 }))
+  })
+
+  it('WaiterAuxItemDto / WaiterAuxTableResponse', () => {
+    expect(keys(auxItem)).toEqual(
+      keys({
+        id: 0,
+        productId: 0,
+        productName: 0,
+        quantity: 0,
+        unitPriceAtPurchase: 0,
+        notes: 0,
+        sourceOrderNumber: 0,
+        sourceTableNumber: 0,
+        createdAt: 0,
+      }),
+    )
+    expect(keys(auxTable)).toEqual(keys({ items: 0, total: 0 }))
+    // The total is the sum of the parked lines — money follows the food.
+    expect(auxTable.total).toBe(auxItem.quantity * auxItem.unitPriceAtPurchase)
   })
 })
 
