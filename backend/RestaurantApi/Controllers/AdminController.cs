@@ -465,6 +465,8 @@ public class AdminController : ControllerBase
                 readyAt = o.ReadyAt,
                 tableId = o.TableId,
                 tableNumber = o.Table != null ? o.Table.TableNumber : "?",
+                // Origin marker — the board shows an "Ospătar" tag on waiter-typed rounds.
+                source = o.Source,
                 claimedByWaiterId = o.ClaimedByWaiterId,
                 claimedByName = o.ClaimedByWaiter != null ? o.ClaimedByWaiter.FullName : null,
                 claimedAt = o.ClaimedAt,
@@ -476,7 +478,9 @@ public class AdminController : ControllerBase
                     unitPrice = i.UnitPriceAtPurchase,
                     subtotal = i.Quantity * i.UnitPriceAtPurchase,
                     wasAiRecommended = i.WasAiRecommended ?? false,
-                    isFlashDealItem = i.IsFlashDealItem ?? false
+                    isFlashDealItem = i.IsFlashDealItem ?? false,
+                    // The waiter's kitchen remark — it can change how the dish is made.
+                    notes = i.Notes
                 }).ToList()
             })
             .ToListAsync();

@@ -512,6 +512,8 @@ export interface ActiveOrderItem {
     subtotal: number;
     wasAiRecommended?: boolean;
     isFlashDealItem?: boolean;
+    /** Waiter kitchen remark for this line (≤200 chars) — null on QR lines. */
+    notes?: string | null;
 }
 
 export interface ActiveOrder {
@@ -523,6 +525,8 @@ export interface ActiveOrder {
     readyAt: string | null;
     tableId: string;
     tableNumber: string | null;
+    /** Where the order originated: the diner QR flow or a waiter in Waiter Mode. */
+    source?: 'qr' | 'waiter';
     // Claim ("Preia comanda") state — null while the order is unclaimed.
     claimedByWaiterId: string | null;
     claimedByName: string | null;
